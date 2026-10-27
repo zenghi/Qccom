@@ -42,6 +42,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **调试工具**：日志数值实时波形图、过滤 / 高亮规则、二进制协议分帧和校验检查、自动应答、[Rhai](https://rhai.rs) 测试脚本、Modbus RTU / TCP 主站、XMODEM / YMODEM 发送文件、发送时自动加 CRC、AT 指令助手、多行发送、按原时序回放日志、统计、标记和书签。
 - **串口扩展**：DTR / RTS / Break 控制和 CTS / DSR / RI / CD 实时状态，一键复位（含 ESP32 下载模式时序），串口共享到网络，双口监听，端口别名，配置方案，多窗口。
 - **Git 查看器**：本地 / 远程分支和标签、所有分支的提交图、提交详情、带行号的差异对比、工作区状态、切换分支、拉取。
+- **工具箱**（`Ctrl+Shift+B`）：TFTP / HTTP 文件服务器、局域网设备发现（mDNS + 端口扫描）、数据转换（HEX / 文字 / Base64 / C 数组 / 数值）、UART 波特率计算、SLCAN 适配器 CAN 调试和 USB HID 报告收发。
 - **录制与导出**：保存或复制日志；也可以把之后的每一行实时写入文件（可按大小或时长分卷），适合长时间挂机抓日志。
 - **自动更新**：从你自己的服务器检查新版本，下载后做 SHA-256 校验再替换。格式见 [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md)。
 - **深色 / 浅色主题**（或跟随系统）、可搜索的**命令面板**（`Ctrl+Shift+P`）、设置中心，以及**完全可自定义的快捷键**（支持 Ctrl+K Ctrl+S 这类序列键）。
@@ -62,6 +63,10 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 | HTTP 接口 | 低功耗蓝牙 |
 |---|---|
 | ![API 标签](docs/screenshot-api.png) | ![BLE 标签](docs/screenshot-ble.png) |
+
+| 工具箱：CAN 调试 |
+|---|
+| ![工具箱里的 CAN 调试](docs/screenshot-toolbox.png) |
 
 ## 下载
 

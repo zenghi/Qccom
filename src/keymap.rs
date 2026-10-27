@@ -183,6 +183,7 @@ pub enum Act {
     PageDebug,
     PageCode,
     PageGit,
+    PageTools,
     ThemeToggle,
     CheckUpdate,
     ToggleShell,
@@ -290,6 +291,7 @@ acts! {
     Act::PageDebug, "page.debug", "切换到调试页", Global, ["Ctrl+Shift+D"], true;
     Act::PageCode, "page.code", "切换到代码页", Global, ["Ctrl+Shift+E"], true;
     Act::PageGit, "page.git", "切换到 Git 页", Global, ["Ctrl+Shift+G"], true;
+    Act::PageTools, "page.tools", "切换到工具箱", Global, ["Ctrl+Shift+B"], true;
     Act::ThemeToggle, "theme.toggle", "切换深色 / 浅色主题", Global, ["Ctrl+K Ctrl+T"];
     Act::CheckUpdate, "update.check", "检查更新", Global, [];
     Act::ToggleShell, "shell.toggle", "显示 / 隐藏终端面板", Global, ["Ctrl+Shift+`", "Alt+F12"], true;

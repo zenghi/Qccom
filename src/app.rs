@@ -144,6 +144,8 @@ pub struct Settings {
     pub api_mode: bool,
     pub api: crate::api::ApiSettings,
     pub mb: dbgtools::MbCfg,
+    /// 工具箱页的配置
+    pub tb: toolbox::ToolboxCfg,
     /// HEX 发送时自动追加的校验
     pub send_check: crate::checksum::Check,
     /// 命令栏多行模式；逐行发送时每行之间的间隔
@@ -215,6 +217,7 @@ impl Default for Settings {
             api_mode: false,
             api: Default::default(),
             mb: Default::default(),
+            tb: Default::default(),
             send_check: Default::default(),
             multiline: false,
             line_by_line: false,
@@ -235,6 +238,7 @@ enum Page {
     Debug,
     Code,
     Git,
+    Tools,
     Settings,
 }
 
@@ -258,6 +262,7 @@ mod palette;
 mod plot;
 mod prefs;
 mod serialx;
+mod toolbox;
 
 /// 日志里按字选择的范围：(行号, 字符位置)，字符位置按这一行显示出来的文字计（含时间戳等前缀）
 #[derive(Clone, Copy, PartialEq)]
@@ -375,6 +380,7 @@ pub struct App {
     /// 命令面板选中后、需要下一帧在对应页面执行的命令
     pending_acts: Vec<Act>,
     bitcalc: crate::tools::BitCalc,
+    tb: toolbox::ToolboxUi,
 
     // ---- v1.0 调试增强
     rules_rt: Vec<logx::RuleRt>,
@@ -539,6 +545,7 @@ impl App {
             prev_page: Page::Debug,
             pending_acts: Vec::new(),
             bitcalc: Default::default(),
+            tb: Default::default(),
             rules_rt: vec![],
             marker_n: 0,
             replay: None,
@@ -3223,6 +3230,7 @@ impl App {
                 Act::PageDebug => self.set_page(Page::Debug),
                 Act::PageCode if self.page != Page::Code => self.set_page(Page::Code),
                 Act::PageGit => self.set_page(Page::Git),
+                Act::PageTools => self.set_page(Page::Tools),
                 Act::ThemeToggle => {
                     let light = !is_light();
                     self.set_theme(ctx, if light { "light" } else { "dark" });
@@ -3380,7 +3388,7 @@ impl App {
                 self.gitv.activate(root.as_deref());
             }
             Page::Debug => self.tv.focus_req = self.s.terminal,
-            Page::Settings => {}
+            Page::Tools | Page::Settings => {}
         }
     }
 
@@ -3407,6 +3415,7 @@ impl App {
                     (Page::Debug, Icon::Pulse, t("调试：串口 / TCP / UDP / MQTT")),
                     (Page::Code, Icon::Code, t("代码查看：打开工程、跳转定义、宏展开")),
                     (Page::Git, Icon::Branch, t("Git：分支、提交图谱、差异")),
+                    (Page::Tools, Icon::Toolbox, t("工具箱：文件服务、设备发现、数据转换、CAN、HID")),
                 ] {
                     let dot = (pg == Page::Debug && live).then_some(OK());
                     if activity_button(ui, icon, tip, self.page == pg, dot).clicked() {
@@ -3849,7 +3858,7 @@ impl eframe::App for App {
         self.poll_update(ctx);
         self.follow_system_theme(ctx);
         let scope = match self.page {
-            Page::Debug | Page::Settings => Scope::Debug,
+            Page::Debug | Page::Tools | Page::Settings => Scope::Debug,
             Page::Code => Scope::Code,
             Page::Git => Scope::Git,
         };
@@ -3907,6 +3916,7 @@ impl eframe::App for App {
                 }
             }
             Page::Debug => self.debug_page(ctx),
+            Page::Tools => self.toolbox_page(ctx),
             Page::Settings => self.settings_page(ctx),
         }
         if let Some((p, replay)) = self.open_log.take() {
@@ -4367,6 +4377,7 @@ pub(crate) enum Icon {
     Chart,
     Filter,
     More,
+    Toolbox,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -4433,6 +4444,13 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
             p.add(Shape::line(vec![pt(-3.0, -5.0), pt(-7.0, 0.0), pt(-3.0, 5.0)], s));
             p.add(Shape::line(vec![pt(3.0, -5.0), pt(7.0, 0.0), pt(3.0, 5.0)], s));
             p.line_segment([pt(1.2, -6.5), pt(-1.2, 6.5)], s);
+        }
+        Icon::Toolbox => {
+            // 工具箱：箱体 + 提手 + 中间的扣
+            p.rect_stroke(Rect::from_min_max(pt(-7.0, -2.5), pt(7.0, 6.0)), 1.5 * u, s, egui::StrokeKind::Middle);
+            p.add(Shape::line(vec![pt(-3.0, -2.5), pt(-3.0, -5.5), pt(3.0, -5.5), pt(3.0, -2.5)], s));
+            p.line_segment([pt(-7.0, 1.5), pt(7.0, 1.5)], s);
+            p.rect_filled(Rect::from_center_size(pt(0.0, 1.5), vec2(3.0 * u, 2.4 * u)), 0.6 * u, c);
         }
         Icon::Branch => {
             p.circle_stroke(pt(-3.5, -5.0), 1.8 * u, s);

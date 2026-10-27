@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.0
+
+A **Toolbox** page in the activity bar (`Ctrl+Shift+B`), with the small utilities embedded work keeps needing:
+
+- **TFTP server**: share a folder for U-Boot, switches and IP phones (RFC 1350 with blksize / tsize / timeout options, optional uploads). Shows the U-Boot command to copy.
+- **HTTP file server**: directory listing, resumable downloads (Range) for OTA tests, optional PUT uploads, a live request log.
+- **Device discovery**: mDNS query plus a scan of common ports (SSH, Telnet, HTTP, Modbus, MQTT, ADB, ESPHome…) on the local /24. Click a port to open it in the API, MQTT or TCP tab.
+- **Data converter**: HEX, text (UTF-8 / GBK with `\r \n \xNN` escapes), Base64, C arrays, and every integer / float interpretation in little and big endian.
+- **Baud calculator**: divider register values and real error for STM32 (OVER16 / OVER8), AVR (U2X), 16550 and ESP32, plus the error of common baud rates at a given clock.
+- **CAN**: SLCAN adapters (CANable, USBtin…): bitrate, listen-only, send and repeat frames, a per-ID view with period and changed-byte highlighting, and a chronological trace.
+- **USB HID**: list HID devices, receive input reports, send output reports, get / set feature reports.
+
 ## 1.1.0
 
 Two new tabs next to MQTT in the sidebar.

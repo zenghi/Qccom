@@ -42,6 +42,7 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Built-in terminal, find / replace, split view.** A terminal panel (PowerShell, cmd, Git Bash, bash…) with clickable `file:line`, regex find and replace in a file or across the project with preview, split editor, Git change bars and inline blame, auto-reload, crash recovery and portable mode.
 - **Firmware tools.** Map / ELF / HEX / BIN viewers with memory-usage bars and a byte inspector, text and binary file compare, a bit calculator with field extraction, number hovers, code snippets, a TODO panel, Kconfig / device tree / linker-script highlighting and optional Vim keys.
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
+- **Toolbox** (`Ctrl+Shift+B`). TFTP and HTTP file servers, LAN device discovery (mDNS + port scan), a data converter (HEX / text / Base64 / C array / numbers), a UART baud-rate calculator, CAN over SLCAN adapters and USB HID reports.
 - **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
 - **Self-update** from your own server, with SHA-256 verification. See [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
 - **Dark and light themes** (or follow the system), a searchable **command palette** (`Ctrl+Shift+P`), a settings page, and **fully customizable keyboard shortcuts** including two-step sequences.
@@ -62,6 +63,10 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 | HTTP API | Bluetooth LE |
 |---|---|
 | ![API tab](docs/screenshot-api.png) | ![BLE tab](docs/screenshot-ble.png) |
+
+| Toolbox: CAN |
+|---|
+| ![CAN in the toolbox](docs/screenshot-toolbox.png) |
 
 ## Download
 
@@ -117,6 +122,7 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/net.rs` | TCP client / server, UDP, a small MQTT 3.1.1 client |
 | `src/ble.rs`, `src/app/blex.rs` | Bluetooth LE (btleplug): scanning, GATT, notifications; BLE sidebar |
 | `src/api.rs`, `src/app/apiview.rs` | HTTP requests, variables, cURL import / export, JSON formatting; API tab |
+| `src/toolbox/`, `src/app/toolbox.rs` | TFTP / HTTP servers, discovery, converter, baud calculator, SLCAN, HID; Toolbox page |
 | `src/logbuf.rs` | Line splitting, decoding, ANSI parsing, log-level detection |
 | `src/term.rs` | VT100 / xterm terminal emulator |
 | `src/cmds.rs` | Quick-command panel |

@@ -36,6 +36,7 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Code viewer.** Open your firmware folder next to the log: file tree, tabs, syntax highlighting for 12 language families, quick open, workspace-wide search, and for C / C++ go to definition, find references and macro expansion with the computed value.
 - **A real code editor.** Multiple cursors, column selection, folding, bracket matching, sticky scroll, line commands, and Source Insight-style context window, call hierarchy, bookmarks and semantic colors. Uses clangd automatically when it is installed and the project has a `compile_commands.json`.
 - **Built-in terminal, find / replace, split view.** A terminal panel (PowerShell, cmd, Git Bash, bash…) with clickable `file:line`, regex find and replace in a file or across the project with preview, split editor, Git change bars and inline blame, auto-reload, crash recovery and portable mode.
+- **Firmware tools.** Map / ELF / HEX / BIN viewers with memory-usage bars and a byte inspector, text and binary file compare, a bit calculator with field extraction, number hovers, code snippets, a TODO panel, Kconfig / device tree / linker-script highlighting and optional Vim keys.
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
 - **Recording and export.** Save or copy the log, or record every new line to a file for long unattended captures.
 - **Self-update** from your own server, with SHA-256 verification. See [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
@@ -108,6 +109,8 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/codeview.rs`, `src/cindex.rs`, `src/highlight.rs` | Code viewer, C symbol index, syntax highlighter |
 | `src/editor.rs`, `src/codeview/insight.rs`, `src/lsp.rs` | Text editor widget, context window / call hierarchy, optional clangd client |
 | `src/shell.rs`, `src/termview.rs`, `src/pattern.rs` | Terminal panel (pseudo-terminals), shared terminal widget, find / replace patterns |
+| `src/binview.rs`, `src/binview/parse.rs`, `src/tools.rs` | Map / ELF / HEX / BIN viewers and parsers, file compare, bit calculator |
+| `src/snippets.rs`, `src/vim.rs` | Code snippets, Vim key emulation |
 | `src/gitview.rs`, `src/git.rs` | Git viewer UI and the `git` CLI wrapper |
 | `src/update.rs` | Self-update (version check, download, verify, replace) |
 | `src/i18n.rs`, `assets/i18n.tsv` | Translations |

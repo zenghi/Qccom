@@ -165,6 +165,17 @@ These follow Source Insight and help when reading an unfamiliar project.
 
 ![Context window and call hierarchy](screenshot-insight.png)
 
+## Firmware tools
+
+- **Map, ELF, HEX and BIN files** open in a viewer instead of as text. A Map file shows how full each memory region is, with tables of symbols, object files and output sections that you can sort and filter. An ELF file shows code / data / bss sizes, sections, symbols and segments. HEX, BIN and S-record files show a hex grid: click a byte to see it as u8 to u64, signed, float, little or big endian; drag to select and `Ctrl+C` to copy; type an address to jump; export a HEX file as BIN. The pill on the right of the breadcrumb bar switches back to the raw text.
+- **Compare files**: right-click a tab → *Compare with…*, or right-click a file in the explorer → *Select for Compare*, then *Compare with "…"* on the other one. Text files are shown side by side with changes highlighted; `F7` / `Shift+F7` jump between changes. Binary files are compared byte by byte.
+- **Numbers**: hover a number (or a macro with a value) to see it in hex, decimal and binary with its set bits. `Ctrl+click` opens the **bit calculator** (also in the command palette): type a value or expression, click bits to toggle them, drag across bits to select a field and get its read expression and mask, and type a new field value.
+- **Snippets**: type a prefix such as `for`, `isr`, `guard` or `reg` and press `Tab`; press `Tab` again to go to the cursor position. `Ctrl+Alt+J` searches all snippets. Settings → Code Editor → Snippets opens the JSON file to add your own.
+- **TODO panel**: the checklist icon in the side bar lists every `TODO`, `FIXME`, `HACK`, `XXX` and `BUG` in the project.
+- **Vim keys**: turn on in Settings → Code Editor (or *Toggle Vim Keys* in the command palette). Supports the usual motions, operators, text objects, counts, `.` repeat, visual modes, `/` search with `n` / `N`, and `:w`, `:q`, `:wq`, `:bn`, `:bp`, `:vs` and `:<line>`.
+
+![Map viewer and bit calculator](screenshot-embedded.png)
+
 ## Terminal panel
 
 `` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.

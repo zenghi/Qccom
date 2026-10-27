@@ -131,7 +131,7 @@ pub fn build(root: &Path, prog: &Progress) -> Index {
                 idx.files.push(rel.to_path_buf());
             }
             let lang = Lang::from_path(&p);
-            if !lang.is_code() || lang == Lang::Make || lang == Lang::Shell {
+            if !lang.is_code() || matches!(lang, Lang::Make | Lang::Shell | Lang::Kconfig | Lang::Dts | Lang::Ld) {
                 continue;
             }
             if e.metadata().map(|m| m.len() > MAX_PARSE).unwrap_or(true) {

@@ -699,3 +699,104 @@ Ctrl+Enter；可以 Ctrl+Z 一次撤销	Ctrl+Enter; Ctrl+Z undoes it in one step
 显示 / 隐藏终端面板	Show / hide terminal panel	顯示 / 隱藏終端機面板	ターミナルパネルの表示 / 非表示	터미널 패널 표시 / 숨기기	Terminalbereich ein-/ausblenden	Afficher / masquer le panneau du terminal	Mostrar / ocultar panel de terminal	Показать / скрыть панель терминала	Mostrar / ocultar painel do terminal
 文件内替换	Replace in file	檔案內取代	ファイル内で置換	파일에서 바꾸기	In Datei ersetzen	Remplacer dans le fichier	Reemplazar en archivo	Заменить в файле	Substituir no arquivo
 显示 / 隐藏行内 Blame	Show / hide inline blame	顯示 / 隱藏行內 Blame	インライン Blame の表示 / 非表示	인라인 Blame 표시 / 숨기기	Inline-Blame ein-/ausblenden	Afficher / masquer le blame en ligne	Mostrar / ocultar blame en línea	Показать / скрыть blame в строке	Mostrar / ocultar blame em linha
+已打开 Vim 键位	Vim keys on	已開啟 Vim 鍵位	Vim キー操作をオンにしました	Vim 키 켜짐	Vim-Tasten an	Touches Vim activées	Teclas Vim activadas	Клавиши Vim включены	Teclas Vim ativadas
+已关闭 Vim 键位	Vim keys off	已關閉 Vim 鍵位	Vim キー操作をオフにしました	Vim 키 꺼짐	Vim-Tasten aus	Touches Vim désactivées	Teclas Vim desactivadas	Клавиши Vim выключены	Teclas Vim desativadas
+TODO / FIXME 列表	TODO / FIXME list	TODO / FIXME 清單	TODO / FIXME 一覧	TODO / FIXME 목록	TODO-/FIXME-Liste	Liste TODO / FIXME	Lista TODO / FIXME	Список TODO / FIXME	Lista TODO / FIXME
+选择以进行比较	Select for Compare	選擇以進行比較	比較対象として選択	비교 대상으로 선택	Zum Vergleich auswählen	Sélectionner pour comparer	Seleccionar para comparar	Выбрать для сравнения	Selecionar para comparar
+打开文件夹后列出代码里的 TODO、FIXME 等标记	Open a folder to list TODO, FIXME and similar markers in the code	開啟資料夾後列出程式碼裡的 TODO、FIXME 等標記	フォルダーを開くとコード内の TODO や FIXME などを一覧表示します	폴더를 열면 코드의 TODO, FIXME 등 표시를 나열합니다	Öffnen Sie einen Ordner, um TODO, FIXME usw. im Code aufzulisten	Ouvrez un dossier pour lister les marqueurs TODO, FIXME, etc. du code	Abra una carpeta para listar los marcadores TODO, FIXME, etc. del código	Откройте папку, чтобы увидеть метки TODO, FIXME и подобные в коде	Abra uma pasta para listar marcadores TODO, FIXME etc. no código
+筛选…	Filter…	篩選…	絞り込み…	필터…	Filtern…	Filtrer…	Filtrar…	Фильтр…	Filtrar…
+正在扫描…	Scanning…	正在掃描…	スキャン中…	검색 중…	Wird durchsucht…	Analyse…	Analizando…	Сканирование…	Analisando…
+与…比较	Compare with…	與…比較	…と比較	…와 비교	Vergleichen mit…	Comparer avec…	Comparar con…	Сравнить с…	Comparar com…
+选择文件…	Choose File…	選擇檔案…	ファイルを選択…	파일 선택…	Datei wählen…	Choisir un fichier…	Elegir archivo…	Выбрать файл…	Escolher arquivo…
+选择要比较的文件	Choose a file to compare	選擇要比較的檔案	比較するファイルを選択	비교할 파일 선택	Datei zum Vergleichen wählen	Choisir le fichier à comparer	Elegir el archivo a comparar	Выберите файл для сравнения	Escolha o arquivo para comparar
+原文	Source	原文	ソース	원본	Quelltext	Source	Fuente	Исходник	Fonte
+切换显示方式	Switch view	切換顯示方式	表示を切り替え	보기 전환	Ansicht wechseln	Changer d’affichage	Cambiar vista	Переключить вид	Alternar exibição
+Ctrl+点击 在位域计算器中打开	Ctrl+click to open in the bit calculator	Ctrl+點擊 在位元欄位計算器中開啟	Ctrl+クリックでビット計算機で開く	Ctrl+클릭으로 비트 계산기에서 열기	Strg+Klick öffnet im Bitrechner	Ctrl+clic pour ouvrir dans le calculateur de bits	Ctrl+clic para abrir en la calculadora de bits	Ctrl+щелчок — открыть в битовом калькуляторе	Ctrl+clique para abrir na calculadora de bits
+搜索代码片段（输入前缀后按 Tab 也能展开）	Search snippets (or type a prefix and press Tab)	搜尋程式碼片段（輸入前綴後按 Tab 也能展開）	スニペットを検索（プレフィックス入力後に Tab でも展開）	스니펫 검색(접두어 입력 후 Tab으로도 펼치기)	Snippets suchen (oder Präfix tippen und Tab drücken)	Rechercher un extrait (ou tapez un préfixe puis Tab)	Buscar fragmentos (o escriba un prefijo y pulse Tab)	Поиск фрагментов (или введите префикс и нажмите Tab)	Buscar trechos (ou digite um prefixo e pressione Tab)
+文件太大（{}），超过 {} MB 不打开	File too large ({}); files over {} MB are not opened	檔案太大（{}），超過 {} MB 不開啟	ファイルが大きすぎます（{}）。{} MB を超えるファイルは開きません	파일이 너무 큽니다({}). {} MB를 넘는 파일은 열지 않습니다	Datei zu groß ({}); Dateien über {} MB werden nicht geöffnet	Fichier trop volumineux ({}) ; au-delà de {} Mo il n’est pas ouvert	Archivo demasiado grande ({}); no se abren archivos de más de {} MB	Файл слишком большой ({}); файлы больше {} МБ не открываются	Arquivo muito grande ({}); arquivos acima de {} MB não são abertos
+工程里没有找到 {} 的定义	No definition of {} found in the project	專案裡沒有找到 {} 的定義	プロジェクト内に {} の定義が見つかりません	프로젝트에서 {}의 정의를 찾지 못했습니다	Keine Definition von {} im Projekt gefunden	Aucune définition de {} trouvée dans le projet	No se encontró la definición de {} en el proyecto	Определение {} в проекте не найдено	Nenhuma definição de {} encontrada no projeto
+不支持的命令：{}	Unsupported command: {}	不支援的命令：{}	未対応のコマンド：{}	지원하지 않는 명령: {}	Nicht unterstützter Befehl: {}	Commande non prise en charge : {}	Comando no admitido: {}	Неподдерживаемая команда: {}	Comando não suportado: {}
+已载入 {} 个代码片段	Loaded {} snippets	已載入 {} 個程式碼片段	スニペットを {} 件読み込みました	스니펫 {}개를 불러왔습니다	{} Snippets geladen	{} extraits chargés	{} fragmentos cargados	Загружено фрагментов: {}	{} trechos carregados
+代码片段文件格式有误：{}	Snippet file is malformed: {}	程式碼片段檔案格式有誤：{}	スニペットファイルの形式が正しくありません：{}	스니펫 파일 형식 오류: {}	Snippet-Datei fehlerhaft: {}	Fichier d’extraits mal formé : {}	Archivo de fragmentos con formato incorrecto: {}	Ошибка формата файла фрагментов: {}	Arquivo de trechos malformado: {}
+与“{}”比较	Compare with “{}”	與「{}」比較	「{}」と比較	“{}”와 비교	Mit „{}“ vergleichen	Comparer avec « {} »	Comparar con «{}»	Сравнить с «{}»	Comparar com “{}”
+{} 条	{} items	{} 條	{} 件	{}개	{} Einträge	{} éléments	{} elementos	{} шт.	{} itens
+链接脚本	Linker script	連結腳本	リンカースクリプト	링커 스크립트	Linkerskript	Script d’édition de liens	Script del enlazador	Скрипт компоновщика	Script do linker
+代码片段	Snippets	程式碼片段	スニペット	스니펫	Snippets	Extraits de code	Fragmentos de código	Фрагменты кода	Trechos de código
+输入前缀后按 Tab 展开，或按 Ctrl+Alt+J 搜索；片段保存在一个 JSON 文件里	Type a prefix and press Tab, or search with Ctrl+Alt+J; snippets live in a JSON file	輸入前綴後按 Tab 展開，或按 Ctrl+Alt+J 搜尋；片段儲存在一個 JSON 檔案裡	プレフィックス入力後に Tab で展開、Ctrl+Alt+J で検索。スニペットは JSON ファイルに保存されます	접두어 입력 후 Tab으로 펼치거나 Ctrl+Alt+J로 검색합니다. 스니펫은 JSON 파일에 저장됩니다	Präfix tippen und Tab drücken oder mit Strg+Alt+J suchen; Snippets liegen in einer JSON-Datei	Tapez un préfixe puis Tab, ou cherchez avec Ctrl+Alt+J ; les extraits sont dans un fichier JSON	Escriba un prefijo y pulse Tab, o busque con Ctrl+Alt+J; los fragmentos se guardan en un archivo JSON	Введите префикс и нажмите Tab или ищите через Ctrl+Alt+J; фрагменты хранятся в JSON-файле	Digite um prefixo e pressione Tab, ou busque com Ctrl+Alt+J; os trechos ficam em um arquivo JSON
+编辑…	Edit…	編輯…	編集…	편집…	Bearbeiten…	Modifier…	Editar…	Изменить…	Editar…
+Vim 键位	Vim keys	Vim 鍵位	Vim キー操作	Vim 키	Vim-Tasten	Touches Vim	Teclas Vim	Клавиши Vim	Teclas Vim
+普通 / 插入 / 可视模式、hjkl、dw、ciw、. 重复、:w 等常用操作	Normal / Insert / Visual modes, hjkl, dw, ciw, . repeat, :w and other common commands	普通 / 插入 / 可視模式、hjkl、dw、ciw、. 重複、:w 等常用操作	ノーマル／挿入／ビジュアルモード、hjkl、dw、ciw、. 繰り返し、:w などの基本操作	노멀/삽입/비주얼 모드, hjkl, dw, ciw, . 반복, :w 등 자주 쓰는 명령	Normal-/Einfüge-/Visual-Modus, hjkl, dw, ciw, . wiederholen, :w und weitere	Modes Normal / Insertion / Visuel, hjkl, dw, ciw, . répéter, :w, etc.	Modos Normal / Insertar / Visual, hjkl, dw, ciw, . repetir, :w y otros	Режимы Normal / Insert / Visual, hjkl, dw, ciw, повтор «.», :w и другие	Modos Normal / Inserção / Visual, hjkl, dw, ciw, . repetir, :w e outros
+位域计算器	Bit Calculator	位元欄位計算器	ビット計算機	비트 계산기	Bitrechner	Calculateur de bits	Calculadora de bits	Битовый калькулятор	Calculadora de bits
+数值、C 表达式或宏名，如 0x40021000 | (1 << 5)	A number, C expression or macro, e.g. 0x40021000 | (1 << 5)	數值、C 運算式或巨集名，如 0x40021000 | (1 << 5)	数値・C の式・マクロ名（例：0x40021000 | (1 << 5)）	숫자, C 식 또는 매크로 이름(예: 0x40021000 | (1 << 5))	Zahl, C-Ausdruck oder Makro, z. B. 0x40021000 | (1 << 5)	Nombre, expression C ou macro, ex. 0x40021000 | (1 << 5)	Número, expresión C o macro, p. ej. 0x40021000 | (1 << 5)	Число, выражение C или макрос, напр. 0x40021000 | (1 << 5)	Número, expressão C ou macro, ex.: 0x40021000 | (1 << 5)
+位宽	Width	位元寬	ビット幅	비트 폭	Breite	Largeur	Ancho	Разрядность	Largura
+清零	Clear	清零	クリア	지우기	Löschen	Effacer	Borrar	Обнулить	Zerar
+取反	Invert	取反	反転	반전	Invertieren	Inverser	Invertir	Инвертировать	Inverter
+左移 1 位	Shift left 1	左移 1 位	1 ビット左シフト	왼쪽으로 1비트	1 nach links	Décaler à gauche de 1	Desplazar 1 a la izquierda	Сдвиг влево на 1	Deslocar 1 à esquerda
+右移 1 位	Shift right 1	右移 1 位	1 ビット右シフト	오른쪽으로 1비트	1 nach rechts	Décaler à droite de 1	Desplazar 1 a la derecha	Сдвиг вправо на 1	Deslocar 1 à direita
+点击切换某一位；拖动选择一段字段	Click a bit to toggle it; drag to select a field	點擊切換某一位；拖曳選擇一段欄位	クリックでビットを切り替え、ドラッグでフィールドを選択	클릭하여 비트 전환, 드래그하여 필드 선택	Bit anklicken zum Umschalten; ziehen, um ein Feld zu wählen	Cliquez sur un bit pour l’inverser ; faites glisser pour choisir un champ	Haga clic en un bit para cambiarlo; arrastre para elegir un campo	Щелчок переключает бит; перетаскивание выделяет поле	Clique em um bit para alterná-lo; arraste para selecionar um campo
+有符号	Signed	有號	符号付き	부호 있음	Vorzeichenbehaftet	Signé	Con signo	Со знаком	Com sinal
+字符	Char	字元	文字	문자	Zeichen	Caractère	Carácter	Символ	Caractere
+点击复制	Click to copy	點擊複製	クリックでコピー	클릭하여 복사	Klicken zum Kopieren	Cliquer pour copier	Clic para copiar	Щёлкните, чтобы скопировать	Clique para copiar
+读取	Read	讀取	読み取り	읽기	Lesen	Lire	Leer	Чтение	Ler
+掩码	Mask	遮罩	マスク	마스크	Maske	Masque	Máscara	Маска	Máscara
+改成	Set to	改成	変更値	변경값	Setzen auf	Définir à	Cambiar a	Задать	Definir para
+取消选择	Deselect	取消選擇	選択解除	선택 해제	Auswahl aufheben	Désélectionner	Deseleccionar	Снять выделение	Desmarcar
+置位	Set	置位	セット	설정	Setzen	Mettre à 1	Activar	Установить	Ativar
+字段 [{}:{}]	Field [{}:{}]	欄位 [{}:{}]	フィールド [{}:{}]	필드 [{}:{}]	Feld [{}:{}]	Champ [{}:{}]	Campo [{}:{}]	Поле [{}:{}]	Campo [{}:{}]
+十六进制	Hex	十六進位	16 進	16진수	Hex	Hex	Hex	Hex	Hex
+内存占用	Memory usage	記憶體佔用	メモリ使用量	메모리 사용량	Speichernutzung	Occupation mémoire	Uso de memoria	Использование памяти	Uso de memória
+比较	Compare	比較	比較	비교	Vergleichen	Comparer	Comparar	Сравнить	Comparar
+代码和只读数据	Code and read-only data	程式碼和唯讀資料	コードと読み取り専用データ	코드와 읽기 전용 데이터	Code und schreibgeschützte Daten	Code et données en lecture seule	Código y datos de solo lectura	Код и данные только для чтения	Código e dados somente leitura
+已初始化的全局变量（同时占 Flash 和 RAM）	Initialized globals (use both Flash and RAM)	已初始化的全域變數（同時佔 Flash 和 RAM）	初期化済みグローバル変数（Flash と RAM の両方を使用）	초기화된 전역 변수(Flash와 RAM 모두 사용)	Initialisierte Globale (belegen Flash und RAM)	Globales initialisées (occupent Flash et RAM)	Globales inicializadas (ocupan Flash y RAM)	Инициализированные глобальные (занимают Flash и RAM)	Globais inicializadas (ocupam Flash e RAM)
+清零的全局变量（只占 RAM）	Zero-initialized globals (RAM only)	清零的全域變數（只佔 RAM）	ゼロ初期化グローバル変数（RAM のみ）	0으로 초기화된 전역 변수(RAM만 사용)	Nullinitialisierte Globale (nur RAM)	Globales mises à zéro (RAM uniquement)	Globales a cero (solo RAM)	Обнуляемые глобальные (только RAM)	Globais zeradas (somente RAM)
+没有找到内存区域（Memory Configuration）	No memory regions found (Memory Configuration)	沒有找到記憶體區域（Memory Configuration）	メモリ領域（Memory Configuration）が見つかりません	메모리 영역(Memory Configuration)을 찾지 못했습니다	Keine Speicherbereiche gefunden (Memory Configuration)	Aucune région mémoire trouvée (Memory Configuration)	No se encontraron regiones de memoria (Memory Configuration)	Области памяти не найдены (Memory Configuration)	Nenhuma região de memória encontrada (Memory Configuration)
+无法解析这个文件	Unable to parse this file	無法解析這個檔案	このファイルを解析できません	이 파일을 해석할 수 없습니다	Diese Datei kann nicht gelesen werden	Impossible d’analyser ce fichier	No se puede analizar este archivo	Не удалось разобрать файл	Não foi possível analisar este arquivo
+导出为 BIN	Export as BIN	匯出為 BIN	BIN として書き出し	BIN으로 내보내기	Als BIN exportieren	Exporter en BIN	Exportar como BIN	Экспорт в BIN	Exportar como BIN
+地址范围太大（超过 256 MB），无法导出	Address range too large (over 256 MB) to export	位址範圍太大（超過 256 MB），無法匯出	アドレス範囲が大きすぎます（256 MB 超）。書き出せません	주소 범위가 너무 커서(256 MB 초과) 내보낼 수 없습니다	Adressbereich zu groß (über 256 MB) zum Exportieren	Plage d’adresses trop grande (plus de 256 Mo) pour l’export	Rango de direcciones demasiado grande (más de 256 MB) para exportar	Диапазон адресов слишком велик (более 256 МБ) для экспорта	Faixa de endereços grande demais (mais de 256 MB) para exportar
+跳到地址 0x…	Go to address 0x…	跳到位址 0x…	アドレスへ移動 0x…	주소로 이동 0x…	Zu Adresse 0x…	Aller à l’adresse 0x…	Ir a la dirección 0x…	Перейти к адресу 0x…	Ir para o endereço 0x…
+与其他文件比较…	Compare with another file…	與其他檔案比較…	他のファイルと比較…	다른 파일과 비교…	Mit anderer Datei vergleichen…	Comparer avec un autre fichier…	Comparar con otro archivo…	Сравнить с другим файлом…	Comparar com outro arquivo…
+导出为 BIN…	Export as BIN…	匯出為 BIN…	BIN として書き出し…	BIN으로 내보내기…	Als BIN exportieren…	Exporter en BIN…	Exportar como BIN…	Экспорт в BIN…	Exportar como BIN…
+内容完全相同	Contents are identical	內容完全相同	内容は完全に同じです	내용이 완전히 같습니다	Inhalte sind identisch	Contenus identiques	El contenido es idéntico	Содержимое полностью совпадает	O conteúdo é idêntico
+上一处不同	Previous difference	上一處不同	前の差分	이전 차이	Vorheriger Unterschied	Différence précédente	Diferencia anterior	Предыдущее отличие	Diferença anterior
+下一处不同	Next difference	下一處不同	次の差分	다음 차이	Nächster Unterschied	Différence suivante	Diferencia siguiente	Следующее отличие	Próxima diferença
+结束比较	End comparison	結束比較	比較を終了	비교 종료	Vergleich beenden	Terminer la comparaison	Terminar comparación	Завершить сравнение	Encerrar comparação
+点击字节查看它的各种解读；拖动选择一段，Ctrl+C 复制	Click a byte to inspect it; drag to select, Ctrl+C to copy	點擊位元組查看各種解讀；拖曳選擇一段，Ctrl+C 複製	バイトをクリックで解釈を表示、ドラッグで選択、Ctrl+C でコピー	바이트를 클릭해 해석 보기, 드래그로 선택, Ctrl+C로 복사	Byte anklicken zum Prüfen; ziehen zum Auswählen, Strg+C kopiert	Cliquez sur un octet pour l’inspecter ; glissez pour sélectionner, Ctrl+C pour copier	Haga clic en un byte para inspeccionarlo; arrastre para seleccionar, Ctrl+C para copiar	Щёлкните байт для просмотра; перетащите для выделения, Ctrl+C — копировать	Clique em um byte para inspecioná-lo; arraste para selecionar, Ctrl+C para copiar
+重新比较	Compare again	重新比較	再比較	다시 비교	Erneut vergleichen	Recomparer	Volver a comparar	Сравнить заново	Comparar novamente
+交换左右	Swap sides	交換左右	左右を入れ替え	좌우 바꾸기	Seiten tauschen	Inverser les côtés	Intercambiar lados	Поменять местами	Trocar lados
+下一处改动  F7	Next change  F7	下一處改動  F7	次の変更  F7	다음 변경  F7	Nächste Änderung  F7	Modification suivante  F7	Cambio siguiente  F7	Следующее изменение  F7	Próxima alteração  F7
+上一处改动  Shift+F7	Previous change  Shift+F7	上一處改動  Shift+F7	前の変更  Shift+F7	이전 변경  Shift+F7	Vorherige Änderung  Umschalt+F7	Modification précédente  Maj+F7	Cambio anterior  Mayús+F7	Предыдущее изменение  Shift+F7	Alteração anterior  Shift+F7
+{} 项	{} items	{} 項	{} 項目	{}개 항목	{} Einträge	{} éléments	{} elementos	{} эл.	{} itens
+入口 {}	Entry {}	入口 {}	エントリ {}	진입점 {}	Einsprung {}	Entrée {}	Entrada {}	Точка входа {}	Entrada {}
+段 ({})	Sections ({})	段 ({})	セクション ({})	섹션 ({})	Sektionen ({})	Sections ({})	Secciones ({})	Секции ({})	Seções ({})
+符号 ({})	Symbols ({})	符號 ({})	シンボル ({})	심볼 ({})	Symbole ({})	Symboles ({})	Símbolos ({})	Символы ({})	Símbolos ({})
+程序头 ({})	Program headers ({})	程式頭 ({})	プログラムヘッダー ({})	프로그램 헤더 ({})	Programm-Header ({})	En-têtes de programme ({})	Cabeceras de programa ({})	Заголовки программы ({})	Cabeçalhos de programa ({})
+目标文件 ({})	Objects ({})	目標檔 ({})	オブジェクト ({})	오브젝트 ({})	Objektdateien ({})	Fichiers objets ({})	Objetos ({})	Объектные файлы ({})	Objetos ({})
+输出段 ({})	Output sections ({})	輸出段 ({})	出力セクション ({})	출력 섹션 ({})	Ausgabesektionen ({})	Sections de sortie ({})	Secciones de salida ({})	Выходные секции ({})	Seções de saída ({})
+{} 段	{} segments	{} 段	{} セグメント	세그먼트 {}개	{} Segmente	{} segments	{} segmentos	сегментов: {}	{} segmentos
+{} 行校验错误	{} lines with checksum errors	{} 行校驗錯誤	{} 行でチェックサムエラー	{}줄 체크섬 오류	{} Zeilen mit Prüfsummenfehler	{} lignes avec erreur de somme de contrôle	{} líneas con error de suma de comprobación	Строк с ошибкой контрольной суммы: {}	{} linhas com erro de checksum
+已导出到 {}	Exported to {}	已匯出到 {}	{} に書き出しました	{}(으)로 내보냈습니다	Exportiert nach {}	Exporté vers {}	Exportado a {}	Экспортировано в {}	Exportado para {}
+{} 字节不同，{} 处	{} bytes differ in {} places	{} 位元組不同，{} 處	{} バイトが {} か所で異なります	{}바이트가 {}곳에서 다름	{} Bytes unterschiedlich an {} Stellen	{} octets différents à {} endroits	{} bytes distintos en {} lugares	Отличается байт: {}, мест: {}	{} bytes diferentes em {} locais
+选中 {} 字节 · 累加和 0x{}	{} bytes selected · sum 0x{}	選中 {} 位元組 · 累加和 0x{}	{} バイト選択 · 合計 0x{}	{}바이트 선택 · 합계 0x{}	{} Bytes gewählt · Summe 0x{}	{} octets sélectionnés · somme 0x{}	{} bytes seleccionados · suma 0x{}	Выбрано байт: {} · сумма 0x{}	{} bytes selecionados · soma 0x{}
+这里：{} → 对方：{}	Here: {} → other: {}	這裡：{} → 對方：{}	こちら：{} → 相手：{}	여기: {} → 상대: {}	Hier: {} → andere: {}	Ici : {} → autre : {}	Aquí: {} → otro: {}	Здесь: {} → там: {}	Aqui: {} → outro: {}
+{} 处改动	{} changes	{} 處改動	{} か所の変更	{}곳 변경	{} Änderungen	{} modifications	{} cambios	Изменений: {}	{} alterações
+插入代码片段	Insert Snippet	插入程式碼片段	スニペットを挿入	스니펫 삽입	Snippet einfügen	Insérer un extrait	Insertar fragmento	Вставить фрагмент	Inserir trecho
+打开 / 关闭 Vim 键位	Toggle Vim Keys	開啟 / 關閉 Vim 鍵位	Vim キー操作の切り替え	Vim 키 켜기/끄기	Vim-Tasten umschalten	Activer / désactiver les touches Vim	Activar / desactivar teclas Vim	Вкл./выкл. клавиши Vim	Ativar / desativar teclas Vim
+位置	Location	位置	配置先	위치	Ort	Emplacement	Ubicación	Размещение	Local
+内存地址	Address	記憶體位址	アドレス	주소	Adresse	Adresse	Dirección	Адрес	Endereço
+内存大小	Mem size	記憶體大小	メモリサイズ	메모리 크기	Speichergröße	Taille mémoire	Tamaño en memoria	Размер в памяти	Tamanho na memória
+加载地址	Load address	載入位址	ロードアドレス	로드 주소	Ladeadresse	Adresse de chargement	Dirección de carga	Адрес загрузки	Endereço de carga
+区域	Region	區域	領域	영역	Bereich	Région	Región	Область	Região
+合计	Total	合計	合計	합계	Gesamt	Total	Total	Итого	Total
+名称	Name	名稱	名前	이름	Name	Nom	Nombre	Имя	Nome
+大小	Size	大小	サイズ	크기	Größe	Taille	Tamaño	Размер	Tamanho
+所在段	Section	所在段	セクション	섹션	Sektion	Section	Sección	Секция	Seção
+文件大小	File size	檔案大小	ファイルサイズ	파일 크기	Dateigröße	Taille du fichier	Tamaño en archivo	Размер в файле	Tamanho no arquivo
+权限	Flags	權限	権限	권한	Rechte	Droits	Permisos	Права	Permissões
+标志	Flags	旗標	フラグ	플래그	Flags	Indicateurs	Indicadores	Флаги	Flags
+物理地址	Phys addr	實體位址	物理アドレス	물리 주소	Phys. Adresse	Adresse physique	Dirección física	Физ. адрес	Endereço físico
+目标文件	Object	目標檔	オブジェクト	오브젝트	Objektdatei	Fichier objet	Objeto	Объектный файл	Objeto
+符号	Symbol	符號	シンボル	심볼	Symbol	Symbole	Símbolo	Символ	Símbolo
+类别	Kind	類別	種別	종류	Art	Catégorie	Categoría	Категория	Categoria
+范围	Scope	範圍	スコープ	범위	Bindung	Portée	Ámbito	Область видимости	Escopo
+虚拟地址	Virt addr	虛擬位址	仮想アドレス	가상 주소	Virt. Adresse	Adresse virtuelle	Dirección virtual	Вирт. адрес	Endereço virtual
+输出段	Output section	輸出段	出力セクション	출력 섹션	Ausgabesektion	Section de sortie	Sección de salida	Выходная секция	Seção de saída

@@ -12,6 +12,7 @@ use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontFamily, 
 use serde::{Deserialize, Serialize};
 
 use crate::app::{draw_icon, hgrad_line, icon_button, Icon};
+use crate::binview::{self, BinEvt, Special};
 use crate::cindex::{self, Hit, Index, Kind, Progress, Sym};
 use crate::editor::{Buf, Editor, View};
 
@@ -22,6 +23,7 @@ use crate::i18n::{t, tf};
 use crate::keymap::Act;
 use crate::lsp;
 use crate::pattern::Pat;
+use crate::snippets;
 use crate::theme::*;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -39,6 +41,9 @@ pub struct CodeSettings {
     pub autosave: bool,
     /// 当前行末尾显示最后修改它的提交
     pub inline_blame: bool,
+    /// Vim 键位
+    #[serde(default)]
+    pub vim: bool,
     /// 有 clangd 和 compile_commands.json 时用 clangd 跳转定义
     pub clangd: bool,
     /// 空 = 自动查找
@@ -58,6 +63,7 @@ impl Default for CodeSettings {
             split_ratio: 0.5,
             autosave: false,
             inline_blame: true,
+            vim: false,
             clangd: true,
             clangd_path: String::new(),
         }
@@ -69,6 +75,7 @@ enum Side {
     Files,
     Search,
     Outline,
+    Todo,
 }
 
 struct Node {
@@ -106,16 +113,28 @@ struct Doc {
     blame_req: bool,
     /// 已写进崩溃恢复备份的版本
     backup_ver: Option<u64>,
+    /// ELF / map / HEX / 比较等特殊查看器；show_special = 当前显示它而不是文本
+    special: Option<Special>,
+    show_special: bool,
+    /// 不是磁盘上的文件（比较视图）
+    virt: bool,
 }
 
 impl Doc {
     fn load(path: &Path, root: &Path) -> Result<Doc, String> {
         let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
-        if meta.len() > 8 * 1024 * 1024 {
-            return Err(tf("文件太大（{}），超过 8 MB 不打开", &[&crate::app::human_bytes(meta.len())]));
+        let limit = if is_firmware(path) { 64 } else { 8 };
+        if meta.len() > limit * 1024 * 1024 {
+            return Err(tf("文件太大（{}），超过 {} MB 不打开", &[&crate::app::human_bytes(meta.len()), &limit]));
         }
         let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
-        let (text, gbk) = cindex::decode(&bytes).ok_or_else(|| t("这是二进制文件，无法以文本方式查看").to_string())?;
+        let decoded = if meta.len() > 8 * 1024 * 1024 { None } else { cindex::decode(&bytes) };
+        let special = Special::detect(path, &bytes, decoded.as_ref().map(|(t, _)| t.as_str()));
+        let (text, gbk) = match (decoded, &special) {
+            (Some(d), _) => d,
+            (None, Some(_)) => (String::new(), false),
+            (None, None) => return Err(t("这是二进制文件，无法以文本方式查看").to_string()),
+        };
         let bom = bytes.starts_with(b"\xef\xbb\xbf");
         let crlf = text.contains("\r\n");
         let text = if crlf { text.replace("\r\n", "\n") } else { text };
@@ -143,9 +162,51 @@ impl Doc {
             blame: None,
             blame_req: false,
             backup_ver: None,
+            show_special: special.is_some(),
+            special,
+            virt: false,
         };
         d.reparse();
         Ok(d)
+    }
+
+    /// 两个文本文件的比较视图
+    fn diff(a: &Path, b: &Path) -> Result<Doc, String> {
+        let v = binview::DiffView::new(a, b)?;
+        let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let path = PathBuf::from(format!("{} ↔ {}", a.display(), b.display()));
+        let buf = Buf::new(String::new());
+        let ed = Editor::new(egui::Id::new(("code-ed", &path)), &buf);
+        Ok(Doc {
+            rel: format!("{} ↔ {}", name(a), name(b)),
+            path,
+            buf,
+            ed,
+            gbk: false,
+            crlf: false,
+            lang: Lang::Plain,
+            syms: vec![],
+            syms_stale: None,
+            goto: None,
+            cursor: (0, 0),
+            bom: false,
+            mtime: None,
+            ext_changed: false,
+            edited_at: None,
+            git_lines: vec![],
+            git_ver: None,
+            blame: None,
+            blame_req: false,
+            backup_ver: None,
+            special: Some(Special::Diff(Box::new(v))),
+            show_special: true,
+            virt: true,
+        })
+    }
+
+    /// 有文本内容可以编辑（不是纯二进制、不是比较视图）
+    fn textual(&self) -> bool {
+        !self.virt && !(self.special.is_some() && self.buf.text.is_empty())
     }
 
     fn reparse(&mut self) {
@@ -174,7 +235,20 @@ impl Doc {
 
     /// 外部修改后重新读盘：只替换变了的那一段，光标和撤销历史都留着（Ctrl+Z 能回到旧内容）
     fn reload(&mut self, now: f64) -> Result<(), String> {
+        if self.virt {
+            return Ok(());
+        }
         let bytes = std::fs::read(&self.path).map_err(|e| e.to_string())?;
+        if self.special.is_some() {
+            // 重新编译后 map / elf / hex 变了：查看器跟着刷新
+            let decoded = cindex::decode(&bytes);
+            self.special = Special::detect(&self.path, &bytes, decoded.as_ref().map(|(t, _)| t.as_str()));
+            self.show_special &= self.special.is_some();
+            if decoded.is_none() {
+                self.mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
+                return Ok(());
+            }
+        }
         let (text, gbk) = cindex::decode(&bytes).ok_or_else(|| t("这是二进制文件，无法以文本方式查看").to_string())?;
         self.bom = bytes.starts_with(b"\xef\xbb\xbf");
         self.crlf = text.contains("\r\n");
@@ -218,6 +292,9 @@ impl Doc {
     }
 
     fn save(&mut self) -> Result<(), String> {
+        if !self.textual() {
+            return Ok(());
+        }
         let text = if self.crlf { self.buf.text.replace('\n', "\r\n") } else { self.buf.text.clone() };
         let mut bytes = if self.gbk { encoding_rs::GBK.encode(&text).0.into_owned() } else { text.into_bytes() };
         if self.bom {
@@ -320,6 +397,7 @@ enum QuickMode {
     Symbols,
     FileSymbols,
     Line,
+    Snippets,
 }
 
 struct Quick {
@@ -350,6 +428,8 @@ struct Hover {
 
 pub enum CodeEvt {
     Toast(String, Color32),
+    /// Ctrl+点击代码里的数字：在位域计算器里打开
+    BitCalc(String, Option<i128>),
 }
 
 pub struct CodeView {
@@ -418,6 +498,14 @@ pub struct CodeView {
     clangd_found: Option<(String, Option<PathBuf>)>,
     /// 上次检查磁盘修改时间的时刻
     last_stat: f64,
+    snippets: Vec<snippets::Snippet>,
+    /// 文件树里“选择以进行比较”选中的第一个文件
+    cmp_pick: Option<PathBuf>,
+    /// 工程里的 TODO / FIXME；todo_for 记录是基于哪一版索引扫的
+    todos: Vec<Hit>,
+    todo_rx: Option<Receiver<Vec<Hit>>>,
+    todo_for: Option<usize>,
+    todo_filter: String,
     /// 启动时发现的崩溃恢复备份：(备份文件, 原文件)
     pub recovery: Vec<(PathBuf, PathBuf)>,
 }
@@ -476,6 +564,12 @@ impl CodeView {
             lsp_def: None,
             clangd_found: None,
             last_stat: 0.0,
+            snippets: snippets::load(),
+            cmp_pick: None,
+            todos: vec![],
+            todo_rx: None,
+            todo_for: None,
+            todo_filter: String::new(),
             recovery: scan_recovery(),
         };
         v.s.font_size = v.s.font_size.clamp(9.0, 28.0);
@@ -700,7 +794,7 @@ impl CodeView {
     }
 
     fn sync_tabs(&mut self) {
-        self.s.tabs = self.tabs.iter().map(|d| d.path.to_string_lossy().to_string()).collect();
+        self.s.tabs = self.tabs.iter().filter(|d| !d.virt).map(|d| d.path.to_string_lossy().to_string()).collect();
     }
 
     fn nav(&mut self, back: bool) {
@@ -982,7 +1076,7 @@ impl CodeView {
         let tx = tx.clone();
         let blame_on = self.s.inline_blame;
         let mut saved = vec![];
-        for d in &mut self.tabs {
+        for d in self.tabs.iter_mut().filter(|d| d.textual()) {
             let idle = d.edited_at.map_or(true, |t| now - t > 0.6);
             if d.git_ver != Some(d.buf.ver) && idle {
                 d.git_ver = Some(d.buf.ver);
@@ -1048,7 +1142,7 @@ impl CodeView {
         }
         self.last_stat = now;
         let mut reloaded = vec![];
-        for d in &mut self.tabs {
+        for d in self.tabs.iter_mut().filter(|d| !d.virt) {
             let Ok(m) = std::fs::metadata(&d.path).and_then(|m| m.modified()) else { continue };
             if d.mtime == Some(m) {
                 continue;
@@ -1124,6 +1218,168 @@ impl CodeView {
                 _ => {}
             }
         }
+    }
+
+    /// 比较两个文件：文本用左右对照的差异视图，固件 / 二进制用十六进制比较
+    fn compare(&mut self, a: &Path, b: &Path) {
+        let text = |p: &Path| !is_firmware(p) && std::fs::read(p).ok().is_some_and(|b| cindex::decode(&b).is_some());
+        if text(a) && text(b) {
+            match Doc::diff(a, b) {
+                Ok(d) => {
+                    if let Some(i) = self.tabs.iter().position(|x| x.path == d.path) {
+                        self.tabs.remove(i);
+                    }
+                    let at = (self.active + 1).min(self.tabs.len());
+                    self.tabs.insert(at, d);
+                    self.active = at;
+                }
+                Err(e) => self.toast(e, ERR()),
+            }
+            return;
+        }
+        self.open_file(a, None);
+        let Some(d) = self.tabs.iter_mut().find(|d| d.path == a) else { return };
+        if !matches!(d.special, Some(Special::Hex(_))) {
+            match std::fs::read(a).ok().and_then(|bytes| binview::parse::load_image(a, &bytes)) {
+                Some(img) => d.special = Some(Special::Hex(Box::new(binview::HexView::from_image(img)))),
+                None => return,
+            }
+        }
+        d.show_special = true;
+        if let Some(Special::Hex(h)) = d.special.as_mut() {
+            if let Err(e) = h.compare_with(b) {
+                self.events.push(CodeEvt::Toast(e, ERR()));
+            }
+        }
+    }
+
+    fn handle_bin_evt(&mut self, e: Option<BinEvt>, at: egui::Pos2, now: f64) {
+        match e {
+            Some(BinEvt::Symbol(name)) => {
+                if self.index.as_ref().is_some_and(|i| !i.lookup(&name).is_empty()) {
+                    self.goto_definition_index(&name, at);
+                } else {
+                    self.toast(tf("工程里没有找到 {} 的定义", &[&name]), WARN());
+                }
+                let _ = now;
+            }
+            Some(BinEvt::Open(p, l)) => self.open_file(&p, Some((l, None))),
+            Some(BinEvt::Toast(m, c)) => self.toast(m, c),
+            None => {}
+        }
+    }
+
+    /// Vim 的 : 命令、/ 搜索、n / N
+    fn vim_command(&mut self, c: &str, now: f64) {
+        match c {
+            "/" | "?" => {
+                let old = self.find.take();
+                self.find = Some(Find {
+                    // 和 Vim 一样从空白开始输入，大小写 / 正则等选项保留
+                    pat: crate::pattern::Pat {
+                        q: String::new(),
+                        ..old.as_ref().map(|f| f.pat.clone()).unwrap_or_default()
+                    },
+                    repl: old.as_ref().map(|f| f.repl.clone()).unwrap_or_default(),
+                    replace: false,
+                    hits: vec![],
+                    cur: 0,
+                    focus: true,
+                    focus_repl: false,
+                    err: None,
+                });
+                self.update_find();
+            }
+            "n" | "N" => {
+                // 从光标位置找下一个 / 上一个匹配，到头了绕回去；光标停在匹配开头
+                let (Some(f), Some(d)) = (self.find.as_mut(), self.tabs.get_mut(self.active)) else { return };
+                if f.hits.is_empty() {
+                    return;
+                }
+                let at = d.ed.primary_sel().min();
+                let i = if c == "N" {
+                    f.hits.iter().rposition(|&(h, _)| h < at).unwrap_or(f.hits.len() - 1)
+                } else {
+                    f.hits.iter().position(|&(h, _)| h > at).unwrap_or(0)
+                };
+                f.cur = i;
+                let h = f.hits[i].0;
+                d.ed.select(h, h);
+                d.ed.focus_req = true;
+            }
+            _ => {
+                let cmd = c.trim_start_matches(':').trim();
+                if let Ok(n) = cmd.parse::<usize>() {
+                    self.goto_line(n.saturating_sub(1));
+                    return;
+                }
+                match cmd {
+                    "w" | "wa" | "wq" | "x" | "wqa" | "xa" => {
+                        let all = cmd.ends_with('a');
+                        let mut saved = vec![];
+                        for (i, d) in self.tabs.iter_mut().enumerate() {
+                            if (all || i == self.active) && d.dirty() {
+                                match d.save() {
+                                    Ok(()) => saved.push(d.path.clone()),
+                                    Err(e) => self.events.push(CodeEvt::Toast(e, ERR())),
+                                }
+                            }
+                        }
+                        for p in &saved {
+                            self.after_save(p);
+                        }
+                        if !saved.is_empty() {
+                            self.toast(t("已保存"), OK());
+                            self.refresh_git();
+                        }
+                        if cmd.starts_with("wq") || cmd.starts_with('x') {
+                            self.close_tab(self.active);
+                        }
+                    }
+                    "q" | "q!" | "bd" => self.close_tab(self.active),
+                    "noh" | "nohl" | "nohlsearch" => self.find = None,
+                    "vs" | "vsp" | "vsplit" | "sp" | "split" => self.toggle_split(),
+                    "bn" | "bnext" => {
+                        if !self.tabs.is_empty() {
+                            self.active = (self.active + 1) % self.tabs.len();
+                        }
+                    }
+                    "bp" | "bprev" => {
+                        if !self.tabs.is_empty() {
+                            self.active = (self.active + self.tabs.len() - 1) % self.tabs.len();
+                        }
+                    }
+                    _ => self.toast(tf("不支持的命令：{}", &[&cmd]), WARN()),
+                }
+                let _ = now;
+            }
+        }
+    }
+
+    /// 保存后的处理：改的是代码片段文件就重新读
+    fn after_save(&mut self, p: &Path) {
+        if p == snippets::path() {
+            match std::fs::read_to_string(p).map_err(|e| e.to_string()).and_then(|s| serde_json::from_str(&s).map_err(|e| e.to_string())) {
+                Ok(v) => {
+                    self.snippets = v;
+                    self.toast(tf("已载入 {} 个代码片段", &[&self.snippets.len()]), OK());
+                }
+                Err(e) => self.toast(tf("代码片段文件格式有误：{}", &[&e]), ERR()),
+            }
+        }
+    }
+
+    /// 打开代码片段文件编辑（第一次会写入默认片段）
+    pub fn edit_snippets(&mut self) {
+        match snippets::ensure_file() {
+            Ok(p) => self.open_file(&p, None),
+            Err(e) => self.toast(e.to_string(), ERR()),
+        }
+    }
+
+    /// 表达式求值，先展开工程里的宏（位域计算器用）
+    pub fn eval_expr(&self, s: &str) -> Option<i128> {
+        cindex::eval(s).or_else(|| self.index.as_ref().and_then(|i| cindex::eval(&i.expand(s))))
     }
 
     /// 当前行的行内 blame 文字
@@ -1307,7 +1563,11 @@ impl CodeView {
                 if let Some(d) = self.tabs.get_mut(self.active) {
                     if d.dirty() {
                         match d.save() {
-                            Ok(()) => self.toast(t("已保存"), OK()),
+                            Ok(()) => {
+                                let p = d.path.clone();
+                                self.toast(t("已保存"), OK());
+                                self.after_save(&p);
+                            }
                             Err(e) => self.toast(e, ERR()),
                         }
                     }
@@ -1337,6 +1597,13 @@ impl CodeView {
         }
         if has(Act::ToggleBlame) {
             self.s.inline_blame = !self.s.inline_blame;
+        }
+        if has(Act::ToggleVim) {
+            self.s.vim = !self.s.vim;
+            self.toast(if self.s.vim { t("已打开 Vim 键位") } else { t("已关闭 Vim 键位") }, OK());
+        }
+        if has(Act::InsertSnippet) && !self.tabs.is_empty() {
+            self.quick = Some(Quick { q: "!".into(), sel: 0, focus: true });
         }
         if has(Act::ToggleContext) {
             self.context_win = !self.context_win;
@@ -1483,6 +1750,7 @@ impl CodeView {
                 (Side::Files, Icon::Files, t("资源管理器  Ctrl+Shift+E")),
                 (Side::Search, Icon::Search, t("全局搜索  Ctrl+Shift+F")),
                 (Side::Outline, Icon::Outline, t("大纲（当前文件的函数、宏…）")),
+                (Side::Todo, Icon::Todo, t("TODO / FIXME 列表")),
             ] {
                 if icon_button(ui, icon, tip, self.side == s).clicked() {
                     self.side = s;
@@ -1542,6 +1810,7 @@ impl CodeView {
             Side::Files => self.files_panel(ui),
             Side::Search => self.search_panel(ui),
             Side::Outline => self.outline_panel(ui),
+            Side::Todo => self.todo_panel(ui),
         }
     }
 
@@ -1666,6 +1935,7 @@ impl CodeView {
             }
             let mut op: Option<TreeOp> = None;
             let mut delete = false;
+            let mut compare_with: Option<PathBuf> = None;
             r.context_menu(|ui| {
                 ui.set_min_width(190.0);
                 if ui.button(t("新建文件…")).clicked() {
@@ -1708,7 +1978,24 @@ impl CodeView {
                     reveal(&path);
                     ui.close_menu();
                 }
+                if !is_dir {
+                    ui.separator();
+                    if let Some(first) = self.cmp_pick.clone().filter(|p| *p != path) {
+                        let n = first.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        if ui.button(tf("与“{}”比较", &[&n])).clicked() {
+                            compare_with = Some(first);
+                            ui.close_menu();
+                        }
+                    }
+                    if ui.button(t("选择以进行比较")).clicked() {
+                        self.cmp_pick = Some(path.clone());
+                        ui.close_menu();
+                    }
+                }
             });
+            if let Some(first) = compare_with.take() {
+                self.compare(&first, &path);
+            }
             if let Some(op) = op {
                 // 在文件夹上新建就建在里面，在文件上新建就建在同一层
                 let at = match op {
@@ -2095,6 +2382,105 @@ impl CodeView {
         }
     }
 
+    fn scan_todos(&mut self) {
+        let (Some(root), Some(idx)) = (self.root.clone(), self.index.clone()) else { return };
+        self.todo_for = Some(Arc::as_ptr(&idx) as usize);
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            let re = regex_lite::Regex::new(TODO_RE).expect("todo regex");
+            let never = std::sync::atomic::AtomicBool::new(false);
+            let _ = tx.send(cindex::search(&root, &idx.files, &re, &never, 3000));
+        });
+        self.todo_rx = Some(rx);
+    }
+
+    fn todo_panel(&mut self, ui: &mut Ui) {
+        if let Some(rx) = &self.todo_rx {
+            if let Ok(v) = rx.try_recv() {
+                self.todos = v;
+                self.todo_rx = None;
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
+        // 索引重建过（打开工程、保存、刷新）就重新扫
+        let cur = self.index.as_ref().map(|i| Arc::as_ptr(i) as usize);
+        if cur.is_some() && cur != self.todo_for && self.todo_rx.is_none() {
+            self.scan_todos();
+        }
+        if self.root.is_none() {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(RichText::new(t("打开文件夹后列出代码里的 TODO、FIXME 等标记")).small().color(TEXT3()));
+            });
+            return;
+        }
+        ui.horizontal(|ui| {
+            ui.add_space(8.0);
+            ui.add_sized(
+                vec2(ui.available_width() - 10.0, 24.0),
+                egui::TextEdit::singleline(&mut self.todo_filter).hint_text(t("筛选…")).margin(vec2(6.0, 3.0)),
+            );
+        });
+        ui.add_space(4.0);
+        let fl = self.todo_filter.to_lowercase();
+        let shown: Vec<&Hit> = self
+            .todos
+            .iter()
+            .filter(|h| fl.is_empty() || h.text.to_lowercase().contains(&fl) || h.path.to_string_lossy().to_lowercase().contains(&fl))
+            .collect();
+        ui.horizontal(|ui| {
+            ui.add_space(12.0);
+            let msg = if self.todo_rx.is_some() {
+                t("正在扫描…").to_string()
+            } else {
+                tf("{} 条", &[&shown.len()])
+            };
+            ui.label(RichText::new(msg).small().color(TEXT3()));
+        });
+        ui.add_space(2.0);
+        let root = self.root.clone().unwrap_or_default();
+        let mut open: Option<(PathBuf, usize, (usize, usize))> = None;
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            ui.spacing_mut().item_spacing.y = 0.0;
+            let mut last: Option<&PathBuf> = None;
+            for h in shown {
+                if last != Some(&h.path) {
+                    last = Some(&h.path);
+                    let name = h.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    let dir = h.path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                    let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::hover());
+                    let p = ui.painter();
+                    file_badge(p, pos2(r.left() + 18.0, r.center().y), &name);
+                    let g = p.layout_no_wrap(name, FontId::proportional(12.5), TEXT());
+                    let w = g.size().x;
+                    p.galley(pos2(r.left() + 30.0, r.center().y - g.size().y / 2.0), g, TEXT());
+                    p.text(pos2(r.left() + 36.0 + w, r.center().y), Align2::LEFT_CENTER, dir, FontId::proportional(11.0), TEXT3());
+                }
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+                let p = ui.painter_at(r);
+                if resp.hovered() {
+                    p.rect_filled(r, 0.0, tint(8));
+                }
+                let tag = &h.text[h.m.0..h.m.1];
+                let c = todo_color(tag);
+                let pill = Rect::from_min_size(pos2(r.left() + 22.0, r.center().y - 8.0), vec2(42.0, 16.0));
+                p.rect_filled(pill, 4.0, c.gamma_multiply(0.16));
+                p.text(pill.center(), Align2::CENTER_CENTER, tag, FontId::new(10.0, bold()), c);
+                let rest = h.text[h.m.1..].trim_start_matches([':', ' ', '(', ')']).trim_end_matches("*/").trim();
+                let rest = if rest.is_empty() { h.text.as_str() } else { rest };
+                p.text(pos2(pill.right() + 8.0, r.center().y), Align2::LEFT_CENTER, rest, FontId::proportional(12.0), TEXT2());
+                if resp.on_hover_text(format!("{}:{}  {}", h.path.display(), h.line + 1, h.text)).clicked() {
+                    open = Some((root.join(&h.path), h.line as usize, h.m));
+                }
+            }
+        });
+        if let Some((p, l, _)) = open {
+            self.open_file(&p, None);
+            self.goto_line(l);
+        }
+    }
+
     fn outline_panel(&mut self, ui: &mut Ui) {
         if self.tabs.get(self.active).is_none() {
             ui.horizontal(|ui| {
@@ -2374,6 +2760,7 @@ impl CodeView {
         let now = ui.input(|i| i.time);
         let sem = self.sem.clone();
         let (font_size, minimap) = (self.s.font_size, self.s.minimap);
+        let vim_on = self.s.vim;
         let d = &mut self.tabs[i];
         let view = View {
             lang: d.lang,
@@ -2385,6 +2772,7 @@ impl CodeView {
             git: &d.git_lines,
             big: d.buf.text.len() > 1_500_000,
             ghost: None,
+            vim: vim_on,
         };
         let out = d.ed.show(ui, area, &mut d.buf, &view);
         if out.changed {
@@ -2411,6 +2799,8 @@ impl CodeView {
         let mut rects: Vec<Rect> = vec![];
         let mut drag_start = None;
         let mut menu: Option<(usize, u8)> = None;
+        let mut cmp: Option<(usize, Option<usize>)> = None;
+        let others: Vec<(String, bool)> = self.tabs.iter().map(|d| (d.rel.clone(), d.virt)).collect();
         let split_other = self.split.as_ref().map(|s| s.other.clone());
         egui::ScrollArea::horizontal()
             .id_salt("code-tabs")
@@ -2419,7 +2809,11 @@ impl CodeView {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     for (i, d) in self.tabs.iter().enumerate() {
-                        let name = d.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        let name = if d.virt {
+                            d.rel.clone()
+                        } else {
+                            d.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                        };
                         let g = ui.painter().layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT());
                         let w = g.size().x + 64.0;
                         let (r, resp) = ui.allocate_exact_size(vec2(w, 36.0), Sense::click_and_drag());
@@ -2480,6 +2874,25 @@ impl CodeView {
                                     menu = Some((i, k));
                                     ui.close_menu();
                                 }
+                                if k == 4 && !d.virt {
+                                    ui.menu_button(t("与…比较"), |ui| {
+                                        for (j, o) in others.iter().enumerate() {
+                                            if j != i && !o.1 {
+                                                if ui.button(&o.0).clicked() {
+                                                    cmp = Some((i, Some(j)));
+                                                    ui.close_menu();
+                                                }
+                                            }
+                                        }
+                                        if others.len() > 1 {
+                                            ui.separator();
+                                        }
+                                        if ui.button(t("选择文件…")).clicked() {
+                                            cmp = Some((i, None));
+                                            ui.close_menu();
+                                        }
+                                    });
+                                }
                             }
                         });
                     }
@@ -2515,6 +2928,16 @@ impl CodeView {
         if let Some(i) = activate {
             self.active = i;
             self.hover = None;
+        }
+        if let Some((i, j)) = cmp {
+            let a = self.tabs[i].path.clone();
+            let b = match j {
+                Some(j) => Some(self.tabs[j].path.clone()),
+                None => rfd::FileDialog::new().set_title(t("选择要比较的文件")).pick_file(),
+            };
+            if let Some(b) = b {
+                self.compare(&a, &b);
+            }
         }
         if let Some((i, k)) = menu {
             match k {
@@ -2627,6 +3050,24 @@ impl CodeView {
         let cx = btn(Icon::Context, t("上下文窗口"), ctx_on, true);
         let f = btn(Icon::Forward, t("前进  Alt+→"), false, nf);
         let b = btn(Icon::Back, t("后退  Alt+←"), false, nb);
+        // 特殊查看器和原文之间切换
+        let toggle = match self.tabs.get(self.active).map(|d| (&d.special, d.buf.text.is_empty(), d.show_special)) {
+            Some((Some(sp), false, show)) => Some(if show { t("原文") } else { sp.label() }),
+            _ => None,
+        };
+        if let Some(label) = toggle {
+            let g = ui.painter().layout_no_wrap(label.to_string(), FontId::proportional(11.5), ACCENT());
+            let br = Rect::from_min_max(pos2(bx - g.size().x - 20.0, r.center().y - 10.0), pos2(bx - 4.0, r.center().y + 10.0));
+            let resp = ui.interact(br, ui.id().with("bc-special"), Sense::click());
+            ui.painter()
+                .rect_filled(br, 10.0, if resp.hovered() { ACCENT().gamma_multiply(0.22) } else { ACCENT().gamma_multiply(0.12) });
+            ui.painter().galley(br.center() - g.size() / 2.0, g, ACCENT());
+            if resp.on_hover_text(t("切换显示方式")).clicked() {
+                if let Some(d) = self.tabs.get_mut(self.active) {
+                    d.show_special = !d.show_special;
+                }
+            }
+        }
         if sp {
             self.toggle_split();
         }
@@ -2656,6 +3097,14 @@ impl CodeView {
         let sem = self.sem.clone();
         let active = self.active;
         let now = ui.input(|i| i.time);
+        if self.tabs[active].show_special {
+            if let Some(sp) = self.tabs[active].special.as_mut() {
+                let mut c = ui.new_child(egui::UiBuilder::new().max_rect(full.shrink2(vec2(14.0, 0.0))));
+                let evt = sp.ui(&mut c);
+                self.handle_bin_evt(evt, ui.input(|i| i.pointer.hover_pos()).unwrap_or(full.center()), now);
+                return;
+            }
+        }
         let d = &mut self.tabs[active];
 
         // 待跳转：设置光标/选区，并滚到那一行
@@ -2666,6 +3115,17 @@ impl CodeView {
             });
             d.ed.select(a, b);
             d.ed.focus_req = true;
+        }
+        // 输入片段前缀后按 Tab 展开
+        if d.ed.sels.len() == 1 && d.ed.primary_sel().empty() && ui.memory(|m| m.has_focus(d.ed.id)) && ui.input(|i| i.key_pressed(Key::Tab) && i.modifiers.is_none()) {
+            let h = d.ed.head();
+            let ls = d.buf.start(d.buf.line_of(h));
+            let n: usize = d.buf.text[ls..h].chars().rev().take_while(|c| c.is_alphanumeric() || *c == '_').map(char::len_utf8).sum();
+            let w = &d.buf.text[h - n..h];
+            if let Some(sn) = self.snippets.iter().find(|s| !w.is_empty() && s.prefix == w && snippets::applies(s, d.lang)).cloned() {
+                ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Tab));
+                insert_snippet(d, h - n..h, &sn, now);
+            }
         }
         let ghost = if self.s.inline_blame && d.ed.sels.len() == 1 && ui.memory(|m| m.has_focus(d.ed.id)) {
             Self::blame_text(d)
@@ -2686,6 +3146,7 @@ impl CodeView {
             git: &d.git_lines,
             big: d.buf.text.len() > 1_500_000,
             ghost: ghost.as_deref().map(|g| (d.cursor.0, g)),
+            vim: self.s.vim,
         };
         let out = d.ed.show(ui, area, &mut d.buf, &view);
         if out.changed {
@@ -2708,6 +3169,9 @@ impl CodeView {
         if out.changed && self.find.is_some() {
             self.update_find();
         }
+        if let Some(c) = out.vim_cmd.clone() {
+            self.vim_command(&c, now);
+        }
 
         // ---- 悬浮 / Ctrl+点击
         let mut want_def: Option<(String, egui::Pos2, Option<usize>)> = None;
@@ -2715,6 +3179,10 @@ impl CodeView {
         if let Some((b, at)) = out.ctrl_click {
             if let Some((_, _, w)) = d.word_at(b) {
                 want_def = Some((w.to_string(), at, Some(b)));
+            } else if let Some((s, e)) = d.buf.token_at(b).filter(|(s, _)| d.buf.text[*s..].starts_with(|c: char| c.is_ascii_digit())) {
+                let lit = d.buf.text[s..e].to_string();
+                let v = cindex::eval(&lit);
+                self.events.push(CodeEvt::BitCalc(lit, v));
             }
         }
         if let Some((s, e, r)) = out.hover {
@@ -2727,7 +3195,26 @@ impl CodeView {
             self.hover = None;
         }
         let mut hover_def: Option<(String, egui::Pos2, Option<usize>)> = None;
-        if let Some(h) = &self.hover {
+        let num = self.hover.as_ref().filter(|h| h.word.starts_with(|c: char| c.is_ascii_digit()));
+        if let Some(h) = num {
+            if now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down()) {
+                if let Some(v) = cindex::eval(&h.word) {
+                    egui::show_tooltip_at(
+                        ui.ctx(),
+                        egui::LayerId::new(egui::Order::Foreground, egui::Id::new("hover-layer")),
+                        egui::Id::new(("num-hover", h.at)),
+                        h.rect.left_bottom() + vec2(0.0, 4.0),
+                        |ui| {
+                            crate::tools::number_card(ui, v);
+                            ui.add_space(2.0);
+                            ui.label(RichText::new(t("Ctrl+点击 在位域计算器中打开")).small().color(ACCENT().gamma_multiply(0.8)));
+                        },
+                    );
+                }
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
+            }
+        } else if let Some(h) = &self.hover {
             if lang.is_code() && now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down() || i.modifiers.command) {
                 if let Some(go) = hover_card(ui.ctx(), &h.word, h.rect, idx.as_deref(), &self.tabs[active]) {
                     let b = (go == h.word).then_some(h.at);
@@ -2767,6 +3254,10 @@ impl CodeView {
         }
         if d.dirty() {
             items.insert(0, (t("未保存").to_string(), WARN()));
+        }
+        if let Some(vm) = &d.ed.vim {
+            let insert = vm.mode == crate::vim::Mode::Insert;
+            items.insert(0, (vm.status(), if insert { OK() } else { ACCENT() }));
         }
         let mut x = status_rect.right() - 12.0;
         for (s, c) in items.iter().rev() {
@@ -2812,6 +3303,8 @@ impl CodeView {
         let mut step: Option<bool> = None;
         let mut close = false;
         let mut do_replace: Option<bool> = None;
+        let mut to_editor = false;
+        let vim = self.s.vim;
         egui::Area::new(egui::Id::new("code-find")).fixed_pos(pos).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
             egui::Frame::new()
                 .fill(BG2())
@@ -2856,8 +3349,13 @@ impl CodeView {
                         }
                         changed |= te.changed();
                         if te.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
-                            step = Some(ui.input(|i| i.modifiers.shift));
-                            te.request_focus();
+                            if vim {
+                                // Vim 的 /：回车就停在当前匹配，回到编辑器，之后用 n / N 跳
+                                to_editor = true;
+                            } else {
+                                step = Some(ui.input(|i| i.modifiers.shift));
+                                te.request_focus();
+                            }
                         }
                         ui.add_space(2.0);
                         changed |= small_toggle(ui, &mut f.pat.case, "Aa", t("区分大小写"));
@@ -2948,6 +3446,13 @@ impl CodeView {
                 }
             }
         }
+        if to_editor {
+            if let Some(d) = self.tabs.get_mut(self.active) {
+                let a = d.ed.primary_sel().min();
+                d.ed.select(a, a);
+                d.ed.focus_req = true;
+            }
+        }
         if let Some(b) = step {
             self.find_step(b);
             if let Some(f) = self.find.as_mut() {
@@ -2991,9 +3496,10 @@ impl CodeView {
             Some('@') => QuickMode::FileSymbols,
             Some('#') => QuickMode::Symbols,
             Some(':') => QuickMode::Line,
+            Some('!') => QuickMode::Snippets,
             _ => QuickMode::Files,
         };
-        let q = qk.q.trim_start_matches(['@', '#', ':']).trim().to_string();
+        let q = qk.q.trim_start_matches(['@', '#', ':', '!']).trim().to_string();
         // 候选项：(主文字, 副文字, 打开目标)
         let mut items: Vec<(String, String, Option<Kind>, PathBuf, Option<u32>)> = vec![];
         let root = self.root.clone().unwrap_or_default();
@@ -3030,6 +3536,16 @@ impl CodeView {
                     let ql = q.to_lowercase();
                     for s in d.syms.iter().filter(|s| ql.is_empty() || s.name.to_lowercase().contains(&ql)).take(200) {
                         items.push((s.name.clone(), format!("{} {}", t("行"), s.line + 1), Some(s.kind), d.path.clone(), Some(s.line)));
+                    }
+                }
+            }
+            QuickMode::Snippets => {
+                if let Some(d) = self.tabs.get(self.active) {
+                    let ql = q.to_lowercase();
+                    for (i, s) in self.snippets.iter().enumerate() {
+                        if snippets::applies(s, d.lang) && (ql.is_empty() || s.prefix.to_lowercase().contains(&ql) || s.name.to_lowercase().contains(&ql)) {
+                            items.push((s.prefix.clone(), s.name.clone(), None, PathBuf::new(), Some(i as u32)));
+                        }
                     }
                 }
             }
@@ -3079,6 +3595,7 @@ impl CodeView {
                             QuickMode::Symbols => t("搜索整个工作区的函数、宏、类型"),
                             QuickMode::FileSymbols => t("当前文件里的符号"),
                             QuickMode::Line => t("输入行号"),
+                            QuickMode::Snippets => t("搜索代码片段（输入前缀后按 Tab 也能展开）"),
                         };
                         let te = ui.add_sized(
                             vec2(w, 32.0),
@@ -3116,6 +3633,9 @@ impl CodeView {
                                 }
                                 match it.2 {
                                     Some(k) => kind_badge(p, pos2(r.left() + 16.0, r.center().y), k),
+                                    None if mode == QuickMode::Snippets => {
+                                        p.text(pos2(r.left() + 16.0, r.center().y), Align2::CENTER_CENTER, "{ }", FontId::monospace(11.0), VIOLET());
+                                    }
                                     None => file_badge(p, pos2(r.left() + 16.0, r.center().y), &it.0),
                                 }
                                 let g = p.layout_no_wrap(it.0.clone(), FontId::new(13.5, if it.2.is_some() { FontFamily::Monospace } else { FontFamily::Proportional }), TEXT());
@@ -3131,6 +3651,15 @@ impl CodeView {
             });
         if let Some((name, _, kind, path, line)) = chosen {
             self.quick = None;
+            if mode == QuickMode::Snippets {
+                let now = ctx.input(|i| i.time);
+                if let (Some(sn), Some(d)) = (line.and_then(|i| self.snippets.get(i as usize)).cloned(), self.tabs.get_mut(self.active)) {
+                    let s = d.ed.primary_sel();
+                    insert_snippet(d, s.min()..s.max(), &sn, now);
+                    d.ed.focus_req = true;
+                }
+                return;
+            }
             match (kind, line) {
                 (Some(_), Some(l)) => self.open_at_word(&path, l as usize, &name),
                 (None, Some(l)) => {
@@ -3532,4 +4061,38 @@ fn notice_bar(ui: &mut Ui, msg: &str, buttons: &[&str]) -> Option<usize> {
     let r = ui.min_rect();
     ui.painter().hline(r.x_range(), ui.cursor().top() - 0.5, st(1.0, LINE()));
     hit
+}
+
+/// 把片段展开到 r 这一段（通常是刚输入的前缀），选中第一个占位符
+fn insert_snippet(d: &mut Doc, r: std::ops::Range<usize>, sn: &snippets::Snippet, now: f64) {
+    let ls = d.buf.start(d.buf.line_of(r.start));
+    let indent: String = d.buf.text[ls..r.start].chars().take_while(|c| *c == ' ' || *c == '\t').collect();
+    let unit = d.buf.indent_unit();
+    let file = d.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    let (text, (a, b)) = snippets::expand(&sn.body, &indent, &unit, &file);
+    let start = r.start;
+    d.ed.replace_ranges(&mut d.buf, vec![(r, text)], now);
+    d.ed.select(start + a, start + b);
+    d.edited_at = Some(now);
+    d.syms_stale = Some(now);
+}
+
+const TODO_RE: &str = r"\b(TODO|FIXME|XXX|HACK|BUG|NOTE)\b";
+
+fn todo_color(tag: &str) -> Color32 {
+    match tag {
+        "FIXME" | "BUG" | "XXX" => ERR(),
+        "HACK" => VIOLET(),
+        "NOTE" => ACCENT(),
+        _ => WARN(),
+    }
+}
+
+/// 固件 / 映像文件（按扩展名），这些文件允许更大，且默认用十六进制查看
+fn is_firmware(p: &Path) -> bool {
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+    matches!(
+        ext.as_str(),
+        "bin" | "hex" | "ihex" | "ihx" | "s19" | "s28" | "s37" | "srec" | "mot" | "sx" | "img" | "dfu" | "fw" | "elf" | "axf" | "out"
+    )
 }

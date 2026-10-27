@@ -210,6 +210,9 @@ pub enum Act {
     ReplaceInFile,
     SplitEditor,
     ToggleBlame,
+    BitCalc,
+    InsertSnippet,
+    ToggleVim,
     CloseTab,
     NextTab,
     SaveFile,
@@ -308,6 +311,9 @@ acts! {
     Act::ReplaceInFile, "code.replace", "文件内替换", Code, ["Ctrl+H"];
     Act::SplitEditor, "code.split", "拆分编辑器", Code, ["Ctrl+\\"];
     Act::ToggleBlame, "code.blame", "显示 / 隐藏行内 Blame", Code, [];
+    Act::BitCalc, "tools.bitcalc", "位域计算器", Global, [], true;
+    Act::InsertSnippet, "code.snippet", "插入代码片段", Code, ["Ctrl+Alt+J"];
+    Act::ToggleVim, "code.vim", "打开 / 关闭 Vim 键位", Code, [];
     Act::CloseTab, "code.close_tab", "关闭标签页", Code, ["Ctrl+W"];
     Act::NextTab, "code.next_tab", "下一个标签页", Code, ["Ctrl+Tab"];
     Act::SaveFile, "code.save", "保存文件", Code, ["Ctrl+S"];

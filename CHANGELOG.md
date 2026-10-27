@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.9.0
+
+- Firmware files open in dedicated viewers (toggle back to the source with the pill in the breadcrumb bar):
+  - **Map files** (GNU ld): Flash / RAM usage bars per memory region, sortable and filterable tables of symbols, object files and output sections. Click a symbol to jump to it.
+  - **ELF files**: text / data / bss totals, sections, symbols and program headers.
+  - **HEX / BIN / S-record**: hex grid with a byte inspector (u8…u64, float, LE / BE), go to address, sum of a selection, export to BIN.
+- Compare two files: `Compare with…` on a tab, or *Select for Compare* in the explorer. Text files get a side-by-side diff with an overview bar (`F7` / `Shift+F7`); binaries get a byte-level compare.
+- Hover a number in code to see it in hex, decimal, binary and its set bits. `Ctrl+click` opens it in the new **bit calculator**: type a number, C expression or macro, toggle bits, drag to select a field and get its read expression, mask and a new value.
+- Code snippets: type a prefix and press `Tab`, or `Ctrl+Alt+J` to search. Ships with C, Kconfig, device tree and linker-script snippets; edit them in Settings → Code Editor.
+- TODO / FIXME panel listing every marker in the project.
+- Syntax highlighting for Kconfig, device tree (`.dts`, `.dtsi`, `.overlay`) and linker scripts (`.ld`, `.lds`, `.icf`, `.sct`); `.config` / `defconfig` / `sdkconfig` are shown as key = value files.
+- Optional Vim keys (Settings → Code Editor): Normal / Insert / Visual / Visual Line modes, counts, operators with motions and text objects, `.` repeat, registers, `/` search with `n` / `N`, and `:w`, `:q`, `:wq`, `:bn`, `:vs`, line numbers.
+
 ## 0.8.0
 
 - Integrated terminal panel (`` Ctrl+Shift+` `` / `Alt+F12`): cmd, PowerShell, Git Bash and WSL on Windows; bash, zsh, fish on Linux. Multiple tabs, maximize, and `Ctrl+click` on `file:line` (compiler errors, grep output) opens the file at that line. Starts in the project folder.

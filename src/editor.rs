@@ -61,11 +61,11 @@ impl Buf {
         &self.text[s..e.max(s)]
     }
 
-    fn prev(&self, b: usize) -> usize {
+    pub(crate) fn prev(&self, b: usize) -> usize {
         self.text[..b].chars().next_back().map_or(0, |c| b - c.len_utf8())
     }
 
-    fn next(&self, b: usize) -> usize {
+    pub(crate) fn next(&self, b: usize) -> usize {
         self.text[b..].chars().next().map_or(b, |c| b + c.len_utf8())
     }
 
@@ -73,7 +73,7 @@ impl Buf {
         self.text[..b].chars().next_back()
     }
 
-    fn char_at(&self, b: usize) -> Option<char> {
+    pub(crate) fn char_at(&self, b: usize) -> Option<char> {
         self.text.get(b..)?.chars().next()
     }
 
@@ -91,8 +91,22 @@ impl Buf {
         (e > s && !t[s..].starts_with(|c: char| c.is_ascii_digit())).then_some((s, e))
     }
 
+    /// 标识符或数字（悬停用）
+    pub fn token_at(&self, b: usize) -> Option<(usize, usize)> {
+        let t = &self.text;
+        let mut s = b;
+        while let Some(c) = t[..s].chars().next_back().filter(|c| is_ident(*c)) {
+            s -= c.len_utf8();
+        }
+        let mut e = b;
+        while let Some(c) = t[e..].chars().next().filter(|c| is_ident(*c)) {
+            e += c.len_utf8();
+        }
+        (e > s).then_some((s, e))
+    }
+
     /// 文件用 Tab 还是空格缩进（看前 2000 行哪种多）
-    fn indent_unit(&self) -> String {
+    pub fn indent_unit(&self) -> String {
         let (mut tabs, mut spaces) = (0, 0);
         for l in self.text.lines().take(2000) {
             if l.starts_with('\t') {
@@ -295,6 +309,10 @@ pub struct Out {
     /// Ctrl+单击的字节位置
     pub ctrl_click: Option<(usize, Pos2)>,
     pub focused: bool,
+    /// Vim 的 : 命令、/ 搜索、n / N，交给外层处理
+    pub vim_cmd: Option<String>,
+    /// 要放进系统剪贴板的文字（Vim 的 y）
+    pub copy: Option<String>,
 }
 
 /// 外层传进来的显示参数
@@ -312,6 +330,8 @@ pub struct View<'a> {
     pub big: bool,
     /// 某一行末尾的淡色附注（行内 blame）
     pub ghost: Option<(usize, &'a str)>,
+    /// 用 Vim 键位
+    pub vim: bool,
 }
 
 pub struct Editor {
@@ -337,7 +357,9 @@ pub struct Editor {
     pub id: egui::Id,
     pub focus_req: bool,
     /// 上一帧可见的行数（翻页用）
-    page_rows: usize,
+    pub(crate) page_rows: usize,
+    /// Vim 键位的状态（设置里打开时才有）
+    pub vim: Option<crate::vim::Vim>,
     /// 小地图拖动中
     mm_drag: bool,
     m: Metrics,
@@ -366,6 +388,7 @@ impl Editor {
             id,
             focus_req: false,
             page_rows: 30,
+            vim: None,
             mm_drag: false,
             m: Metrics::default(),
         }
@@ -573,7 +596,7 @@ impl Editor {
 
     // ---------------------------------------------------- 输入
 
-    fn insert_text(&mut self, buf: &mut Buf, s: &str, lang: Lang, now: f64) {
+    pub(crate) fn insert_text(&mut self, buf: &mut Buf, s: &str, lang: Lang, now: f64) {
         if s == "\n" || s == "\r\n" {
             return self.newline(buf, now);
         }
@@ -636,7 +659,7 @@ impl Editor {
         self.apply(buf, reps, EK::Type, now);
     }
 
-    fn newline(&mut self, buf: &mut Buf, now: f64) {
+    pub(crate) fn newline(&mut self, buf: &mut Buf, now: f64) {
         let mut reps = vec![];
         for sel in &self.sels {
             let r = sel.range();
@@ -669,7 +692,7 @@ impl Editor {
         self.apply(buf, reps, EK::Other, now);
     }
 
-    fn backspace(&mut self, buf: &mut Buf, word: bool, now: f64) {
+    pub(crate) fn backspace(&mut self, buf: &mut Buf, word: bool, now: f64) {
         let mut reps = vec![];
         for sel in &self.sels {
             if !sel.empty() {
@@ -758,7 +781,7 @@ impl Editor {
         self.apply(buf, reps, EK::Type, now);
     }
 
-    fn indent_lines(&mut self, buf: &mut Buf, inc: bool, now: f64) {
+    pub(crate) fn indent_lines(&mut self, buf: &mut Buf, inc: bool, now: f64) {
         let blocks = self.sel_lines(buf);
         let old = self.sels.clone();
         let mut reps = vec![];
@@ -1513,6 +1536,31 @@ impl Editor {
     pub fn show(&mut self, ui: &mut Ui, rect: Rect, buf: &mut Buf, v: &View) -> Out {
         let mut out = Out::default();
         let now = ui.input(|i| i.time);
+        if v.vim != self.vim.is_some() {
+            self.vim = v.vim.then(crate::vim::Vim::default);
+        }
+        let (psel, nsels, dragging) = (self.primary_sel(), self.sels.len(), self.drag.is_some());
+        if let Some(vm) = self.vim.as_mut() {
+            let was_drag = std::mem::replace(&mut vm.was_drag, dragging);
+            if vm.mode == crate::vim::Mode::Normal && !dragging {
+                let s = psel;
+                if !s.empty() && was_drag {
+                    // 鼠标拖选了一段：进入可视模式
+                    vm.enter_visual(nsels, s.a);
+                } else if !s.empty() {
+                    // 查找、跳转留下的选区：普通模式下只留光标在开头
+                    self.sels = vec![Sel::at(s.min())];
+                    self.primary = 0;
+                } else {
+                    let l = buf.line_of(s.h);
+                    if s.h >= buf.end(l) && buf.end(l) > buf.start(l) && nsels == 1 {
+                        let b = buf.prev(buf.end(l));
+                        self.sels = vec![Sel::at(b)];
+                        self.primary = 0;
+                    }
+                }
+            }
+        }
         self.refresh_cache(buf, v.lang, v.big);
         // 光标跳进了折叠区域：展开
         for s in self.sels.clone() {
@@ -1566,6 +1614,33 @@ impl Editor {
             let events = ui.input(|i| i.events.clone());
             let mut changed_ver = buf.ver;
             for e in events {
+                if let Some(mode) = self.vim.as_ref().map(|v| v.mode) {
+                    let keys = vim_keys(&e);
+                    let mut vm = self.vim.take().unwrap();
+                    let mut skip = false;
+                    if mode == crate::vim::Mode::Insert {
+                        for k in &keys {
+                            if vm.insert_key(self, buf, k) {
+                                skip = true;
+                            }
+                        }
+                    } else if !keys.is_empty() {
+                        for k in keys {
+                            vm.key(self, buf, k, v.lang, now, &mut out);
+                        }
+                        skip = true;
+                    } else if matches!(e, Event::Key { modifiers, .. } if !modifiers.command && !modifiers.ctrl) || matches!(e, Event::Text(_)) {
+                        // 普通模式下其他按键（字母的 Key 事件等）不进编辑器
+                        skip = true;
+                    }
+                    self.vim = Some(vm);
+                    if let Some(t) = out.copy.take() {
+                        ui.ctx().copy_text(t);
+                    }
+                    if skip {
+                        continue;
+                    }
+                }
                 match e {
                     Event::Text(s) => {
                         if !s.chars().any(|c| c.is_control()) && !s.is_empty() {
@@ -2126,6 +2201,23 @@ impl Editor {
             let x = x_of(s.h).round();
             let y = row_y(di);
             let c = if i == self.primary { ACCENT() } else { ACCENT().gamma_multiply(0.75) };
+            if let Some(vm) = self.vim.as_ref().filter(|v| v.mode != crate::vim::Mode::Insert) {
+                // Vim 普通 / 可视模式：块状光标，盖住光标下的字符
+                let at = if vm.mode != crate::vim::Mode::Normal && s.h > s.a { buf.prev(s.h) } else { s.h };
+                let l2 = buf.line_of(at);
+                let di2 = line_di(l2);
+                let x = x_of(at).round();
+                let ch = buf.char_at(at).filter(|c| *c != '\n');
+                let w = ch.map_or(m.cw, |c| m.adv(c, 0.0).max(m.cw * 0.6));
+                let y = row_y(di2);
+                let c = if focused { c.gamma_multiply(0.55) } else { TEXT3().gamma_multiply(0.4) };
+                if focused {
+                    tp.rect_filled(Rect::from_min_max(pos2(x, y + 1.0), pos2(x + w, y + row_h - 1.0)), 1.0, c);
+                } else {
+                    tp.rect_stroke(Rect::from_min_max(pos2(x, y + 1.0), pos2(x + w, y + row_h - 1.0)), 1.0, st(1.0, c), egui::StrokeKind::Inside);
+                }
+                continue;
+            }
             if focused && on {
                 tp.rect_filled(Rect::from_min_max(pos2(x - 1.0, y + 2.0), pos2(x + 1.0, y + row_h - 2.0)), 0.0, c);
             } else if !focused {
@@ -2282,13 +2374,13 @@ impl Editor {
                 let (b, l) = pos_to_byte(pp);
                 let line_end_x = x_of(buf.end(l));
                 if pp.x <= line_end_x + 2.0 {
-                    let w = buf.word_at(b).or_else(|| (b > 0).then(|| buf.word_at(buf.prev(b))).flatten());
+                    let w = buf.token_at(b).or_else(|| (b > 0).then(|| buf.token_at(buf.prev(b))).flatten());
                     if let Some((s, e)) = w {
                         let di = line_di(l);
                         let r = Rect::from_min_max(pos2(x_of(s), row_y(di)), pos2(x_of(e), row_y(di) + row_h));
                         if r.expand(1.0).contains(pp) {
                             out.hover = Some((s, e, r));
-                            if mods.command && v.lang.is_code() {
+                            if mods.command && v.lang.is_code() && !buf.text[s..].starts_with(|c: char| c.is_ascii_digit()) {
                                 tp.hline(r.x_range(), r.bottom() - 1.0, st(1.0, ACCENT()));
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                             }
@@ -2548,6 +2640,40 @@ fn indent_folds(buf: &Buf) -> Vec<(usize, usize, bool)> {
         }
     }
     out
+}
+
+/// 把输入事件翻译成 Vim 按键；不归 Vim 管的（Ctrl+S 之类）返回空
+fn vim_keys(e: &Event) -> Vec<crate::vim::VKey> {
+    use crate::vim::VKey;
+    match e {
+        Event::Text(s) => s.chars().filter(|c| !c.is_control()).map(VKey::Char).collect(),
+        Event::Key { key, pressed: true, modifiers, .. } => {
+            if modifiers.ctrl || modifiers.command {
+                return match key {
+                    Key::R => vec![VKey::Ctrl('r')],
+                    Key::D => vec![VKey::Ctrl('d')],
+                    Key::U => vec![VKey::Ctrl('u')],
+                    Key::OpenBracket => vec![VKey::Esc],
+                    _ => vec![],
+                };
+            }
+            match key {
+                Key::Escape => vec![VKey::Esc],
+                Key::Enter => vec![VKey::Enter],
+                Key::Backspace => vec![VKey::Back],
+                Key::Delete => vec![VKey::Del],
+                Key::ArrowLeft => vec![VKey::Left],
+                Key::ArrowRight => vec![VKey::Right],
+                Key::ArrowUp => vec![VKey::Up],
+                Key::ArrowDown => vec![VKey::Down],
+                Key::Home => vec![VKey::Home],
+                Key::End => vec![VKey::End],
+                Key::Tab => vec![VKey::Tab],
+                _ => vec![],
+            }
+        }
+        _ => vec![],
+    }
 }
 
 #[cfg(test)]

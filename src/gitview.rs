@@ -13,6 +13,7 @@ use crate::codeview::{chevron, file_badge, tree_row};
 use crate::git::{self, Branch, Commit, CommitInfo, DiffKind, DiffLine, GraphRow, RefKind, Status, StatusFile};
 use crate::highlight::{self, Lang};
 use crate::i18n::{t as tr, tf};
+use crate::keymap::Act;
 use crate::theme::*;
 
 const ROW_H: f32 = 28.0;
@@ -20,19 +21,21 @@ const LANE_W: f32 = 14.0;
 const MAX_LANES: usize = 14;
 const PAGE: usize = 1500;
 
-const LANE_COLORS: [Color32; 8] = [
-    ACCENT,
-    VIOLET,
-    OK,
-    WARN,
-    Color32::from_rgb(0xf4, 0x72, 0xb6),
-    DEBUG,
-    Color32::from_rgb(0xfb, 0x92, 0x3c),
-    Color32::from_rgb(0x2d, 0xd4, 0xbf),
-];
+fn lane_colors() -> [Color32; 8] {
+    [
+        ACCENT(),
+        VIOLET(),
+        OK(),
+        WARN(),
+        ink(Color32::from_rgb(0xf4, 0x72, 0xb6)),
+        DEBUG(),
+        ink(Color32::from_rgb(0xfb, 0x92, 0x3c)),
+        ink(Color32::from_rgb(0x2d, 0xd4, 0xbf)),
+    ]
+}
 
 fn lane_col(l: usize) -> Color32 {
-    LANE_COLORS[l % LANE_COLORS.len()]
+    lane_colors()[l % 8]
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -332,7 +335,7 @@ impl GitView {
                     if self.sel == Sel::Commit(h) {
                         match r {
                             Ok(i) => self.info = Some(i),
-                            Err(e) => self.toast(e, ERR),
+                            Err(e) => self.toast(e, ERR()),
                         }
                     }
                 }
@@ -359,8 +362,8 @@ impl GitView {
                 Msg::Op(label, r) => {
                     self.busy = None;
                     match r {
-                        Ok(_) => self.toast(tf("{} 完成", &[&label]), OK),
-                        Err(e) => self.toast(tf("{} 失败：{}", &[&label, &friendly_err(&e)]), ERR),
+                        Ok(_) => self.toast(tf("{} 完成", &[&label]), OK()),
+                        Err(e) => self.toast(tf("{} 失败：{}", &[&label, &friendly_err(&e)]), ERR()),
                     }
                     self.refresh();
                 }
@@ -431,14 +434,24 @@ impl GitView {
 
     // ------------------------------------------------------------ 界面
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act]) {
         self.poll();
+        if self.root.is_some() {
+            for a in acts {
+                match a {
+                    Act::GitRefresh => self.refresh(),
+                    Act::GitFetch => self.run_op(t("拉取"), vec!["fetch".into(), "--all".into(), "--prune".into()]),
+                    Act::GitFind => ctx.memory_mut(|m| m.request_focus(egui::Id::new(("search-box", t("搜索提交说明…").as_str())))),
+                    _ => {}
+                }
+            }
+        }
         if self.root.is_none() {
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0)).show(ctx, |ui| self.welcome(ui));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| self.welcome(ui));
             return;
         }
         egui::SidePanel::left("git-side")
-            .frame(egui::Frame::new().fill(BG1))
+            .frame(egui::Frame::new().fill(BG1()))
             .default_width(self.s.side_width)
             .width_range(220.0..=460.0)
             .resizable(true)
@@ -448,7 +461,7 @@ impl GitView {
             });
         if self.sel != Sel::None {
             egui::SidePanel::right("git-detail")
-                .frame(egui::Frame::new().fill(BG1))
+                .frame(egui::Frame::new().fill(BG1()))
                 .default_width(self.s.detail_width)
                 .width_range(300.0..=760.0)
                 .resizable(true)
@@ -461,7 +474,7 @@ impl GitView {
                     }
                 });
         }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0)).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
             if self.diff.is_some() {
                 self.diff_view(ui);
             } else {
@@ -482,26 +495,26 @@ impl GitView {
     fn welcome(&mut self, ui: &mut Ui) {
         let r = ui.max_rect();
         let p = ui.painter();
-        hgrad_line(p, r.top() + 0.5, r.x_range(), VIOLET.gamma_multiply(0.4));
+        hgrad_line(p, r.top() + 0.5, r.x_range(), VIOLET().gamma_multiply(0.4));
         let c = r.center() - vec2(0.0, 90.0);
         let ic = Rect::from_center_size(c - vec2(0.0, 40.0), vec2(56.0, 56.0));
-        p.rect(ic, CornerRadius::same(14), BG2, st(1.0, VIOLET.gamma_multiply(0.4)), egui::StrokeKind::Inside);
-        draw_icon(p, ic.shrink(12.0), Icon::Branch, VIOLET);
-        p.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, t("Git 分支"), FontId::new(22.0, bold()), TEXT);
+        p.rect(ic, CornerRadius::same(14), BG2(), st(1.0, VIOLET().gamma_multiply(0.4)), egui::StrokeKind::Inside);
+        draw_icon(p, ic.shrink(12.0), Icon::Branch, VIOLET());
+        p.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, t("Git 分支"), FontId::new(22.0, bold()), TEXT());
         p.text(
             c + vec2(0.0, 42.0),
             Align2::CENTER_CENTER,
             t("查看各分支的提交图谱、每次提交改了什么、工作区还有哪些没提交"),
             FontId::proportional(13.0),
-            TEXT3,
+            TEXT3(),
         );
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(r.center() + vec2(0.0, 80.0), vec2(420.0, 160.0))));
         let ui = &mut child;
         ui.vertical_centered(|ui| {
             if ui
                 .add(
-                    egui::Button::new(RichText::new(t("打开仓库文件夹")).color(BG0).strong())
-                        .fill(VIOLET)
+                    egui::Button::new(RichText::new(t("打开仓库文件夹")).color(ON_ACCENT()).strong())
+                        .fill(VIOLET())
                         .corner_radius(R_WIDGET)
                         .min_size(vec2(200.0, 36.0)),
                 )
@@ -511,7 +524,7 @@ impl GitView {
             }
             if let Some(e) = &self.err {
                 ui.add_space(14.0);
-                ui.label(RichText::new(e).color(WARN));
+                ui.label(RichText::new(e).color(WARN()));
             }
         });
     }
@@ -524,7 +537,7 @@ impl GitView {
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             let name = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-            ui.label(RichText::new(name.to_uppercase()).font(FontId::new(11.5, bold())).color(TEXT2))
+            ui.label(RichText::new(name.to_uppercase()).font(FontId::new(11.5, bold())).color(TEXT2()))
                 .on_hover_text(root.to_string_lossy());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(6.0);
@@ -542,7 +555,7 @@ impl GitView {
             });
         });
         let r = ui.available_rect_before_wrap();
-        ui.painter().hline(r.x_range(), r.top() + 3.0, st(1.0, LINE));
+        ui.painter().hline(r.x_range(), r.top() + 3.0, st(1.0, LINE()));
         ui.add_space(10.0);
 
         // 当前分支卡片
@@ -553,15 +566,15 @@ impl GitView {
             let w = ui.available_width() - 10.0;
             let (rect, _) = ui.allocate_exact_size(vec2(w, 52.0), Sense::hover());
             let p = ui.painter();
-            p.rect(rect, R_CARD, BG2, st(1.0, LINE), egui::StrokeKind::Inside);
-            p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 10.0), vec2(2.0, 32.0)), 1.0, VIOLET);
-            draw_icon(p, Rect::from_center_size(pos2(rect.left() + 20.0, rect.top() + 18.0), vec2(14.0, 14.0)), Icon::Branch, VIOLET);
+            p.rect(rect, R_CARD, BG2(), st(1.0, LINE()), egui::StrokeKind::Inside);
+            p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 10.0), vec2(2.0, 32.0)), 1.0, VIOLET());
+            draw_icon(p, Rect::from_center_size(pos2(rect.left() + 20.0, rect.top() + 18.0), vec2(14.0, 14.0)), Icon::Branch, VIOLET());
             p.text(
                 pos2(rect.left() + 34.0, rect.top() + 18.0),
                 Align2::LEFT_CENTER,
                 if head.is_empty() { "HEAD" } else { &head },
                 FontId::new(13.5, mono_bold()),
-                TEXT,
+                TEXT(),
             );
             let mut note = match &hb {
                 Some(b) if !b.upstream.is_empty() => {
@@ -580,7 +593,7 @@ impl GitView {
             if n > 0 {
                 note = format!("{note}  ·  {}", tf("{} 处更改", &[&n]));
             }
-            p.text(pos2(rect.left() + 34.0, rect.top() + 37.0), Align2::LEFT_CENTER, note, FontId::proportional(11.5), TEXT3);
+            p.text(pos2(rect.left() + 34.0, rect.top() + 37.0), Align2::LEFT_CENTER, note, FontId::proportional(11.5), TEXT3());
         });
         ui.add_space(8.0);
         ui.horizontal(|ui| {
@@ -602,7 +615,7 @@ impl GitView {
                 &t("工作区更改"),
                 (n > 0).then(|| n.to_string()),
                 self.sel == Sel::Work,
-                if n > 0 { WARN } else { TEXT3 },
+                if n > 0 { WARN() } else { TEXT3() },
             );
             if r.clicked() {
                 self.sel = Sel::Work;
@@ -610,7 +623,7 @@ impl GitView {
                 self.file_sel = None;
                 self.load_status();
             }
-            let r = nav_row(ui, Icon::Commit, &t("全部分支的提交"), None, self.scope.is_none() && self.sel != Sel::Work, ACCENT);
+            let r = nav_row(ui, Icon::Commit, &t("全部分支的提交"), None, self.scope.is_none() && self.sel != Sel::Work, ACCENT());
             if r.clicked() && self.scope.is_some() {
                 self.scope = None;
                 self.limit = PAGE;
@@ -684,22 +697,22 @@ impl GitView {
         // 顶栏
         let bar = ui.available_rect_before_wrap();
         let bar = Rect::from_min_size(bar.min, vec2(bar.width(), 44.0));
-        ui.painter().rect_filled(bar, 0.0, BG1);
-        ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, st(1.0, LINE));
+        ui.painter().rect_filled(bar, 0.0, BG1());
+        ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, st(1.0, LINE()));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(14.0, 8.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
         {
             let ui = &mut child;
-            ui.label(RichText::new(t("提交历史")).font(FontId::new(14.0, bold())).color(TEXT));
+            ui.label(RichText::new(t("提交历史")).font(FontId::new(14.0, bold())).color(TEXT()));
             ui.add_space(6.0);
             if let Some(s) = self.scope.clone() {
                 let r = egui::Frame::new()
-                    .fill(VIOLET.gamma_multiply(0.14))
+                    .fill(VIOLET().gamma_multiply(0.14))
                     .corner_radius(CornerRadius::same(10))
                     .inner_margin(egui::Margin { left: 8, right: 4, top: 2, bottom: 2 })
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
-                        ui.label(RichText::new(&s).font(FontId::new(11.5, FontFamily::Monospace)).color(VIOLET));
-                        ui.add(egui::Button::new(RichText::new("×").color(VIOLET)).frame(false)).on_hover_text(t("显示全部分支")).clicked()
+                        ui.label(RichText::new(&s).font(FontId::new(11.5, FontFamily::Monospace)).color(VIOLET()));
+                        ui.add(egui::Button::new(RichText::new("×").color(VIOLET())).frame(false)).on_hover_text(t("显示全部分支")).clicked()
                     });
                 if r.inner {
                     self.scope = None;
@@ -707,10 +720,10 @@ impl GitView {
                     self.load_log();
                 }
             } else {
-                ui.label(RichText::new(t("全部分支")).size(12.0).color(TEXT3));
+                ui.label(RichText::new(t("全部分支")).size(12.0).color(TEXT3()));
             }
             let n = self.commits.len();
-            ui.label(RichText::new(if self.loading_log { t("加载中…") } else { tf("{} 个提交", &[&n]) }).size(11.5).color(TEXT3));
+            ui.label(RichText::new(if self.loading_log { t("加载中…") } else { tf("{} 个提交", &[&n]) }).size(11.5).color(TEXT3()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if search_box(ui, &mut self.query, &t("搜索提交说明…"), 260.0) {
                     self.query_at = Some(Instant::now());
@@ -730,7 +743,7 @@ impl GitView {
                     } else {
                         t("没有匹配的提交")
                     })
-                    .color(TEXT3),
+                    .color(TEXT3()),
                 );
             });
             return;
@@ -789,24 +802,24 @@ impl GitView {
                 let p = ui.painter();
                 let selected = matches!(&self.sel, Sel::Commit(h) if h == &c.hash);
                 if selected {
-                    p.rect_filled(rect, 0.0, ACCENT.gamma_multiply(0.10));
-                    p.rect_filled(Rect::from_min_size(rect.min, vec2(2.0, rect.height())), 0.0, ACCENT);
+                    p.rect_filled(rect, 0.0, ACCENT().gamma_multiply(0.10));
+                    p.rect_filled(Rect::from_min_size(rect.min, vec2(2.0, rect.height())), 0.0, ACCENT());
                 } else if resp.hovered() {
-                    p.rect_filled(rect, 0.0, Color32::from_white_alpha(6));
+                    p.rect_filled(rect, 0.0, tint(6));
                 }
                 draw_graph_row(p, rect, g, c.parents.len() > 1, c.hash.starts_with(&head_hash) && !head_hash.is_empty());
 
                 // 右侧三列：作者、时间、哈希
                 let mono = FontId::new(11.5, FontFamily::Monospace);
                 let hx = rect.right() - 12.0;
-                p.text(pos2(hx, rect.center().y), Align2::RIGHT_CENTER, &c.hash[..7.min(c.hash.len())], mono.clone(), TEXT3);
+                p.text(pos2(hx, rect.center().y), Align2::RIGHT_CENTER, &c.hash[..7.min(c.hash.len())], mono.clone(), TEXT3());
                 let tx = hx - 72.0;
-                p.text(pos2(tx, rect.center().y), Align2::RIGHT_CENTER, relative(now, c.time), FontId::proportional(11.5), TEXT3);
+                p.text(pos2(tx, rect.center().y), Align2::RIGHT_CENTER, relative(now, c.time), FontId::proportional(11.5), TEXT3());
                 let ax = tx - 92.0;
                 let author_r = Rect::from_min_max(pos2(ax - 110.0, rect.top()), pos2(ax, rect.bottom()));
                 let ap = p.with_clip_rect(author_r);
                 avatar(&ap, pos2(author_r.left() + 9.0, rect.center().y), &c.author, 8.0);
-                ap.text(pos2(author_r.left() + 22.0, rect.center().y), Align2::LEFT_CENTER, &c.author, FontId::proportional(12.0), TEXT2);
+                ap.text(pos2(author_r.left() + 22.0, rect.center().y), Align2::LEFT_CENTER, &c.author, FontId::proportional(12.0), TEXT2());
 
                 // 引用标签 + 提交说明
                 let sub_r = Rect::from_min_max(pos2(rect.left() + gw, rect.top()), pos2(author_r.left() - 12.0, rect.bottom()));
@@ -816,11 +829,11 @@ impl GitView {
                     x += ref_pill(&sp, pos2(x, rect.center().y), r) + 5.0;
                 }
                 let col = if selected {
-                    TEXT
+                    TEXT()
                 } else if c.parents.len() > 1 {
-                    TEXT2
+                    TEXT2()
                 } else {
-                    LOG_TEXT
+                    LOG_TEXT()
                 };
                 sp.text(pos2(x + 2.0, rect.center().y), Align2::LEFT_CENTER, &c.subject, FontId::proportional(13.0), col);
 
@@ -858,11 +871,11 @@ impl GitView {
             match what {
                 0 => {
                     ui.ctx().copy_text(c.hash.clone());
-                    self.toast(t("已复制"), OK);
+                    self.toast(t("已复制"), OK());
                 }
                 1 => {
                     ui.ctx().copy_text(c.subject.clone());
-                    self.toast(t("已复制"), OK);
+                    self.toast(t("已复制"), OK());
                 }
                 _ => {
                     let short = c.hash[..8.min(c.hash.len())].to_string();
@@ -883,7 +896,7 @@ impl GitView {
     fn commit_panel(&mut self, ui: &mut Ui, hash: &str) {
         let Some(c) = self.commits.iter().find(|c| c.hash == hash).cloned() else {
             ui.add_space(20.0);
-            ui.label(RichText::new(t("加载中…")).color(TEXT3));
+            ui.label(RichText::new(t("加载中…")).color(TEXT3()));
             return;
         };
         let now = now_secs();
@@ -898,15 +911,15 @@ impl GitView {
                     bottom: 10,
                 })
                 .show(ui, |ui| {
-                    ui.label(RichText::new(&c.subject).font(FontId::new(15.0, bold())).color(TEXT));
+                    ui.label(RichText::new(&c.subject).font(FontId::new(15.0, bold())).color(TEXT()));
                     ui.add_space(10.0);
                     ui.horizontal(|ui| {
                         let (r, _) = ui.allocate_exact_size(vec2(34.0, 34.0), Sense::hover());
                         avatar(ui.painter(), r.center(), &c.author, 16.0);
                         ui.vertical(|ui| {
                             ui.spacing_mut().item_spacing.y = 2.0;
-                            ui.label(RichText::new(&c.author).strong().color(TEXT));
-                            ui.label(RichText::new(format!("{}  ·  {}", absolute(c.time), relative(now, c.time))).size(11.5).color(TEXT3))
+                            ui.label(RichText::new(&c.author).strong().color(TEXT()));
+                            ui.label(RichText::new(format!("{}  ·  {}", absolute(c.time), relative(now, c.time))).size(11.5).color(TEXT3()))
                                 .on_hover_text(&c.email);
                         });
                     });
@@ -914,12 +927,12 @@ impl GitView {
                     ui.horizontal_wrapped(|ui| {
                         ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
                         let short = &c.hash[..10.min(c.hash.len())];
-                        if hash_chip(ui, short, ACCENT).on_hover_text(t("点击复制完整哈希")).clicked() {
+                        if hash_chip(ui, short, ACCENT()).on_hover_text(t("点击复制完整哈希")).clicked() {
                             ui.ctx().copy_text(c.hash.clone());
-                            self.events.push(GitEvt::Toast(t("已复制"), OK));
+                            self.events.push(GitEvt::Toast(t("已复制"), OK()));
                         }
                         for p in &c.parents {
-                            let r = hash_chip(ui, &format!("← {}", &p[..7.min(p.len())]), TEXT3).on_hover_text(t("父提交，点击跳转"));
+                            let r = hash_chip(ui, &format!("← {}", &p[..7.min(p.len())]), TEXT3()).on_hover_text(t("父提交，点击跳转"));
                             if r.clicked() {
                                 jump = Some(p.clone());
                             }
@@ -939,32 +952,32 @@ impl GitView {
                         let rest = body.strip_prefix(c.subject.trim()).unwrap_or(body).trim();
                         if !rest.is_empty() {
                             ui.add_space(10.0);
-                            egui::Frame::new().fill(BG2).corner_radius(R_WIDGET).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+                            egui::Frame::new().fill(BG2()).corner_radius(R_WIDGET).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                                 ui.set_width(ui.available_width());
-                                ui.label(RichText::new(rest).size(12.5).color(TEXT2));
+                                ui.label(RichText::new(rest).size(12.5).color(TEXT2()));
                             });
                         }
                     }
                 });
             let r = ui.available_rect_before_wrap();
-            ui.painter().hline(r.x_range(), r.top(), st(1.0, LINE));
+            ui.painter().hline(r.x_range(), r.top(), st(1.0, LINE()));
             ui.add_space(8.0);
             let Some(info) = &self.info else {
                 ui.horizontal(|ui| {
                     ui.add_space(16.0);
                     ui.spinner();
-                    ui.label(RichText::new(t("读取改动的文件…")).color(TEXT3));
+                    ui.label(RichText::new(t("读取改动的文件…")).color(TEXT3()));
                 });
                 return;
             };
             let (adds, dels): (u32, u32) = info.files.iter().fold((0, 0), |a, f| (a.0 + f.adds.unwrap_or(0), a.1 + f.dels.unwrap_or(0)));
             ui.horizontal(|ui| {
                 ui.add_space(16.0);
-                ui.label(RichText::new(tf("改动的文件  {}", &[&info.files.len()])).font(FontId::new(11.5, bold())).color(TEXT2));
+                ui.label(RichText::new(tf("改动的文件  {}", &[&info.files.len()])).font(FontId::new(11.5, bold())).color(TEXT2()));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     ui.add_space(14.0);
-                    ui.label(RichText::new(format!("−{dels}")).font(FontId::new(11.5, FontFamily::Monospace)).color(ERR));
-                    ui.label(RichText::new(format!("+{adds}")).font(FontId::new(11.5, FontFamily::Monospace)).color(OK));
+                    ui.label(RichText::new(format!("−{dels}")).font(FontId::new(11.5, FontFamily::Monospace)).color(ERR()));
+                    ui.label(RichText::new(format!("+{adds}")).font(FontId::new(11.5, FontFamily::Monospace)).color(OK()));
                 });
             });
             ui.add_space(4.0);
@@ -985,7 +998,7 @@ impl GitView {
                 self.select_commit(&h);
                 self.scroll_to_sel = true;
             } else {
-                self.toast(t("父提交不在当前列表里（可能被筛选掉了）"), WARN);
+                self.toast(t("父提交不在当前列表里（可能被筛选掉了）"), WARN());
             }
         }
         if let Some((path, _)) = open {
@@ -1010,7 +1023,7 @@ impl GitView {
             })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new(t("工作区更改")).font(FontId::new(15.0, bold())).color(TEXT));
+                    ui.label(RichText::new(t("工作区更改")).font(FontId::new(15.0, bold())).color(TEXT()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_button(ui, Icon::Refresh, &t("刷新"), false).clicked() {
                             self.load_status();
@@ -1018,15 +1031,15 @@ impl GitView {
                     });
                 });
                 if let Some(s) = &self.status {
-                    ui.label(RichText::new(&s.branch).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3));
+                    ui.label(RichText::new(&s.branch).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3()));
                 }
             });
         let Some(st_) = self.status.clone() else { return };
         if st_.files.is_empty() {
             ui.add_space(30.0);
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new("✓").size(28.0).color(OK));
-                ui.label(RichText::new(t("工作区很干净，没有未提交的更改")).color(TEXT2));
+                ui.label(RichText::new("✓").size(28.0).color(OK()));
+                ui.label(RichText::new(t("工作区很干净，没有未提交的更改")).color(TEXT2()));
             });
             return;
         }
@@ -1085,8 +1098,8 @@ impl GitView {
         let Some(d) = self.diff.as_ref() else { return };
         let bar = ui.available_rect_before_wrap();
         let bar = Rect::from_min_size(bar.min, vec2(bar.width(), 44.0));
-        ui.painter().rect_filled(bar, 0.0, BG1);
-        ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, st(1.0, LINE));
+        ui.painter().rect_filled(bar, 0.0, BG1());
+        ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, st(1.0, LINE()));
         let mut back = false;
         let mut to_code: Option<usize> = None;
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(bar.shrink2(vec2(10.0, 8.0))).layout(egui::Layout::left_to_right(egui::Align::Center)));
@@ -1102,16 +1115,16 @@ impl GitView {
                 Some((a, b)) => (format!("{a}/"), b.to_string()),
                 None => (String::new(), d.path.clone()),
             };
-            ui.label(RichText::new(name).strong().color(TEXT));
-            ui.label(RichText::new(dir).size(11.5).color(TEXT3));
+            ui.label(RichText::new(name).strong().color(TEXT()));
+            ui.label(RichText::new(dir).size(11.5).color(TEXT3()));
             ui.add_space(6.0);
-            ui.label(RichText::new(format!("+{}", d.adds)).font(FontId::new(12.0, FontFamily::Monospace)).color(OK));
-            ui.label(RichText::new(format!("−{}", d.dels)).font(FontId::new(12.0, FontFamily::Monospace)).color(ERR));
+            ui.label(RichText::new(format!("+{}", d.adds)).font(FontId::new(12.0, FontFamily::Monospace)).color(OK()));
+            ui.label(RichText::new(format!("−{}", d.dels)).font(FontId::new(12.0, FontFamily::Monospace)).color(ERR()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if icon_button(ui, Icon::Code, &t("在代码查看中打开"), false).clicked() {
                     to_code = Some(d.lines.iter().find_map(|l| (l.kind != DiffKind::Ctx).then_some(l.new).flatten()).unwrap_or(1) as usize);
                 }
-                ui.label(RichText::new(crate::app::truncate(&d.title, 60)).size(11.5).color(TEXT3));
+                ui.label(RichText::new(crate::app::truncate(&d.title, 60)).size(11.5).color(TEXT3()));
             });
         }
         ui.add_space(44.0);
@@ -1120,13 +1133,13 @@ impl GitView {
             ui.vertical_centered(|ui| ui.spinner());
         } else if let Some(e) = &d.err {
             ui.add_space(30.0);
-            ui.vertical_centered(|ui| ui.label(RichText::new(e).color(ERR)));
+            ui.vertical_centered(|ui| ui.label(RichText::new(e).color(ERR())));
         } else if d.lines.is_empty() {
             ui.add_space(30.0);
-            ui.vertical_centered(|ui| ui.label(RichText::new(t("没有文本差异（可能是二进制文件或只改了权限）")).color(TEXT3)));
+            ui.vertical_centered(|ui| ui.label(RichText::new(t("没有文本差异（可能是二进制文件或只改了权限）")).color(TEXT3())));
         } else {
             let font = FontId::new(12.5, FontFamily::Monospace);
-            let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT).size().x / 100.0);
+            let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT()).size().x / 100.0);
             let lh = 19.0;
             let gutter = 92.0;
             let width = (gutter + 24.0 + d.max_chars as f32 * cw + 40.0).max(ui.available_width());
@@ -1141,23 +1154,23 @@ impl GitView {
                         let (rect, resp) = ui.allocate_exact_size(vec2(width, lh), Sense::click());
                         let p = ui.painter();
                         let (bg, mark, mcol) = match l.kind {
-                            DiffKind::Add => (OK.gamma_multiply(0.10), "+", OK),
-                            DiffKind::Del => (ERR.gamma_multiply(0.10), "−", ERR),
-                            DiffKind::Hunk => (VIOLET.gamma_multiply(0.08), "", VIOLET),
-                            _ => (Color32::TRANSPARENT, "", TEXT3),
+                            DiffKind::Add => (OK().gamma_multiply(0.10), "+", OK()),
+                            DiffKind::Del => (ERR().gamma_multiply(0.10), "−", ERR()),
+                            DiffKind::Hunk => (VIOLET().gamma_multiply(0.08), "", VIOLET()),
+                            _ => (Color32::TRANSPARENT, "", TEXT3()),
                         };
                         p.rect_filled(rect, 0.0, bg);
                         let gr = Rect::from_min_size(rect.min, vec2(gutter, lh));
-                        p.rect_filled(gr, 0.0, if matches!(l.kind, DiffKind::Add | DiffKind::Del) { bg } else { BG1 });
+                        p.rect_filled(gr, 0.0, if matches!(l.kind, DiffKind::Add | DiffKind::Del) { bg } else { BG1() });
                         if matches!(l.kind, DiffKind::Add | DiffKind::Del) {
                             p.rect_filled(Rect::from_min_size(rect.min, vec2(3.0, lh)), 0.0, mcol);
                         }
                         let nf = FontId::new(11.0, FontFamily::Monospace);
                         if let Some(o) = l.old {
-                            p.text(pos2(rect.left() + 40.0, rect.center().y), Align2::RIGHT_CENTER, o.to_string(), nf.clone(), TEXT3);
+                            p.text(pos2(rect.left() + 40.0, rect.center().y), Align2::RIGHT_CENTER, o.to_string(), nf.clone(), TEXT3());
                         }
                         if let Some(n) = l.new {
-                            p.text(pos2(rect.left() + 82.0, rect.center().y), Align2::RIGHT_CENTER, n.to_string(), nf, TEXT3);
+                            p.text(pos2(rect.left() + 82.0, rect.center().y), Align2::RIGHT_CENTER, n.to_string(), nf, TEXT3());
                         }
                         p.text(pos2(rect.left() + gutter + 8.0, rect.center().y), Align2::LEFT_CENTER, mark, font.clone(), mcol);
                         let tx = pos2(rect.left() + gutter + 24.0, rect.top() + 2.0);
@@ -1168,13 +1181,13 @@ impl GitView {
                                     Align2::LEFT_CENTER,
                                     &l.text,
                                     font.clone(),
-                                    if l.kind == DiffKind::Hunk { VIOLET.gamma_multiply(0.9) } else { TEXT3 },
+                                    if l.kind == DiffKind::Hunk { VIOLET().gamma_multiply(0.9) } else { TEXT3() },
                                 );
                             }
                             _ => {
                                 let text = l.text.replace('\t', "    ");
                                 let g = ui.fonts(|f| f.layout_job(highlight::layout(&text, lang, font.clone())));
-                                p.galley(tx, g, TEXT);
+                                p.galley(tx, g, TEXT());
                             }
                         }
                         if resp.double_clicked() {
@@ -1183,7 +1196,7 @@ impl GitView {
                             }
                         }
                         if resp.hovered() {
-                            p.rect_stroke(rect, 0.0, st(1.0, Color32::from_white_alpha(10)), egui::StrokeKind::Inside);
+                            p.rect_stroke(rect, 0.0, st(1.0, tint(10)), egui::StrokeKind::Inside);
                         }
                     }
                 });
@@ -1198,7 +1211,7 @@ impl GitView {
             if p.exists() {
                 self.events.push(GitEvt::OpenFile(p, line.saturating_sub(1)));
             } else {
-                self.toast(t("文件在工作区里已不存在"), WARN);
+                self.toast(t("文件在工作区里已不存在"), WARN());
             }
         }
     }
@@ -1212,16 +1225,20 @@ impl GitView {
                 ui.set_width(420.0);
                 ui.horizontal(|ui| {
                     let (r, _) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::hover());
-                    draw_icon(ui.painter(), r, Icon::Branch, VIOLET);
-                    ui.label(RichText::new(&c.title).font(FontId::new(15.0, bold())).color(TEXT));
+                    draw_icon(ui.painter(), r, Icon::Branch, VIOLET());
+                    ui.label(RichText::new(&c.title).font(FontId::new(15.0, bold())).color(TEXT()));
                 });
                 ui.add_space(10.0);
-                ui.label(RichText::new(&c.body).color(TEXT2));
+                ui.label(RichText::new(&c.body).color(TEXT2()));
                 ui.add_space(8.0);
-                ui.label(RichText::new(format!("git {}", c.args.join(" "))).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3));
+                ui.label(RichText::new(format!("git {}", c.args.join(" "))).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3()));
                 ui.add_space(16.0);
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    if ui.add(egui::Button::new(RichText::new(&c.ok).color(BG0).strong()).fill(VIOLET).min_size(vec2(90.0, 30.0))).clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                    if ui
+                        .add(egui::Button::new(RichText::new(&c.ok).color(ON_ACCENT()).strong()).fill(VIOLET()).min_size(vec2(90.0, 30.0)))
+                        .clicked()
+                        || ui.input(|i| i.key_pressed(Key::Enter))
+                    {
                         done = Some(true);
                     }
                     if ui.add(egui::Button::new(t("取消")).min_size(vec2(80.0, 30.0))).clicked() {
@@ -1274,40 +1291,40 @@ fn draw_graph_row(p: &egui::Painter, rect: Rect, g: &GraphRow, merge: bool, head
     let c = pos2(x(g.lane), yc);
     let col = lane_col(g.lane);
     if head {
-        p.circle(c, 6.5, BG0, st(2.0, col));
+        p.circle(c, 6.5, BG0(), st(2.0, col));
         p.circle_filled(c, 3.0, col);
     } else if merge {
-        p.circle(c, 4.5, BG0, st(1.8, col));
+        p.circle(c, 4.5, BG0(), st(1.8, col));
     } else {
-        p.circle(c, 4.5, col, st(2.0, BG0));
+        p.circle(c, 4.5, col, st(2.0, BG0()));
     }
 }
 
 /// 解析 git log 的 %D：HEAD -> main / origin/main / tag: v1.0
 fn ref_style(r: &str) -> (String, Color32, bool) {
     if let Some(b) = r.strip_prefix("HEAD -> ") {
-        (b.to_string(), ACCENT, true)
+        (b.to_string(), ACCENT(), true)
     } else if r == "HEAD" {
-        ("HEAD".into(), ACCENT, true)
+        ("HEAD".into(), ACCENT(), true)
     } else if let Some(t) = r.strip_prefix("tag: ") {
-        (t.to_string(), WARN, false)
+        (t.to_string(), WARN(), false)
     } else if r.contains('/') {
-        (r.to_string(), VIOLET, false)
+        (r.to_string(), VIOLET(), false)
     } else {
-        (r.to_string(), OK, false)
+        (r.to_string(), OK(), false)
     }
 }
 
 fn ref_width(ui: &Ui, r: &str) -> f32 {
     let (s, ..) = ref_style(r);
-    ui.fonts(|f| f.layout_no_wrap(s, FontId::new(11.0, FontFamily::Monospace), TEXT).size().x) + 18.0
+    ui.fonts(|f| f.layout_no_wrap(s, FontId::new(11.0, FontFamily::Monospace), TEXT()).size().x) + 18.0
 }
 
 /// 画一个引用标签，返回宽度
 fn ref_pill(p: &egui::Painter, left_center: egui::Pos2, r: &str) -> f32 {
     let (s, col, head) = ref_style(r);
     let tag = r.starts_with("tag: ");
-    let g = p.layout_no_wrap(s, FontId::new(11.0, FontFamily::Monospace), if head { BG0 } else { col });
+    let g = p.layout_no_wrap(s, FontId::new(11.0, FontFamily::Monospace), if head { ON_ACCENT() } else { col });
     let w = g.size().x + if tag { 18.0 } else { 14.0 };
     let rect = Rect::from_min_size(pos2(left_center.x, left_center.y - 9.0), vec2(w, 18.0));
     if head {
@@ -1332,7 +1349,7 @@ fn ref_pill(p: &egui::Painter, left_center: egui::Pos2, r: &str) -> f32 {
 
 fn avatar(p: &egui::Painter, c: egui::Pos2, name: &str, r: f32) {
     let h = name.bytes().fold(7u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
-    let col = LANE_COLORS[(h as usize) % LANE_COLORS.len()];
+    let col = lane_colors()[(h as usize) % 8];
     p.circle_filled(c, r, col.gamma_multiply(0.22));
     let ch = name.chars().next().map(|c| c.to_uppercase().to_string()).unwrap_or_default();
     p.text(c, Align2::CENTER_CENTER, ch, FontId::new(r * 1.05, bold()), col);
@@ -1344,8 +1361,8 @@ fn search_box(ui: &mut Ui, v: &mut String, hint: &str, w: f32) -> bool {
     let id = egui::Id::new(("search-box", hint));
     let focused = ui.memory(|m| m.has_focus(id));
     ui.painter()
-        .rect(rect, R_WIDGET, BG2, st(1.0, if focused { ACCENT.gamma_multiply(0.7) } else { LINE }), egui::StrokeKind::Inside);
-    draw_icon(ui.painter(), Rect::from_center_size(pos2(rect.left() + 15.0, rect.center().y), vec2(13.0, 13.0)), Icon::Search, TEXT3);
+        .rect(rect, R_WIDGET, BG2(), st(1.0, if focused { ACCENT().gamma_multiply(0.7) } else { LINE() }), egui::StrokeKind::Inside);
+    draw_icon(ui.painter(), Rect::from_center_size(pos2(rect.left() + 15.0, rect.center().y), vec2(13.0, 13.0)), Icon::Search, TEXT3());
     let inner = Rect::from_min_max(pos2(rect.left() + 28.0, rect.top()), pos2(rect.right() - 6.0, rect.bottom()));
     let r = ui.put(
         inner,
@@ -1361,8 +1378,8 @@ fn search_box(ui: &mut Ui, v: &mut String, hint: &str, w: f32) -> bool {
 
 fn hash_chip(ui: &mut Ui, s: &str, col: Color32) -> egui::Response {
     let b = egui::Button::new(RichText::new(s).font(FontId::new(11.5, FontFamily::Monospace)).color(col))
-        .fill(BG2)
-        .stroke(st(1.0, LINE))
+        .fill(BG2())
+        .stroke(st(1.0, LINE()))
         .corner_radius(CornerRadius::same(5))
         .min_size(vec2(0.0, 22.0));
     let r = ui.add(b);
@@ -1376,23 +1393,23 @@ fn nav_row(ui: &mut Ui, icon: Icon, label: &str, badge: Option<String>, active: 
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(r, 0.0, ACCENT.gamma_multiply(0.10));
-        p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, ACCENT);
+        p.rect_filled(r, 0.0, ACCENT().gamma_multiply(0.10));
+        p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, ACCENT());
     } else if resp.hovered() {
-        p.rect_filled(r, 0.0, Color32::from_white_alpha(7));
+        p.rect_filled(r, 0.0, tint(7));
     }
     draw_icon(
         p,
         Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(14.0, 14.0)),
         icon,
-        if active { ACCENT } else { TEXT2 },
+        if active { ACCENT() } else { TEXT2() },
     );
     p.text(
         pos2(r.left() + 36.0, r.center().y),
         Align2::LEFT_CENTER,
         label,
         FontId::proportional(13.0),
-        if active { TEXT } else { TEXT2 },
+        if active { TEXT() } else { TEXT2() },
     );
     if let Some(b) = badge {
         let g = p.layout_no_wrap(b, FontId::new(10.5, mono_bold()), col);
@@ -1409,20 +1426,20 @@ fn nav_row(ui: &mut Ui, icon: Icon, label: &str, badge: Option<String>, active: 
 fn section_header(ui: &mut Ui, title: &str, n: usize, open: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
     let p = ui.painter();
-    chevron(p, pos2(r.left() + 14.0, r.center().y), open, TEXT3);
+    chevron(p, pos2(r.left() + 14.0, r.center().y), open, TEXT3());
     p.text(
         pos2(r.left() + 26.0, r.center().y),
         Align2::LEFT_CENTER,
         title.to_uppercase(),
         FontId::new(11.0, bold()),
-        if resp.hovered() { TEXT } else { TEXT2 },
+        if resp.hovered() { TEXT() } else { TEXT2() },
     );
     p.text(
         pos2(r.right() - 14.0, r.center().y),
         Align2::RIGHT_CENTER,
         n.to_string(),
         FontId::new(11.0, FontFamily::Monospace),
-        TEXT3,
+        TEXT3(),
     );
     resp
 }
@@ -1431,21 +1448,21 @@ fn branch_row(ui: &mut Ui, b: &Branch, active: bool) -> egui::Response {
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(r, 0.0, VIOLET.gamma_multiply(0.12));
-        p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, VIOLET);
+        p.rect_filled(r, 0.0, VIOLET().gamma_multiply(0.12));
+        p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, VIOLET());
     } else if resp.hovered() {
-        p.rect_filled(r, 0.0, Color32::from_white_alpha(7));
+        p.rect_filled(r, 0.0, tint(7));
     }
     let x = r.left() + 30.0;
     let ic = Rect::from_center_size(pos2(x, r.center().y), vec2(13.0, 13.0));
     let col = match b.kind {
-        RefKind::Local => OK,
-        RefKind::Remote => VIOLET,
-        RefKind::Tag => WARN,
+        RefKind::Local => OK(),
+        RefKind::Remote => VIOLET(),
+        RefKind::Tag => WARN(),
     };
     if b.head {
-        p.circle_filled(ic.center(), 4.0, ACCENT);
-        p.circle_stroke(ic.center(), 7.0, st(1.0, ACCENT.gamma_multiply(0.4)));
+        p.circle_filled(ic.center(), 4.0, ACCENT());
+        p.circle_stroke(ic.center(), 7.0, st(1.0, ACCENT().gamma_multiply(0.4)));
     } else if b.kind == RefKind::Tag {
         let c = ic.center();
         p.add(egui::Shape::convex_polygon(
@@ -1460,12 +1477,12 @@ fn branch_row(ui: &mut Ui, b: &Branch, active: bool) -> egui::Response {
     let mut right = r.right() - 12.0;
     let small = FontId::new(10.5, FontFamily::Monospace);
     if b.gone {
-        let g = p.layout_no_wrap(t("上游已删"), FontId::proportional(10.5), ERR);
+        let g = p.layout_no_wrap(t("上游已删"), FontId::proportional(10.5), ERR());
         right -= g.size().x;
-        p.galley(pos2(right, r.center().y - g.size().y / 2.0), g, ERR);
+        p.galley(pos2(right, r.center().y - g.size().y / 2.0), g, ERR());
         right -= 8.0;
     } else {
-        for (n, arrow, c) in [(b.behind, "↓", WARN), (b.ahead, "↑", OK)] {
+        for (n, arrow, c) in [(b.behind, "↓", WARN()), (b.ahead, "↑", OK())] {
             if n > 0 {
                 let g = p.layout_no_wrap(format!("{arrow}{n}"), small.clone(), c);
                 let br = Rect::from_min_max(pos2(right - g.size().x - 10.0, r.center().y - 8.0), pos2(right, r.center().y + 8.0));
@@ -1475,10 +1492,10 @@ fn branch_row(ui: &mut Ui, b: &Branch, active: bool) -> egui::Response {
             }
         }
         if b.ahead == 0 && b.behind == 0 {
-            let g = p.layout_no_wrap(relative(now_secs(), b.time), FontId::proportional(10.5), TEXT3);
+            let g = p.layout_no_wrap(relative(now_secs(), b.time), FontId::proportional(10.5), TEXT3());
             if resp.hovered() || active {
                 right -= g.size().x;
-                p.galley(pos2(right, r.center().y - g.size().y / 2.0), g, TEXT3);
+                p.galley(pos2(right, r.center().y - g.size().y / 2.0), g, TEXT3());
                 right -= 8.0;
             }
         }
@@ -1486,7 +1503,7 @@ fn branch_row(ui: &mut Ui, b: &Branch, active: bool) -> egui::Response {
     let name_r = Rect::from_min_max(pos2(x + 12.0, r.top()), pos2(right, r.bottom()));
     let np = p.with_clip_rect(name_r);
     let font = if b.head { FontId::new(12.5, mono_bold()) } else { FontId::new(12.5, FontFamily::Monospace) };
-    np.text(pos2(name_r.left(), r.center().y), Align2::LEFT_CENTER, &b.name, font, if b.head { TEXT } else { TEXT2 });
+    np.text(pos2(name_r.left(), r.center().y), Align2::LEFT_CENTER, &b.name, font, if b.head { TEXT() } else { TEXT2() });
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -1508,10 +1525,10 @@ fn file_row(ui: &mut Ui, status: char, path: &str, adds: Option<u32>, dels: Opti
     let r = tree_row(ui, 0, name, (!dir.is_empty()).then_some(dir), false, None, active, None);
     let p = ui.painter();
     let col = match mark {
-        'A' => OK,
-        'D' => ERR,
-        'R' => VIOLET,
-        _ => WARN,
+        'A' => OK(),
+        'D' => ERR(),
+        'R' => VIOLET(),
+        _ => WARN(),
     };
     let mut right = r.rect.right() - 12.0;
     p.text(
@@ -1527,10 +1544,10 @@ fn file_row(ui: &mut Ui, status: char, path: &str, adds: Option<u32>, dels: Opti
         let tot = (a + d).max(1) as f32;
         let w = 30.0;
         let bar = Rect::from_min_size(pos2(right - w, r.rect.center().y - 2.0), vec2(w, 4.0));
-        p.rect_filled(bar, 2.0, BG3);
+        p.rect_filled(bar, 2.0, BG3());
         let aw = w * a as f32 / tot;
-        p.rect_filled(Rect::from_min_size(bar.min, vec2(aw, 4.0)), 2.0, OK.gamma_multiply(0.8));
-        p.rect_filled(Rect::from_min_max(pos2(bar.left() + aw, bar.top()), bar.max), 2.0, ERR.gamma_multiply(0.8));
+        p.rect_filled(Rect::from_min_size(bar.min, vec2(aw, 4.0)), 2.0, OK().gamma_multiply(0.8));
+        p.rect_filled(Rect::from_min_max(pos2(bar.left() + aw, bar.top()), bar.max), 2.0, ERR().gamma_multiply(0.8));
         let _ = right;
     }
     r

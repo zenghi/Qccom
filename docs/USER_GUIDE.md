@@ -26,7 +26,15 @@ The thin **activity bar** on the far left switches between the three pages:
 | `</>` | **Code**: browse source code next to the log. |
 | Branch | **Git**: branches, commit graph and diffs. |
 
-At the bottom of the activity bar, the **globe** opens the language menu and the **download arrow** checks for updates.
+The **gear** at the bottom of the activity bar holds everything you need less often: the command palette, settings, keyboard shortcuts, theme, language, update check and About. A **download arrow** appears above it only while an update needs your attention.
+
+### Command palette
+
+Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for example *theme*, *clear* or *shortcut*. Arrow keys move, Enter runs, Esc closes. Every command, theme, language and settings page is listed, and the ones you used recently come first.
+
+### Settings
+
+`Ctrl+,` opens the settings page: General, Appearance, Log, Connection, Code Editor, Keyboard Shortcuts and About. The search box at the top filters every option. Press Esc or click × to go back to where you were.
 
 The Debug page has three columns:
 
@@ -59,7 +67,7 @@ A port that the scanner cannot see, such as a virtual `/dev/pts/3`, can be passe
 - **Level filter.** The `ALL` / `ERR` / `WRN` / `INF` / `DBG` chips show live counts. Click one to show that level and above.
 - **Pause** (`Ctrl+P`) freezes the view while data keeps arriving in the background, so nothing is lost.
 - **Scrolling** up stops auto scroll. A **Back to latest** button appears to resume it.
-- **Selecting.** Click a line to select it, Shift+click to select a range, then `Ctrl+C` to copy. Right-click a line for more options.
+- **Selecting.** Drag to select any text, double-click for a word, triple-click for a whole line. Click the line-number gutter to select whole lines (Shift+click for a range). Dragging past the top or bottom edge scrolls. `Ctrl+C` copies without timestamps by default; turn on *Include timestamps when copying* in Settings → Log, or right-click and pick **Copy with timestamps**.
 - **Save** (`Ctrl+S`) writes the current log to a file. **Copy** puts it on the clipboard. **Record** appends every new line to a file as it arrives, which is ideal for overnight captures.
 - **Clear** with `Ctrl+L`.
 
@@ -139,9 +147,13 @@ Click the branch icon in the activity bar. It opens the repository that contains
 - **Branches, remotes and tags** in the sidebar: click one to show only its history, double-click to check it out, and right-click for more actions. Checking out a remote branch creates a local tracking branch. Checking out a tag (or a commit, from its context menu) gives a detached HEAD. QCCOM warns you first when you have uncommitted changes and explains in plain language why a checkout failed.
 - **Commit details**: message, author, date, parent links and changed files with add / delete bars. Click a file for a line-numbered, highlighted diff. Double-click a diff line to open that file at that line in the code viewer.
 
+## Theme
+
+Dark, Light or **System default** (follows the operating system and switches live). Change it in Settings → Appearance, from the gear menu, or with `Ctrl+K Ctrl+T`. Every color, including popups, code highlighting and log levels, is tuned for at least 4.5:1 contrast in both themes. Settings → Appearance also has a UI scale for high-DPI screens.
+
 ## Language
 
-QCCOM follows the system language on first start. To change it, click the globe at the bottom of the activity bar. Choosing **Follow system** returns to automatic detection. The change takes effect immediately.
+QCCOM follows the system language on first start. To change it, open the gear menu → Language, or search *language* in the command palette. Choosing **Follow system** returns to automatic detection. The change takes effect immediately.
 
 Supported: English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Español, Русский, Português.
 
@@ -149,13 +161,25 @@ Supported: English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, F
 
 A few seconds after start, QCCOM checks for a newer version. If one exists, a card in the bottom-right corner shows the version, date and release notes, with **Update now**, **Later** and **Skip this version**. After the download is verified, **Restart and update** replaces the program and starts the new version. Your settings are kept.
 
-- Click the download icon in the activity bar to check at any time.
-- Right-click the download icon, or use the switch on the card, to turn the automatic check off.
+- Gear menu → **Check for updates** checks at any time.
+- Settings → General, or the switch on the card, turns the automatic check off.
 - On Linux, an update is downloaded automatically only if the publisher provides a Linux build. Otherwise **Open download page** takes you to the Releases page.
 
 Publishers: see [UPDATE_SERVER.md](UPDATE_SERVER.md).
 
 ## Keyboard shortcuts
+
+Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S`): click a key to record a new one, right-click to reset or remove, and add more than one binding per command. Two combos pressed in a row make a sequence such as `Ctrl+K Ctrl+T`; the status bar shows the first half while it waits. Conflicts are flagged, and the whole set can be exported to or imported from a JSON file. The tables below list the defaults.
+
+**Everywhere**
+
+| Keys | Action |
+|---|---|
+| Ctrl+Shift+P / F1 | Command palette |
+| Ctrl+, | Settings |
+| Ctrl+K Ctrl+S | Keyboard shortcuts |
+| Ctrl+K Ctrl+T | Toggle dark / light theme |
+| Ctrl+Shift+D / E / G | Debug / Code / Git page |
 
 **Debug page**
 
@@ -171,7 +195,8 @@ Publishers: see [UPDATE_SERVER.md](UPDATE_SERVER.md).
 | Ctrl+B | Show / hide the sidebar |
 | Ctrl+J | Show / hide quick commands |
 | Alt+1 … 9 | Send quick command 1–9 of the current group |
-| Ctrl+C | Copy the selected lines |
+| Ctrl+A | Select the whole log |
+| Ctrl+C | Copy the selection |
 | Esc | Clear the selection |
 | Ctrl+\` | Switch between Log and Terminal |
 

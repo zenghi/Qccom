@@ -8,6 +8,7 @@ mod git;
 mod gitview;
 mod highlight;
 mod i18n;
+mod keymap;
 mod logbuf;
 mod net;
 mod serial;

@@ -476,21 +476,35 @@ const MAKE_KW: &[&str] = &[
     "default",
 ];
 
-/// 高亮配色（接近 VS Code Dark+，但和本程序的青色主题协调）
+/// 高亮配色：深色接近 VS Code Dark+，浅色接近 Light+，都和本程序的主题色协调
 pub mod pal {
     use eframe::egui::Color32;
-    pub const TEXT: Color32 = Color32::from_rgb(0xd4, 0xd8, 0xe0);
-    pub const KW: Color32 = Color32::from_rgb(0xc5, 0x86, 0xc0);
-    pub const TY: Color32 = Color32::from_rgb(0x4e, 0xc9, 0xb0);
-    pub const FUNC: Color32 = Color32::from_rgb(0xdc, 0xdc, 0xaa);
-    pub const STR: Color32 = Color32::from_rgb(0xce, 0x91, 0x78);
-    pub const NUM: Color32 = Color32::from_rgb(0xb5, 0xce, 0xa8);
-    pub const COMMENT: Color32 = Color32::from_rgb(0x6a, 0x99, 0x55);
-    pub const PRE: Color32 = Color32::from_rgb(0xc5, 0x86, 0xc0);
-    pub const MACRO: Color32 = Color32::from_rgb(0x4f, 0xc1, 0xff);
-    pub const CONST: Color32 = Color32::from_rgb(0x56, 0x9c, 0xd6);
-    pub const PUNCT: Color32 = Color32::from_rgb(0x9d, 0xa5, 0xb4);
-    pub const HEAD: Color32 = Color32::from_rgb(0x2d, 0xe2, 0xe6);
+    macro_rules! syn {
+        ($($name:ident: $d:expr, $l:expr;)*) => {
+            $(
+                #[allow(non_snake_case)]
+                pub fn $name() -> Color32 {
+                    let (d, l): ((u8, u8, u8), (u8, u8, u8)) = ($d, $l);
+                    let c = if crate::theme::is_light() { l } else { d };
+                    Color32::from_rgb(c.0, c.1, c.2)
+                }
+            )*
+        };
+    }
+    syn! {
+        TEXT: (0xd4, 0xd8, 0xe0), (0x1f, 0x23, 0x28);
+        KW: (0xc5, 0x86, 0xc0), (0xaf, 0x00, 0xdb);
+        TY: (0x4e, 0xc9, 0xb0), (0x26, 0x7f, 0x99);
+        FUNC: (0xdc, 0xdc, 0xaa), (0x79, 0x5e, 0x26);
+        STR: (0xce, 0x91, 0x78), (0xa3, 0x15, 0x15);
+        NUM: (0xb5, 0xce, 0xa8), (0x09, 0x86, 0x58);
+        COMMENT: (0x6a, 0x99, 0x55), (0x00, 0x80, 0x00);
+        PRE: (0xc5, 0x86, 0xc0), (0xaf, 0x00, 0xdb);
+        MACRO: (0x4f, 0xc1, 0xff), (0x00, 0x70, 0xc1);
+        CONST: (0x56, 0x9c, 0xd6), (0x00, 0x00, 0xff);
+        PUNCT: (0x9d, 0xa5, 0xb4), (0x5a, 0x63, 0x70);
+        HEAD: (0x2d, 0xe2, 0xe6), (0x08, 0x7f, 0x8c);
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -511,18 +525,18 @@ enum Tok {
 
 fn color(t: Tok) -> Color32 {
     match t {
-        Tok::Text => pal::TEXT,
-        Tok::Kw => pal::KW,
-        Tok::Ty => pal::TY,
-        Tok::Func => pal::FUNC,
-        Tok::Str => pal::STR,
-        Tok::Num => pal::NUM,
-        Tok::Comment => pal::COMMENT,
-        Tok::Pre => pal::PRE,
-        Tok::Macro => pal::MACRO,
-        Tok::Const => pal::CONST,
-        Tok::Punct => pal::PUNCT,
-        Tok::Head => pal::HEAD,
+        Tok::Text => pal::TEXT(),
+        Tok::Kw => pal::KW(),
+        Tok::Ty => pal::TY(),
+        Tok::Func => pal::FUNC(),
+        Tok::Str => pal::STR(),
+        Tok::Num => pal::NUM(),
+        Tok::Comment => pal::COMMENT(),
+        Tok::Pre => pal::PRE(),
+        Tok::Macro => pal::MACRO(),
+        Tok::Const => pal::CONST(),
+        Tok::Punct => pal::PUNCT(),
+        Tok::Head => pal::HEAD(),
     }
 }
 
@@ -775,7 +789,7 @@ pub fn layout(text: &str, lang: Lang, font: FontId) -> LayoutJob {
             byte_range: 0..text.len(),
             format: TextFormat {
                 font_id: font,
-                color: pal::TEXT,
+                color: pal::TEXT(),
                 ..Default::default()
             },
         });

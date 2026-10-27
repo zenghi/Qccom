@@ -37,15 +37,16 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
 - **Recording and export.** Save or copy the log, or record every new line to a file for long unattended captures.
 - **Self-update** from your own server, with SHA-256 verification. See [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
+- **Dark and light themes** (or follow the system), a searchable **command palette** (`Ctrl+Shift+P`), a settings page, and **fully customizable keyboard shortcuts** including two-step sequences.
 - **10 UI languages**, picked automatically from the system locale: English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Español, Русский, Português.
 
 | Code viewer | Git history |
 |---|---|
 | ![Code viewer](docs/screenshot-code.png) | ![Git viewer](docs/screenshot-git.png) |
 
-| Terminal mode |
-|---|
-| ![Terminal](docs/screenshot-terminal.png) |
+| Terminal mode | Light theme |
+|---|---|
+| ![Terminal](docs/screenshot-terminal.png) | ![Light theme](docs/screenshot-light.png) |
 
 ## Download
 
@@ -106,7 +107,9 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/gitview.rs`, `src/git.rs` | Git viewer UI and the `git` CLI wrapper |
 | `src/update.rs` | Self-update (version check, download, verify, replace) |
 | `src/i18n.rs`, `assets/i18n.tsv` | Translations |
-| `src/theme.rs` | Colors, fonts, icons |
+| `src/theme.rs` | Dark / light palettes, fonts |
+| `src/keymap.rs` | Commands, default shortcuts, user overrides |
+| `src/app/palette.rs`, `src/app/prefs.rs` | Command palette, settings page and shortcut editor |
 | `assets/` | App icon, bundled fonts (Inter, JetBrains Mono, SIL OFL 1.1) |
 | `build.rs` | Embeds the icon and version info into the Windows executable |
 

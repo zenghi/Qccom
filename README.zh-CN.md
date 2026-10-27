@@ -37,15 +37,16 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **Git 查看器**：本地 / 远程分支和标签、所有分支的提交图、提交详情、带行号的差异对比、工作区状态、切换分支、拉取。
 - **录制与导出**：保存或复制日志；也可以把之后的每一行实时写入文件，适合长时间挂机抓日志。
 - **自动更新**：从你自己的服务器检查新版本，下载后做 SHA-256 校验再替换。格式见 [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md)。
+- **深色 / 浅色主题**（或跟随系统）、可搜索的**命令面板**（`Ctrl+Shift+P`）、设置中心，以及**完全可自定义的快捷键**（支持 Ctrl+K Ctrl+S 这类序列键）。
 - **10 种界面语言**，按系统语言自动选择：English、简体中文、繁體中文、日本語、한국어、Deutsch、Français、Español、Русский、Português。
 
 | 代码浏览器 | Git 历史 |
 |---|---|
 | ![代码浏览器](docs/screenshot-code.png) | ![Git 查看器](docs/screenshot-git.png) |
 
-| 终端模式 |
-|---|
-| ![终端](docs/screenshot-terminal.png) |
+| 终端模式 | 浅色主题 |
+|---|---|
+| ![终端](docs/screenshot-terminal.png) | ![浅色主题](docs/screenshot-light.png) |
 
 ## 下载
 

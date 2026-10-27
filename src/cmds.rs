@@ -118,9 +118,9 @@ impl CmdPanel {
 
         // 标题
         ui.horizontal(|ui| {
-            ui.label(RichText::new(t("快捷命令")).font(FontId::new(14.0, bold())).color(TEXT));
+            ui.label(RichText::new(t("快捷命令")).font(FontId::new(14.0, bold())).color(TEXT()));
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new("Alt+1…9").font(FontId::new(10.5, FontFamily::Monospace)).color(TEXT3))
+                ui.label(RichText::new("Alt+1…9").font(FontId::new(10.5, FontFamily::Monospace)).color(TEXT3()))
                     .on_hover_text(t("Alt+数字键：发送当前分组的第 1–9 条命令"));
             });
         });
@@ -164,7 +164,7 @@ impl CmdPanel {
                         groups.insert(i + 1, g);
                         ui.close_menu();
                     }
-                    if groups.len() > 1 && ui.button(RichText::new(t("删除分组")).color(ERR)).clicked() {
+                    if groups.len() > 1 && ui.button(RichText::new(t("删除分组")).color(ERR())).clicked() {
                         remove = Some(i);
                         ui.close_menu();
                     }
@@ -176,9 +176,9 @@ impl CmdPanel {
                 self.editing = None;
             }
             let r = ui.add(
-                egui::Button::new(RichText::new("+").font(FontId::new(14.0, bold())).color(TEXT2))
-                    .fill(BG2)
-                    .stroke(st(1.0, LINE))
+                egui::Button::new(RichText::new("+").font(FontId::new(14.0, bold())).color(TEXT2()))
+                    .fill(BG2())
+                    .stroke(st(1.0, LINE()))
                     .corner_radius(CornerRadius::same(6))
                     .min_size(vec2(28.0, 26.0)),
             );
@@ -188,7 +188,7 @@ impl CmdPanel {
                 self.renaming = Some((*cur, groups[*cur].name.clone()));
             }
         });
-        ui.label(RichText::new(t("双击分组名可重命名，右键更多操作")).small().color(TEXT3));
+        ui.label(RichText::new(t("双击分组名可重命名，右键更多操作")).small().color(TEXT3()));
         ui.add_space(8.0);
 
         let gi = *cur;
@@ -199,9 +199,9 @@ impl CmdPanel {
                 Some((g, left)) if g == gi => tf("发送中… 剩 {} 条", &[&left]),
                 _ => t("▶ 依次发送全组").into(),
             };
-            let b = egui::Button::new(RichText::new(label).size(12.0).color(if busy { WARN } else { VIOLET }))
-                .fill(VIOLET.gamma_multiply(0.08))
-                .stroke(st(1.0, VIOLET.gamma_multiply(0.35)))
+            let b = egui::Button::new(RichText::new(label).size(12.0).color(if busy { WARN() } else { VIOLET() }))
+                .fill(VIOLET().gamma_multiply(0.08))
+                .stroke(st(1.0, VIOLET().gamma_multiply(0.35)))
                 .corner_radius(CornerRadius::same(6))
                 .min_size(vec2(0.0, 26.0));
             if ui.add_enabled(connected && !groups[gi].cmds.is_empty(), b).on_hover_text(t("按顺序发送本组全部命令")).clicked() {
@@ -211,9 +211,9 @@ impl CmdPanel {
                 ui.add(egui::DragValue::new(&mut groups[gi].interval_ms).range(0..=60_000).suffix(" ms").speed(10))
                     .on_hover_text(t("依次发送时每条之间的间隔"));
                 // 地方不够（比如英文按钮更长）时就不显示“间隔”两个字，悬浮提示里有说明
-                let g = ui.fonts(|f| f.layout_no_wrap(t("间隔").into(), egui::TextStyle::Small.resolve(ui.style()), TEXT3));
+                let g = ui.fonts(|f| f.layout_no_wrap(t("间隔").into(), egui::TextStyle::Small.resolve(ui.style()), TEXT3()));
                 if ui.available_width() > g.size().x + 8.0 {
-                    ui.label(RichText::new(t("间隔")).small().color(TEXT3));
+                    ui.label(RichText::new(t("间隔")).small().color(TEXT3()));
                 }
             });
         });
@@ -251,7 +251,7 @@ impl CmdPanel {
                         swap = Some((ci, ci + 1));
                         ui.close_menu();
                     }
-                    if ui.button(RichText::new(t("删除")).color(ERR)).clicked() {
+                    if ui.button(RichText::new(t("删除")).color(ERR())).clicked() {
                         del = Some(ci);
                         ui.close_menu();
                     }
@@ -263,7 +263,7 @@ impl CmdPanel {
                 self.editing = Some((gi, None, QuickCmd::default()));
             }
             ui.add_space(4.0);
-            ui.label(RichText::new(t("点击发送 · 右键编辑 / 排序 / 删除")).small().color(TEXT3));
+            ui.label(RichText::new(t("点击发送 · 右键编辑 / 排序 / 删除")).small().color(TEXT3()));
         });
         if let Some(i) = del {
             groups[gi].cmds.remove(i);
@@ -278,13 +278,13 @@ impl CmdPanel {
         let Some((gi, ci, draft)) = &mut self.editing else { return };
         let mut done: Option<bool> = None;
         egui::Frame::new()
-            .fill(BG2)
-            .stroke(st(1.0, ACCENT.gamma_multiply(0.5)))
+            .fill(BG2())
+            .stroke(st(1.0, ACCENT().gamma_multiply(0.5)))
             .corner_radius(R_CARD)
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
-                ui.label(RichText::new(if ci.is_some() { t("编辑命令") } else { t("新命令") }).font(FontId::new(12.0, bold())).color(ACCENT));
+                ui.label(RichText::new(if ci.is_some() { t("编辑命令") } else { t("新命令") }).font(FontId::new(12.0, bold())).color(ACCENT()));
                 ui.add(
                     egui::TextEdit::singleline(&mut draft.name)
                         .hint_text(t("名称（可留空）"))
@@ -313,11 +313,11 @@ impl CmdPanel {
                 });
                 let err = if draft.hex && !draft.payload.trim().is_empty() { parse_hex(&draft.payload).err() } else { None };
                 if let Some(e) = &err {
-                    ui.label(RichText::new(e).small().color(ERR));
+                    ui.label(RichText::new(e).small().color(ERR()));
                 }
                 ui.horizontal(|ui| {
-                    let ok = egui::Button::new(RichText::new(t("保存")).color(BG0).font(FontId::new(12.5, bold())))
-                        .fill(ACCENT)
+                    let ok = egui::Button::new(RichText::new(t("保存")).color(ON_ACCENT()).font(FontId::new(12.5, bold())))
+                        .fill(ACCENT())
                         .corner_radius(CornerRadius::same(5));
                     if ui.add_enabled(!draft.payload.trim().is_empty() && err.is_none(), ok).clicked() {
                         done = Some(true);
@@ -348,21 +348,27 @@ impl CmdPanel {
 fn tab(ui: &mut egui::Ui, name: &str, n: usize, on: bool) -> egui::Response {
     let font = FontId::new(12.0, if on { bold() } else { FontFamily::Proportional });
     let num = FontId::new(10.5, FontFamily::Monospace);
-    let tw = ui.fonts(|f| f.layout_no_wrap(name.to_string(), font.clone(), TEXT).size().x);
-    let nw = ui.fonts(|f| f.layout_no_wrap(n.to_string(), num.clone(), TEXT).size().x);
+    let tw = ui.fonts(|f| f.layout_no_wrap(name.to_string(), font.clone(), TEXT()).size().x);
+    let nw = ui.fonts(|f| f.layout_no_wrap(n.to_string(), num.clone(), TEXT()).size().x);
     let (rect, resp) = ui.allocate_exact_size(vec2(tw + nw + 26.0, 26.0), Sense::click());
     let p = ui.painter();
     let hov = resp.hovered();
     let fill = if on {
-        ACCENT.gamma_multiply(0.12)
+        ACCENT().gamma_multiply(0.12)
     } else if hov {
-        BG3
+        BG3()
     } else {
-        BG2
+        BG2()
     };
-    p.rect(rect, CornerRadius::same(6), fill, st(1.0, if on { ACCENT.gamma_multiply(0.5) } else { LINE }), egui::StrokeKind::Inside);
-    p.text(pos2(rect.left() + 10.0, rect.center().y), Align2::LEFT_CENTER, name, font, if on { ACCENT } else { TEXT2 });
-    p.text(pos2(rect.right() - 9.0, rect.center().y), Align2::RIGHT_CENTER, n.to_string(), num, TEXT3);
+    p.rect(
+        rect,
+        CornerRadius::same(6),
+        fill,
+        st(1.0, if on { ACCENT().gamma_multiply(0.5) } else { LINE() }),
+        egui::StrokeKind::Inside,
+    );
+    p.text(pos2(rect.left() + 10.0, rect.center().y), Align2::LEFT_CENTER, name, font, if on { ACCENT() } else { TEXT2() });
+    p.text(pos2(rect.right() - 9.0, rect.center().y), Align2::RIGHT_CENTER, n.to_string(), num, TEXT3());
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -376,42 +382,48 @@ fn cmd_card(ui: &mut egui::Ui, c: &QuickCmd, idx: usize, connected: bool) -> egu
     let hov = resp.hovered();
     let pressed = resp.is_pointer_button_down_on();
     let fill = if pressed && connected {
-        VIOLET.gamma_multiply(0.18)
+        VIOLET().gamma_multiply(0.18)
     } else if hov {
-        BG3
+        BG3()
     } else {
-        BG2
+        BG2()
     };
     p.rect(
         rect,
         CornerRadius::same(7),
         fill,
-        st(1.0, if hov && connected { VIOLET.gamma_multiply(0.6) } else { LINE }),
+        st(1.0, if hov && connected { VIOLET().gamma_multiply(0.6) } else { LINE() }),
         egui::StrokeKind::Inside,
     );
     // 序号徽标（Alt+数字快捷键）
     let badge = Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(20.0, 20.0));
-    p.rect_filled(badge, CornerRadius::same(5), if idx < 9 { BG3 } else { BG2 });
+    p.rect_filled(badge, CornerRadius::same(5), if idx < 9 { BG3() } else { BG2() });
     if idx < 9 {
-        p.text(badge.center(), Align2::CENTER_CENTER, (idx + 1).to_string(), FontId::new(11.0, mono_bold()), TEXT2);
+        p.text(badge.center(), Align2::CENTER_CENTER, (idx + 1).to_string(), FontId::new(11.0, mono_bold()), TEXT2());
     }
     let x = rect.left() + 36.0;
     let maxw = rect.width() - 36.0 - 52.0;
     let name = clip(ui, &c.name, FontId::new(12.5, bold()), maxw);
-    p.text(pos2(x, rect.top() + 15.0), Align2::LEFT_CENTER, name, FontId::new(12.5, bold()), if connected { TEXT } else { TEXT2 });
+    p.text(
+        pos2(x, rect.top() + 15.0),
+        Align2::LEFT_CENTER,
+        name,
+        FontId::new(12.5, bold()),
+        if connected { TEXT() } else { TEXT2() },
+    );
     let payload = clip(ui, &c.payload, FontId::new(11.0, FontFamily::Monospace), maxw);
-    p.text(pos2(x, rect.top() + 32.0), Align2::LEFT_CENTER, payload, FontId::new(11.0, FontFamily::Monospace), TEXT3);
+    p.text(pos2(x, rect.top() + 32.0), Align2::LEFT_CENTER, payload, FontId::new(11.0, FontFamily::Monospace), TEXT3());
     // 右侧：HEX 标记 / 发送箭头
     if c.hex {
         let r = Rect::from_min_size(pos2(rect.right() - 46.0, rect.top() + 8.0), vec2(32.0, 15.0));
-        p.rect_filled(r, CornerRadius::same(3), WARN.gamma_multiply(0.14));
-        p.text(r.center(), Align2::CENTER_CENTER, "HEX", FontId::new(9.5, mono_bold()), WARN);
+        p.rect_filled(r, CornerRadius::same(3), WARN().gamma_multiply(0.14));
+        p.text(r.center(), Align2::CENTER_CENTER, "HEX", FontId::new(9.5, mono_bold()), WARN());
     }
     if hov && connected {
         let c0 = pos2(rect.right() - 20.0, rect.bottom() - 14.0);
         p.add(Shape::convex_polygon(
             vec![c0 + vec2(-4.0, -5.0), c0 + vec2(5.0, 0.0), c0 + vec2(-4.0, 5.0)],
-            VIOLET,
+            VIOLET(),
             egui::Stroke::NONE,
         ));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -428,10 +440,10 @@ fn add_button(ui: &mut egui::Ui) -> egui::Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 36.0), Sense::click());
     let p = ui.painter();
-    let c = if resp.hovered() { ACCENT } else { TEXT3 };
+    let c = if resp.hovered() { ACCENT() } else { TEXT3() };
     let pts = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom(), rect.left_top()];
     for seg in pts.windows(2) {
-        p.extend(Shape::dashed_line(seg, st(1.0, if resp.hovered() { ACCENT.gamma_multiply(0.6) } else { LINE_HI }), 4.0, 4.0));
+        p.extend(Shape::dashed_line(seg, st(1.0, if resp.hovered() { ACCENT().gamma_multiply(0.6) } else { LINE_HI() }), 4.0, 4.0));
     }
     p.text(rect.center(), Align2::CENTER_CENTER, t("+  添加命令"), FontId::new(12.5, FontFamily::Proportional), c);
     if resp.hovered() {

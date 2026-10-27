@@ -158,6 +158,9 @@ mod tests {
             include_str!("git.rs"),
             include_str!("cindex.rs"),
             include_str!("highlight.rs"),
+            include_str!("keymap.rs"),
+            include_str!("app/palette.rs"),
+            include_str!("app/prefs.rs"),
         ];
         let mut missing = vec![];
         for src in sources {
@@ -178,6 +181,11 @@ mod tests {
                         missing.push(lit);
                     }
                 }
+            }
+        }
+        for d in crate::keymap::ACTIONS {
+            if !table().contains_key(d.label) {
+                missing.push(d.label);
             }
         }
         assert!(missing.is_empty(), "翻译表 assets/i18n.tsv 缺少：{missing:#?}");

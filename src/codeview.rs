@@ -16,6 +16,7 @@ use crate::cindex::{self, Hit, Index, Kind, Progress, SearchOpts, Sym};
 use crate::git;
 use crate::highlight::{self, is_ident, Lang};
 use crate::i18n::{t, tf};
+use crate::keymap::Act;
 use crate::theme::*;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -481,7 +482,7 @@ impl CodeView {
                     }
                 }
                 Err(e) => {
-                    self.toast(e, ERR);
+                    self.toast(e, ERR());
                     return;
                 }
             }
@@ -506,7 +507,7 @@ impl CodeView {
         if i < self.tabs.len() {
             if self.tabs[i].dirty {
                 let name = self.tabs[i].rel.clone();
-                self.toast(tf("{} 有未保存的修改，已丢弃", &[&name]), WARN);
+                self.toast(tf("{} 有未保存的修改，已丢弃", &[&name]), WARN());
             }
             self.tabs.remove(i);
             if self.active >= self.tabs.len() {
@@ -557,7 +558,7 @@ impl CodeView {
         match defs.len() {
             0 => {
                 // 没找到定义：直接做一次全局搜索
-                self.toast(tf("没找到 {} 的定义，已在全工作区搜索", &[&word]), WARN);
+                self.toast(tf("没找到 {} 的定义，已在全工作区搜索", &[&word]), WARN());
                 self.find_references(word);
             }
             1 => {
@@ -589,7 +590,7 @@ impl CodeView {
 
     fn run_search(&mut self) {
         let (Some(root), Some(idx)) = (self.root.clone(), self.index.clone()) else {
-            self.toast(t("正在建立索引，稍等片刻再搜索"), WARN);
+            self.toast(t("正在建立索引，稍等片刻再搜索"), WARN());
             return;
         };
         if let Some(c) = &self.search_cancel {
@@ -650,12 +651,12 @@ impl CodeView {
 
     // ------------------------------------------------------------ 主界面
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act]) {
         self.poll(ctx);
-        self.shortcuts(ctx);
+        self.shortcuts(ctx, acts);
 
         egui::SidePanel::left("code-side")
-            .frame(egui::Frame::new().fill(BG1).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 0 }))
+            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 0 }))
             .default_width(self.s.side_width)
             .width_range(200.0..=520.0)
             .resizable(true)
@@ -663,7 +664,7 @@ impl CodeView {
                 self.s.side_width = ui.available_width();
                 self.side_panel(ui);
             });
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0)).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
             if self.tabs.is_empty() {
                 self.welcome(ui);
             } else {
@@ -676,37 +677,36 @@ impl CodeView {
         self.pick_popup(ctx);
     }
 
-    fn shortcuts(&mut self, ctx: &egui::Context) {
-        let sc = |m: Modifiers, k: Key| ctx.input_mut(|i| i.consume_shortcut(&egui::KeyboardShortcut::new(m, k)));
-        let cs = Modifiers::COMMAND | Modifiers::SHIFT;
-        if sc(cs, Key::F) {
+    fn shortcuts(&mut self, ctx: &egui::Context, acts: &[Act]) {
+        let has = |a: Act| acts.contains(&a);
+        if has(Act::SearchAll) {
             self.side = Side::Search;
             self.focus_search = true;
         }
-        if sc(cs, Key::O) {
+        if has(Act::GotoSymbol) {
             self.quick = Some(Quick { q: "@".into(), sel: 0, focus: true });
         }
-        if sc(cs, Key::E) {
+        if has(Act::PageCode) {
             self.side = Side::Files;
         }
-        if sc(Modifiers::COMMAND, Key::P) {
+        if has(Act::QuickOpen) {
             self.quick = Some(Quick {
                 q: String::new(),
                 sel: 0,
                 focus: true,
             });
         }
-        if sc(Modifiers::COMMAND, Key::T) {
+        if has(Act::GotoSymbolWs) {
             self.quick = Some(Quick { q: "#".into(), sel: 0, focus: true });
         }
-        if sc(Modifiers::COMMAND, Key::G) {
+        if has(Act::GotoLine) {
             self.quick = Some(Quick { q: ":".into(), sel: 0, focus: true });
         }
-        if sc(Modifiers::COMMAND, Key::O) {
+        if has(Act::OpenFile) {
             self.pick_file();
         }
         if !self.tabs.is_empty() {
-            if sc(Modifiers::COMMAND, Key::F) {
+            if has(Act::FindInFile) {
                 let sel = self.selected_text(ctx).filter(|s| !s.contains('\n') && s.len() < 200);
                 let q = sel.unwrap_or_else(|| self.find.as_ref().map(|f| f.q.clone()).unwrap_or_default());
                 self.find = Some(Find {
@@ -718,44 +718,44 @@ impl CodeView {
                 });
                 self.update_find();
             }
-            if sc(Modifiers::COMMAND, Key::W) {
+            if has(Act::CloseTab) {
                 self.close_tab(self.active);
             }
-            if sc(Modifiers::CTRL, Key::Tab) && !self.tabs.is_empty() {
+            if has(Act::NextTab) {
                 self.active = (self.active + 1) % self.tabs.len();
             }
-            if sc(Modifiers::COMMAND, Key::S) {
+            if has(Act::SaveFile) {
                 if let Some(d) = self.tabs.get_mut(self.active) {
                     if d.dirty {
                         match d.save() {
-                            Ok(()) => self.toast(t("已保存"), OK),
-                            Err(e) => self.toast(e, ERR),
+                            Ok(()) => self.toast(t("已保存"), OK()),
+                            Err(e) => self.toast(e, ERR()),
                         }
                     }
                 }
             }
-            if sc(Modifiers::COMMAND, Key::Plus) || sc(Modifiers::COMMAND, Key::Equals) {
+            if has(Act::ZoomIn) {
                 self.s.font_size = (self.s.font_size + 1.0).min(28.0);
             }
-            if sc(Modifiers::COMMAND, Key::Minus) {
+            if has(Act::ZoomOut) {
                 self.s.font_size = (self.s.font_size - 1.0).max(9.0);
             }
-            if sc(Modifiers::NONE, Key::F12) {
+            if has(Act::GotoDef) {
                 if let Some(w) = self.cursor_word() {
                     let at = ctx.input(|i| i.pointer.hover_pos()).unwrap_or(pos2(400.0, 200.0));
                     self.goto_definition(&w, at);
                 }
             }
-            if sc(Modifiers::SHIFT, Key::F12) {
+            if has(Act::FindRefs) {
                 if let Some(w) = self.cursor_word() {
                     self.find_references(&w);
                 }
             }
         }
-        if sc(Modifiers::ALT, Key::ArrowLeft) {
+        if has(Act::NavBack) {
             self.nav(true);
         }
-        if sc(Modifiers::ALT, Key::ArrowRight) {
+        if has(Act::NavFwd) {
             self.nav(false);
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
@@ -867,7 +867,7 @@ impl CodeView {
             });
         });
         let r = ui.available_rect_before_wrap();
-        ui.painter().hline(r.x_range(), r.top() + 3.0, st(1.0, LINE));
+        ui.painter().hline(r.x_range(), r.top() + 3.0, st(1.0, LINE()));
         ui.add_space(8.0);
         match self.side {
             Side::Files => self.files_panel(ui),
@@ -880,10 +880,10 @@ impl CodeView {
         let Some(root) = self.root.clone() else {
             ui.add_space(20.0);
             ui.vertical_centered(|ui| {
-                ui.label(RichText::new(t("还没有打开文件夹")).color(TEXT2));
+                ui.label(RichText::new(t("还没有打开文件夹")).color(TEXT2()));
                 ui.add_space(8.0);
                 if ui
-                    .add(egui::Button::new(RichText::new(t("打开文件夹")).color(BG0).strong()).fill(ACCENT).min_size(vec2(160.0, 32.0)))
+                    .add(egui::Button::new(RichText::new(t("打开文件夹")).color(ON_ACCENT()).strong()).fill(ACCENT()).min_size(vec2(160.0, 32.0)))
                     .clicked()
                 {
                     self.pick_folder();
@@ -895,12 +895,12 @@ impl CodeView {
         ui.horizontal(|ui| {
             ui.add_space(12.0);
             let name = root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| root.to_string_lossy().to_string());
-            ui.label(RichText::new(name.to_uppercase()).font(FontId::new(11.5, bold())).color(TEXT2))
+            ui.label(RichText::new(name.to_uppercase()).font(FontId::new(11.5, bold())).color(TEXT2()))
                 .on_hover_text(root.to_string_lossy());
             if !self.git_branch.is_empty() {
                 let (r, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                draw_icon(ui.painter(), r, Icon::Branch, VIOLET);
-                ui.label(RichText::new(&self.git_branch).font(FontId::new(11.0, FontFamily::Monospace)).color(VIOLET));
+                draw_icon(ui.painter(), r, Icon::Branch, VIOLET());
+                ui.label(RichText::new(&self.git_branch).font(FontId::new(11.0, FontFamily::Monospace)).color(VIOLET()));
             }
         });
         ui.add_space(4.0);
@@ -1010,13 +1010,13 @@ impl CodeView {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 ui.spinner();
-                ui.label(RichText::new(t("搜索中…")).small().color(TEXT3));
+                ui.label(RichText::new(t("搜索中…")).small().color(TEXT3()));
             });
         } else if !self.results_for.is_empty() {
             let files: HashSet<&PathBuf> = self.results.iter().map(|h| &h.path).collect();
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new(tf("{} 个结果，{} 个文件", &[&self.results.len(), &files.len()])).small().color(TEXT3));
+                ui.label(RichText::new(tf("{} 个结果，{} 个文件", &[&self.results.len(), &files.len()])).small().color(TEXT3()));
             });
         }
         ui.add_space(4.0);
@@ -1037,20 +1037,20 @@ impl CodeView {
                     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
                     let p = ui.painter();
                     if resp.hovered() {
-                        p.rect_filled(r, 0.0, Color32::from_white_alpha(6));
+                        p.rect_filled(r, 0.0, tint(6));
                     }
-                    chevron(p, pos2(r.left() + 14.0, r.center().y), !collapsed, TEXT3);
+                    chevron(p, pos2(r.left() + 14.0, r.center().y), !collapsed, TEXT3());
                     file_badge(p, pos2(r.left() + 30.0, r.center().y), &name);
-                    let g = p.layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT);
+                    let g = p.layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT());
                     let w = g.size().x;
-                    p.galley(pos2(r.left() + 42.0, r.center().y - g.size().y / 2.0), g, TEXT);
-                    p.text(pos2(r.left() + 48.0 + w, r.center().y), Align2::LEFT_CENTER, dir, FontId::proportional(11.0), TEXT3);
+                    p.galley(pos2(r.left() + 42.0, r.center().y - g.size().y / 2.0), g, TEXT());
+                    p.text(pos2(r.left() + 48.0 + w, r.center().y), Align2::LEFT_CENTER, dir, FontId::proportional(11.0), TEXT3());
                     p.text(
                         pos2(r.right() - 10.0, r.center().y),
                         Align2::RIGHT_CENTER,
                         n.to_string(),
                         FontId::new(10.5, FontFamily::Monospace),
-                        TEXT3,
+                        TEXT3(),
                     );
                     if resp.clicked() {
                         if collapsed {
@@ -1066,7 +1066,7 @@ impl CodeView {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
                 let p = ui.painter_at(r);
                 if resp.hovered() {
-                    p.rect_filled(r, 0.0, Color32::from_white_alpha(8));
+                    p.rect_filled(r, 0.0, tint(8));
                 }
                 let mut job = egui::text::LayoutJob::default();
                 let font = FontId::new(12.0, FontFamily::Monospace);
@@ -1076,20 +1076,20 @@ impl CodeView {
                 let at = if lo.len() == txt.len() { lo.find(&qq) } else { None };
                 match at {
                     Some(a) => {
-                        job.append(&txt[..a], 0.0, egui::TextFormat::simple(font.clone(), TEXT2));
+                        job.append(&txt[..a], 0.0, egui::TextFormat::simple(font.clone(), TEXT2()));
                         job.append(
                             &txt[a..a + qq.len()],
                             0.0,
                             egui::TextFormat {
                                 font_id: font.clone(),
-                                color: TEXT,
-                                background: WARN.gamma_multiply(0.35),
+                                color: TEXT(),
+                                background: WARN().gamma_multiply(0.35),
                                 ..Default::default()
                             },
                         );
-                        job.append(&txt[a + qq.len()..], 0.0, egui::TextFormat::simple(font.clone(), TEXT2));
+                        job.append(&txt[a + qq.len()..], 0.0, egui::TextFormat::simple(font.clone(), TEXT2()));
                     }
-                    None => job.append(txt, 0.0, egui::TextFormat::simple(font.clone(), TEXT2)),
+                    None => job.append(txt, 0.0, egui::TextFormat::simple(font.clone(), TEXT2())),
                 }
                 let g = ui.fonts(|f| f.layout_job(job));
                 p.text(
@@ -1097,9 +1097,9 @@ impl CodeView {
                     Align2::RIGHT_CENTER,
                     (h.line + 1).to_string(),
                     FontId::new(10.5, FontFamily::Monospace),
-                    TEXT3,
+                    TEXT3(),
                 );
-                p.galley(pos2(r.left() + 38.0, r.center().y - g.size().y / 2.0), g, TEXT);
+                p.galley(pos2(r.left() + 38.0, r.center().y - g.size().y / 2.0), g, TEXT());
                 if resp.clicked() {
                     open = Some((root.join(&h.path), h.line as usize));
                 }
@@ -1115,7 +1115,7 @@ impl CodeView {
         let Some(d) = self.tabs.get(self.active) else {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new(t("打开一个文件后显示它的函数、宏和类型")).small().color(TEXT3));
+                ui.label(RichText::new(t("打开一个文件后显示它的函数、宏和类型")).small().color(TEXT3()));
             });
             return;
         };
@@ -1143,19 +1143,19 @@ impl CodeView {
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 23.0), Sense::click());
                 let p = ui.painter();
                 if Some(i) == current {
-                    p.rect_filled(r, 0.0, ACCENT.gamma_multiply(0.08));
-                    p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, ACCENT);
+                    p.rect_filled(r, 0.0, ACCENT().gamma_multiply(0.08));
+                    p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, ACCENT());
                 } else if resp.hovered() {
-                    p.rect_filled(r, 0.0, Color32::from_white_alpha(6));
+                    p.rect_filled(r, 0.0, tint(6));
                 }
                 kind_badge(p, pos2(r.left() + 20.0, r.center().y), *kind);
-                p.text(pos2(r.left() + 34.0, r.center().y), Align2::LEFT_CENTER, name, FontId::new(12.5, FontFamily::Monospace), TEXT);
+                p.text(pos2(r.left() + 34.0, r.center().y), Align2::LEFT_CENTER, name, FontId::new(12.5, FontFamily::Monospace), TEXT());
                 p.text(
                     pos2(r.right() - 10.0, r.center().y),
                     Align2::RIGHT_CENTER,
                     (line + 1).to_string(),
                     FontId::new(10.5, FontFamily::Monospace),
-                    TEXT3,
+                    TEXT3(),
                 );
                 if resp.clicked() {
                     go = Some(name.clone());
@@ -1175,19 +1175,19 @@ impl CodeView {
     fn welcome(&mut self, ui: &mut Ui) {
         let r = ui.max_rect();
         let p = ui.painter();
-        hgrad_line(p, r.top() + 0.5, r.x_range(), ACCENT.gamma_multiply(0.4));
+        hgrad_line(p, r.top() + 0.5, r.x_range(), ACCENT().gamma_multiply(0.4));
         let c = r.center() - vec2(0.0, 110.0);
         let mut code_icon = Rect::from_center_size(c - vec2(0.0, 40.0), vec2(56.0, 56.0));
-        p.rect(code_icon, CornerRadius::same(14), BG2, st(1.0, ACCENT.gamma_multiply(0.4)), egui::StrokeKind::Inside);
+        p.rect(code_icon, CornerRadius::same(14), BG2(), st(1.0, ACCENT().gamma_multiply(0.4)), egui::StrokeKind::Inside);
         code_icon = code_icon.shrink(12.0);
-        draw_icon(p, code_icon, Icon::Code, ACCENT);
-        p.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, t("代码查看"), FontId::new(22.0, bold()), TEXT);
+        draw_icon(p, code_icon, Icon::Code, ACCENT());
+        p.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, t("代码查看"), FontId::new(22.0, bold()), TEXT());
         p.text(
             c + vec2(0.0, 42.0),
             Align2::CENTER_CENTER,
             t("打开固件工程，边看日志边查代码：跳转定义、宏展开、全局搜索"),
             FontId::proportional(13.0),
-            TEXT3,
+            TEXT3(),
         );
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(r.center() + vec2(0.0, 110.0), vec2(520.0, 300.0))));
         let ui = &mut child;
@@ -1195,8 +1195,8 @@ impl CodeView {
             ui.add_space(70.0);
             if ui
                 .add(
-                    egui::Button::new(RichText::new(t("打开文件夹")).color(BG0).strong())
-                        .fill(ACCENT)
+                    egui::Button::new(RichText::new(t("打开文件夹")).color(ON_ACCENT()).strong())
+                        .fill(ACCENT())
                         .corner_radius(R_WIDGET)
                         .min_size(vec2(180.0, 36.0)),
                 )
@@ -1207,9 +1207,9 @@ impl CodeView {
             ui.add_space(8.0);
             if ui
                 .add(
-                    egui::Button::new(RichText::new(t("打开文件")).color(TEXT))
-                        .fill(BG2)
-                        .stroke(st(1.0, LINE_HI))
+                    egui::Button::new(RichText::new(t("打开文件")).color(TEXT()))
+                        .fill(BG2())
+                        .stroke(st(1.0, LINE_HI()))
                         .corner_radius(R_WIDGET)
                         .min_size(vec2(180.0, 36.0)),
                 )
@@ -1220,7 +1220,7 @@ impl CodeView {
         });
         ui.add_space(18.0);
         if self.root.is_none() && !self.s.recent.is_empty() {
-            ui.label(RichText::new(t("最近打开")).font(FontId::new(11.5, bold())).color(TEXT3));
+            ui.label(RichText::new(t("最近打开")).font(FontId::new(11.5, bold())).color(TEXT3()));
             ui.add_space(4.0);
             let mut go = None;
             for r in self.s.recent.iter().take(6) {
@@ -1228,16 +1228,16 @@ impl CodeView {
                 let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
                 let p = ui.painter();
                 if resp.hovered() {
-                    p.rect_filled(rect, R_WIDGET, BG2);
+                    p.rect_filled(rect, R_WIDGET, BG2());
                 }
-                draw_icon(p, Rect::from_center_size(pos2(rect.left() + 12.0, rect.center().y), vec2(14.0, 14.0)), Icon::Folder, ACCENT);
-                p.text(pos2(rect.left() + 28.0, rect.center().y), Align2::LEFT_CENTER, &name, FontId::proportional(13.0), ACCENT);
+                draw_icon(p, Rect::from_center_size(pos2(rect.left() + 12.0, rect.center().y), vec2(14.0, 14.0)), Icon::Folder, ACCENT());
+                p.text(pos2(rect.left() + 28.0, rect.center().y), Align2::LEFT_CENTER, &name, FontId::proportional(13.0), ACCENT());
                 p.text(
                     pos2(rect.left() + 40.0 + name.chars().count() as f32 * 8.0, rect.center().y),
                     Align2::LEFT_CENTER,
                     r,
                     FontId::proportional(11.5),
-                    TEXT3,
+                    TEXT3(),
                 );
                 if resp.clicked() {
                     go = Some(r.clone());
@@ -1257,8 +1257,8 @@ impl CodeView {
                     ("Ctrl+Shift+F", t("全局搜索")),
                     ("Alt+← / Alt+→", t("后退 / 前进")),
                 ] {
-                    ui.label(RichText::new(k).font(FontId::new(12.0, FontFamily::Monospace)).color(ACCENT));
-                    ui.label(RichText::new(v).color(TEXT2));
+                    ui.label(RichText::new(k).font(FontId::new(12.0, FontFamily::Monospace)).color(ACCENT()));
+                    ui.label(RichText::new(v).color(TEXT2()));
                     ui.end_row();
                 }
             });
@@ -1269,8 +1269,8 @@ impl CodeView {
 
     fn tab_bar(&mut self, ui: &mut Ui) {
         let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
-        ui.painter().rect_filled(bar, 0.0, BG1);
-        ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, st(1.0, LINE));
+        ui.painter().rect_filled(bar, 0.0, BG1());
+        ui.painter().hline(bar.x_range(), bar.bottom() - 0.5, st(1.0, LINE()));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(bar));
         let mut close = None;
         let mut activate = None;
@@ -1282,29 +1282,29 @@ impl CodeView {
                     ui.spacing_mut().item_spacing.x = 0.0;
                     for (i, d) in self.tabs.iter().enumerate() {
                         let name = d.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        let g = ui.painter().layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT);
+                        let g = ui.painter().layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT());
                         let w = g.size().x + 64.0;
                         let (r, resp) = ui.allocate_exact_size(vec2(w, 36.0), Sense::click());
                         let on = i == self.active;
                         let p = ui.painter();
                         if on {
-                            p.rect_filled(r, 0.0, BG0);
-                            p.hline(r.x_range(), r.top() + 1.0, st(2.0, ACCENT));
+                            p.rect_filled(r, 0.0, BG0());
+                            p.hline(r.x_range(), r.top() + 1.0, st(2.0, ACCENT()));
                         } else if resp.hovered() {
-                            p.rect_filled(r, 0.0, BG2);
+                            p.rect_filled(r, 0.0, BG2());
                         }
-                        p.vline(r.right() - 0.5, r.y_range(), st(1.0, LINE));
+                        p.vline(r.right() - 0.5, r.y_range(), st(1.0, LINE()));
                         file_badge(p, pos2(r.left() + 16.0, r.center().y), &name);
-                        p.galley(pos2(r.left() + 28.0, r.center().y - g.size().y / 2.0), g, if on { TEXT } else { TEXT2 });
+                        p.galley(pos2(r.left() + 28.0, r.center().y - g.size().y / 2.0), g, if on { TEXT() } else { TEXT2() });
                         let xr = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(16.0, 16.0));
                         let xh = ui.rect_contains_pointer(xr);
                         if d.dirty && !xh {
-                            p.circle_filled(xr.center(), 4.0, TEXT2);
+                            p.circle_filled(xr.center(), 4.0, TEXT2());
                         } else if on || resp.hovered() {
                             if xh {
-                                p.rect_filled(xr, 3.0, BG3);
+                                p.rect_filled(xr, 3.0, BG3());
                             }
-                            draw_icon(p, xr.shrink(2.0), Icon::Close, if xh { TEXT } else { TEXT3 });
+                            draw_icon(p, xr.shrink(2.0), Icon::Close, if xh { TEXT() } else { TEXT3() });
                         }
                         if resp.clicked() {
                             if xh {
@@ -1333,7 +1333,7 @@ impl CodeView {
         let Some(d) = self.tabs.get(self.active) else { return };
         let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
         let p = ui.painter();
-        p.rect_filled(r, 0.0, BG0);
+        p.rect_filled(r, 0.0, BG0());
         let mut x = r.left() + 14.0;
         let font = FontId::proportional(12.0);
         let parts: Vec<&str> = d.rel.split('/').collect();
@@ -1343,12 +1343,12 @@ impl CodeView {
                 file_badge(p, pos2(x + 5.0, r.center().y), part);
                 x += 14.0;
             }
-            let g = p.layout_no_wrap(part.to_string(), font.clone(), if last { TEXT } else { TEXT3 });
+            let g = p.layout_no_wrap(part.to_string(), font.clone(), if last { TEXT() } else { TEXT3() });
             let w = g.size().x;
-            p.galley(pos2(x, r.center().y - g.size().y / 2.0), g, TEXT);
+            p.galley(pos2(x, r.center().y - g.size().y / 2.0), g, TEXT());
             x += w + 6.0;
             if !last {
-                chevron(p, pos2(x + 3.0, r.center().y), false, TEXT3);
+                chevron(p, pos2(x + 3.0, r.center().y), false, TEXT3());
                 x += 14.0;
             }
         }
@@ -1359,10 +1359,10 @@ impl CodeView {
             .filter(|s| matches!(s.kind, Kind::Func | Kind::Struct | Kind::Enum | Kind::Class))
             .rfind(|s| s.line as usize <= d.cursor.0)
         {
-            chevron(p, pos2(x + 3.0, r.center().y), false, TEXT3);
+            chevron(p, pos2(x + 3.0, r.center().y), false, TEXT3());
             x += 14.0;
             kind_badge(p, pos2(x + 6.0, r.center().y), s.kind);
-            p.text(pos2(x + 16.0, r.center().y), Align2::LEFT_CENTER, &s.name, FontId::new(12.0, FontFamily::Monospace), TEXT2);
+            p.text(pos2(x + 16.0, r.center().y), Align2::LEFT_CENTER, &s.name, FontId::new(12.0, FontFamily::Monospace), TEXT2());
         }
         // 右侧：后退前进、编辑开关
         let mut bx = r.right() - 10.0;
@@ -1372,18 +1372,18 @@ impl CodeView {
             let resp = ui.interact(br, ui.id().with(("bc", tip)), Sense::click());
             let p = ui.painter();
             if (resp.hovered() && enabled) || active {
-                p.rect_filled(br, 4.0, if active { ACCENT.gamma_multiply(0.15) } else { BG3 });
+                p.rect_filled(br, 4.0, if active { ACCENT().gamma_multiply(0.15) } else { BG3() });
             }
             draw_icon(
                 p,
                 br.shrink2(vec2(4.0, 3.0)),
                 icon,
                 if !enabled {
-                    TEXT3.gamma_multiply(0.5)
+                    TEXT3().gamma_multiply(0.5)
                 } else if active {
-                    ACCENT
+                    ACCENT()
                 } else {
-                    TEXT2
+                    TEXT2()
                 },
             );
             resp.on_hover_text(tip).clicked() && enabled
@@ -1410,7 +1410,7 @@ impl CodeView {
     fn editor(&mut self, ui: &mut Ui) {
         let font = FontId::new(self.s.font_size, FontFamily::Monospace);
         let row_h = ui.fonts(|f| f.row_height(&font));
-        let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT).size().x / 100.0);
+        let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT()).size().x / 100.0);
         let full = ui.available_rect_before_wrap();
         let status_h = 24.0;
         let area = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - status_h));
@@ -1443,7 +1443,7 @@ impl CodeView {
         }
 
         let p = ui.painter().clone();
-        p.rect_filled(area, 0.0, BG0);
+        p.rect_filled(area, 0.0, BG0());
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(text_rect));
         let mut sa = egui::ScrollArea::both().id_salt(("code-sa", &d.path)).auto_shrink([false, false]);
         if let Some(y) = scroll_to {
@@ -1463,7 +1463,7 @@ impl CodeView {
                     return g.clone();
                 }
                 let job = if big {
-                    let mut j = egui::text::LayoutJob::simple(s.to_string(), font.clone(), highlight::pal::TEXT, f32::INFINITY);
+                    let mut j = egui::text::LayoutJob::simple(s.to_string(), font.clone(), highlight::pal::TEXT(), f32::INFINITY);
                     j.wrap.max_width = f32::INFINITY;
                     j
                 } else {
@@ -1538,7 +1538,7 @@ impl CodeView {
         bg.push(Shape::rect_filled(
             Rect::from_min_max(pos2(clip.left(), row_y(d.cursor.0)), pos2(clip.right(), row_y(d.cursor.0) + row_h)),
             0.0,
-            Color32::from_white_alpha(if focused { 7 } else { 4 }),
+            tint(if focused { 7 } else { 4 }),
         ));
         let xpos = |d: &Doc, b: usize| gpos.x + galley.pos_from_ccursor(CCursor::new(d.byte_to_char(b))).min.x;
         let vis_bytes = (d.line_starts.get(first_vis).copied().unwrap_or(0), d.line_starts.get(last_vis).copied().unwrap_or(d.text.len()));
@@ -1550,9 +1550,9 @@ impl CodeView {
                 let l = d.line_of_byte(h);
                 let r = Rect::from_min_max(pos2(xpos(d, h), row_y(l)), pos2(xpos(d, h + f.q.len()), row_y(l) + row_h));
                 let cur = k == f.cur;
-                bg.push(Shape::rect_filled(r, 2.0, WARN.gamma_multiply(if cur { 0.45 } else { 0.2 })));
+                bg.push(Shape::rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.45 } else { 0.2 })));
                 if cur {
-                    bg.push(Shape::rect_stroke(r, 2.0, st(1.0, WARN), egui::StrokeKind::Outside));
+                    bg.push(Shape::rect_stroke(r, 2.0, st(1.0, WARN()), egui::StrokeKind::Outside));
                 }
             }
         }
@@ -1573,7 +1573,7 @@ impl CodeView {
                 if ok {
                     let l = d.line_of_byte(a);
                     let r = Rect::from_min_max(pos2(xpos(d, a), row_y(l)), pos2(xpos(d, a + w.len()), row_y(l) + row_h));
-                    bg.push(Shape::rect_filled(r, 2.0, ACCENT.gamma_multiply(0.12)));
+                    bg.push(Shape::rect_filled(r, 2.0, ACCENT().gamma_multiply(0.12)));
                     n += 1;
                     if n > 300 {
                         break;
@@ -1585,7 +1585,7 @@ impl CodeView {
 
         // ---- 行号
         let gp = ui.painter_at(gutter);
-        gp.rect_filled(gutter, 0.0, BG0);
+        gp.rect_filled(gutter, 0.0, BG0());
         for l in first_vis..last_vis {
             let y = row_y(l) + row_h / 2.0;
             let cur = l == d.cursor.0;
@@ -1594,7 +1594,7 @@ impl CodeView {
                 Align2::RIGHT_CENTER,
                 (l + 1).to_string(),
                 FontId::new(self.s.font_size * 0.92, FontFamily::Monospace),
-                if cur { TEXT } else { TEXT3.gamma_multiply(0.8) },
+                if cur { TEXT() } else { TEXT3().gamma_multiply(0.8) },
             );
             if let Some(f) = &self.find {
                 // 行号旁的查找标记
@@ -1602,7 +1602,7 @@ impl CodeView {
                     gp.rect_filled(
                         Rect::from_min_size(pos2(gutter.right() - 6.0, y - row_h / 2.0 + 2.0), vec2(2.0, row_h - 4.0)),
                         1.0,
-                        WARN.gamma_multiply(0.7),
+                        WARN().gamma_multiply(0.7),
                     );
                 }
             }
@@ -1631,7 +1631,7 @@ impl CodeView {
         if let Some((s, _e, w, r)) = &hover_word {
             let defs_known = lang.is_code();
             if ctrl && defs_known {
-                ui.painter().hline(r.x_range(), r.bottom() - 1.0, st(1.0, ACCENT));
+                ui.painter().hline(r.x_range(), r.bottom() - 1.0, st(1.0, ACCENT()));
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
                 if te.response.clicked() {
                     want_def = Some((w.clone(), r.left_bottom()));
@@ -1669,8 +1669,8 @@ impl CodeView {
             let total_h = n_lines as f32 * row_h + 200.0;
             let scale = (mm.height() / n_lines.max(1) as f32).min(2.5);
             let mp = ui.painter_at(mm);
-            mp.rect_filled(mm, 0.0, BG0);
-            mp.vline(mm.left(), mm.y_range(), st(1.0, LINE));
+            mp.rect_filled(mm, 0.0, BG0());
+            mp.vline(mm.left(), mm.y_range(), st(1.0, LINE()));
             let step = (1.0 / scale).ceil().max(1.0) as usize;
             let mut y = mm.top() + 4.0;
             let mut l = 0;
@@ -1678,9 +1678,9 @@ impl CodeView {
                 let (ind, len, kind) = d.mini[l];
                 if len > 0 {
                     let c = match kind {
-                        1 => highlight::pal::COMMENT.gamma_multiply(0.55),
-                        2 => highlight::pal::PRE.gamma_multiply(0.55),
-                        _ => TEXT3.gamma_multiply(0.75),
+                        1 => highlight::pal::COMMENT().gamma_multiply(0.55),
+                        2 => highlight::pal::PRE().gamma_multiply(0.55),
+                        _ => TEXT3().gamma_multiply(0.75),
                     };
                     let x0 = mm.left() + 8.0 + (ind as f32 * 0.9).min(30.0);
                     let x1 = (x0 + len as f32 * 0.9).min(mm.right() - 6.0);
@@ -1692,7 +1692,7 @@ impl CodeView {
             if let Some(f) = &self.find {
                 for &h in f.hits.iter().take(2000) {
                     let yy = mm.top() + 4.0 + d.line_of_byte(h) as f32 * scale;
-                    mp.rect_filled(Rect::from_min_size(pos2(mm.right() - 6.0, yy), vec2(4.0, 2.0)), 0.0, WARN);
+                    mp.rect_filled(Rect::from_min_size(pos2(mm.right() - 6.0, yy), vec2(4.0, 2.0)), 0.0, WARN());
                 }
             }
             // 视口框
@@ -1700,7 +1700,7 @@ impl CodeView {
             let vh = (clip.height() / row_h * scale).max(8.0);
             let vr = Rect::from_min_size(pos2(mm.left() + 1.0, vy0), vec2(mm.width() - 1.0, vh));
             let mresp = ui.interact(mm, ui.id().with("minimap"), Sense::click_and_drag());
-            mp.rect_filled(vr, 0.0, Color32::from_white_alpha(if mresp.hovered() || mresp.dragged() { 18 } else { 10 }));
+            mp.rect_filled(vr, 0.0, tint(if mresp.hovered() || mresp.dragged() { 18 } else { 10 }));
             if let Some(pp) = mresp.interact_pointer_pos().filter(|_| mresp.clicked() || mresp.dragged()) {
                 let line = ((pp.y - mm.top() - 4.0) / scale).max(0.0);
                 let y = (line * row_h - clip.height() / 2.0).clamp(0.0, (total_h - clip.height()).max(0.0));
@@ -1715,17 +1715,17 @@ impl CodeView {
         // ---- 状态行
         let d = &self.tabs[active];
         let sp = ui.painter_at(status_rect);
-        sp.rect_filled(status_rect, 0.0, BG1);
-        sp.hline(status_rect.x_range(), status_rect.top() + 0.5, st(1.0, LINE));
+        sp.rect_filled(status_rect, 0.0, BG1());
+        sp.hline(status_rect.x_range(), status_rect.top() + 0.5, st(1.0, LINE()));
         let mut items: Vec<(String, Color32)> = vec![
-            (tf("行 {}，列 {}", &[&(d.cursor.0 + 1), &(d.cursor.1 + 1)]), TEXT2),
-            (if d.gbk { "GBK".into() } else { "UTF-8".into() }, TEXT3),
-            (if d.crlf { "CRLF".into() } else { "LF".into() }, TEXT3),
-            (t(d.lang.name()).to_string(), TEXT3),
-            (format!("{} {}", n_lines, t("行")), TEXT3),
+            (tf("行 {}，列 {}", &[&(d.cursor.0 + 1), &(d.cursor.1 + 1)]), TEXT2()),
+            (if d.gbk { "GBK".into() } else { "UTF-8".into() }, TEXT3()),
+            (if d.crlf { "CRLF".into() } else { "LF".into() }, TEXT3()),
+            (t(d.lang.name()).to_string(), TEXT3()),
+            (format!("{} {}", n_lines, t("行")), TEXT3()),
         ];
         if d.editable {
-            items.insert(0, (t("编辑中").to_string(), WARN));
+            items.insert(0, (t("编辑中").to_string(), WARN()));
         }
         let mut x = status_rect.right() - 12.0;
         for (s, c) in items.iter().rev() {
@@ -1735,11 +1735,11 @@ impl CodeView {
             x -= 18.0;
         }
         let idx_text = if let Some(pg) = &self.index_prog {
-            (tf("正在建立索引… {} 个文件", &[&pg.files.load(Ordering::Relaxed)]), ACCENT)
+            (tf("正在建立索引… {} 个文件", &[&pg.files.load(Ordering::Relaxed)]), ACCENT())
         } else if let Some(i) = &self.index {
-            (tf("索引：{} 个符号，{} 个文件", &[&i.syms.len(), &i.files.len()]), TEXT3)
+            (tf("索引：{} 个符号，{} 个文件", &[&i.syms.len(), &i.files.len()]), TEXT3())
         } else {
-            (String::new(), TEXT3)
+            (String::new(), TEXT3())
         };
         sp.text(
             pos2(status_rect.left() + 12.0, status_rect.center().y),
@@ -1763,14 +1763,14 @@ impl CodeView {
         let mut close = false;
         egui::Area::new(egui::Id::new("code-find")).fixed_pos(r.min).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
             egui::Frame::new()
-                .fill(BG2)
-                .stroke(st(1.0, LINE_HI))
+                .fill(BG2())
+                .stroke(st(1.0, LINE_HI()))
                 .corner_radius(R_CARD)
                 .shadow(egui::epaint::Shadow {
                     offset: [0, 4],
                     blur: 16,
                     spread: 0,
-                    color: Color32::from_black_alpha(150),
+                    color: shade(150),
                 })
                 .inner_margin(egui::Margin::symmetric(8, 5))
                 .show(ui, |ui| {
@@ -1796,7 +1796,7 @@ impl CodeView {
                         } else {
                             format!("{}/{}", f.cur + 1, n)
                         };
-                        ui.label(RichText::new(label).small().color(if n == 0 && !f.q.is_empty() { ERR } else { TEXT2 }));
+                        ui.label(RichText::new(label).small().color(if n == 0 && !f.q.is_empty() { ERR() } else { TEXT2() }));
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.spacing_mut().item_spacing.x = 2.0;
                             if icon_button(ui, Icon::Close, t("关闭  Esc"), false).clicked() {
@@ -1916,14 +1916,14 @@ impl CodeView {
             .fixed_pos(pos2(screen.center().x - w / 2.0, screen.top() + 60.0))
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(BG2)
-                    .stroke(st(1.0, ACCENT.gamma_multiply(0.4)))
+                    .fill(BG2())
+                    .stroke(st(1.0, ACCENT().gamma_multiply(0.4)))
                     .corner_radius(CornerRadius::same(10))
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 10],
                         blur: 40,
                         spread: 0,
-                        color: Color32::from_black_alpha(200),
+                        color: shade(200),
                     })
                     .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
@@ -1952,7 +1952,7 @@ impl CodeView {
                             } else {
                                 t("没有匹配项")
                             };
-                            ui.label(RichText::new(msg).color(TEXT3));
+                            ui.label(RichText::new(msg).color(TEXT3()));
                         }
                         egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| {
                             ui.spacing_mut().item_spacing.y = 0.0;
@@ -1961,21 +1961,21 @@ impl CodeView {
                                 let on = i == qk.sel;
                                 let p = ui.painter();
                                 if on {
-                                    p.rect_filled(r, CornerRadius::same(6), ACCENT.gamma_multiply(0.14));
+                                    p.rect_filled(r, CornerRadius::same(6), ACCENT().gamma_multiply(0.14));
                                     if up || down {
                                         ui.scroll_to_rect(r, None);
                                     }
                                 } else if resp.hovered() {
-                                    p.rect_filled(r, CornerRadius::same(6), BG3);
+                                    p.rect_filled(r, CornerRadius::same(6), BG3());
                                 }
                                 match it.2 {
                                     Some(k) => kind_badge(p, pos2(r.left() + 16.0, r.center().y), k),
                                     None => file_badge(p, pos2(r.left() + 16.0, r.center().y), &it.0),
                                 }
-                                let g = p.layout_no_wrap(it.0.clone(), FontId::new(13.5, if it.2.is_some() { FontFamily::Monospace } else { FontFamily::Proportional }), TEXT);
+                                let g = p.layout_no_wrap(it.0.clone(), FontId::new(13.5, if it.2.is_some() { FontFamily::Monospace } else { FontFamily::Proportional }), TEXT());
                                 let gw = g.size().x;
-                                p.galley(pos2(r.left() + 32.0, r.center().y - g.size().y / 2.0), g, TEXT);
-                                p.text(pos2(r.left() + 44.0 + gw, r.center().y), Align2::LEFT_CENTER, &it.1, FontId::proportional(12.0), TEXT3);
+                                p.galley(pos2(r.left() + 32.0, r.center().y - g.size().y / 2.0), g, TEXT());
+                                p.text(pos2(r.left() + 44.0 + gw, r.center().y), Align2::LEFT_CENTER, &it.1, FontId::proportional(12.0), TEXT3());
                                 if resp.clicked() {
                                     chosen = Some(it.clone());
                                 }
@@ -2005,23 +2005,25 @@ impl CodeView {
             .fixed_pos(at + vec2(0.0, 4.0))
             .show(ctx, |ui| {
                 egui::Frame::new()
-                    .fill(BG2)
-                    .stroke(st(1.0, LINE_HI))
+                    .fill(BG2())
+                    .stroke(st(1.0, LINE_HI()))
                     .corner_radius(R_CARD)
                     .shadow(egui::epaint::Shadow {
                         offset: [0, 6],
                         blur: 24,
                         spread: 0,
-                        color: Color32::from_black_alpha(180),
+                        color: shade(180),
                     })
                     .inner_margin(egui::Margin::same(8))
                     .show(ui, |ui| {
-                        ui.label(RichText::new(tf("{} 有 {} 处定义", &[&word, &defs.len()])).font(FontId::new(12.0, bold())).color(TEXT2));
+                        ui.label(RichText::new(tf("{} 有 {} 处定义", &[&word, &defs.len()])).font(FontId::new(12.0, bold())).color(TEXT2()));
                         ui.add_space(4.0);
                         for (i, (p, l, k, sig)) in defs.iter().enumerate() {
                             let rel = p.strip_prefix(&root).unwrap_or(p).to_string_lossy().to_string();
-                            let resp = ui.add(egui::Button::new(RichText::new(format!("{k}  {rel}:{}", l + 1)).color(ACCENT)).frame(false)).on_hover_text(sig);
-                            ui.label(RichText::new(sig.lines().next().unwrap_or("")).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3));
+                            let resp = ui
+                                .add(egui::Button::new(RichText::new(format!("{k}  {rel}:{}", l + 1)).color(ACCENT())).frame(false))
+                                .on_hover_text(sig);
+                            ui.label(RichText::new(sig.lines().next().unwrap_or("")).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3()));
                             if resp.clicked() {
                                 chosen = Some(i);
                             }
@@ -2064,9 +2066,9 @@ fn hover_card(ctx: &egui::Context, word: &str, at: Rect, idx: Option<&Index>, do
             ui.set_max_width(640.0);
             ui.horizontal(|ui| {
                 kind_pill(ui, s.kind);
-                ui.label(RichText::new(&s.name).font(FontId::new(13.0, FontFamily::Monospace)).color(TEXT).strong());
+                ui.label(RichText::new(&s.name).font(FontId::new(13.0, FontFamily::Monospace)).color(TEXT()).strong());
                 if syms.len() > 1 {
-                    ui.label(RichText::new(tf("等 {} 处", &[&syms.len()])).small().color(TEXT3));
+                    ui.label(RichText::new(tf("等 {} 处", &[&syms.len()])).small().color(TEXT3()));
                 }
             });
             ui.add_space(4.0);
@@ -2077,7 +2079,7 @@ fn hover_card(ctx: &egui::Context, word: &str, at: Rect, idx: Option<&Index>, do
             } else {
                 s.sig.lines().take(6).collect::<Vec<_>>().join("\n")
             };
-            egui::Frame::new().fill(BG0).corner_radius(CornerRadius::same(4)).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
+            egui::Frame::new().fill(BG0()).corner_radius(CornerRadius::same(4)).inner_margin(egui::Margin::same(6)).show(ui, |ui| {
                 ui.label(highlight::layout(&sig, if lang == Lang::Plain { Lang::C } else { lang }, code_font.clone()));
             });
             if (s.kind == Kind::Macro && s.params.is_none()) || s.kind == Kind::EnumConst {
@@ -2085,15 +2087,15 @@ fn hover_card(ctx: &egui::Context, word: &str, at: Rect, idx: Option<&Index>, do
                     let ex = i.expand(v);
                     if ex.trim() != v.trim() {
                         ui.add_space(4.0);
-                        ui.label(RichText::new(t("展开")).small().color(TEXT3));
+                        ui.label(RichText::new(t("展开")).small().color(TEXT3()));
                         ui.label(highlight::layout(&ex, Lang::C, code_font.clone()));
                     }
                     if let Some(n) = cindex::eval(&ex) {
                         ui.add_space(4.0);
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new(t("值")).small().color(TEXT3));
+                            ui.label(RichText::new(t("值")).small().color(TEXT3()));
                             let txt = if n < 0 { format!("{n}") } else { format!("0x{:X}  ({n})", n) };
-                            ui.label(RichText::new(txt).font(code_font.clone()).color(highlight::pal::NUM));
+                            ui.label(RichText::new(txt).font(code_font.clone()).color(highlight::pal::NUM()));
                         });
                     }
                 }
@@ -2101,8 +2103,8 @@ fn hover_card(ctx: &egui::Context, word: &str, at: Rect, idx: Option<&Index>, do
             ui.add_space(4.0);
             let rel = file.strip_prefix(&root).unwrap_or(&file).to_string_lossy().to_string();
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{}:{}", rel, s.line + 1)).small().color(TEXT3));
-                ui.label(RichText::new(t("Ctrl+点击 或 F12 跳转")).small().color(ACCENT.gamma_multiply(0.8)));
+                ui.label(RichText::new(format!("{}:{}", rel, s.line + 1)).small().color(TEXT3()));
+                ui.label(RichText::new(t("Ctrl+点击 或 F12 跳转")).small().color(ACCENT().gamma_multiply(0.8)));
             });
             go = false;
         },
@@ -2116,40 +2118,40 @@ pub(crate) fn tree_row(ui: &mut Ui, depth: usize, name: &str, note: Option<&str>
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
     let p = ui.painter();
     if active {
-        p.rect_filled(r, 0.0, ACCENT.gamma_multiply(0.12));
-        p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, ACCENT);
+        p.rect_filled(r, 0.0, ACCENT().gamma_multiply(0.12));
+        p.rect_filled(Rect::from_min_size(r.min, vec2(2.0, r.height())), 0.0, ACCENT());
     } else if resp.hovered() {
-        p.rect_filled(r, 0.0, Color32::from_white_alpha(7));
+        p.rect_filled(r, 0.0, tint(7));
     }
     // 缩进参考线
     for k in 0..depth {
         let x = r.left() + 18.0 + k as f32 * 14.0;
-        p.vline(x, r.y_range(), st(1.0, LINE.gamma_multiply(0.8)));
+        p.vline(x, r.y_range(), st(1.0, LINE().gamma_multiply(0.8)));
     }
     let x = r.left() + 12.0 + depth as f32 * 14.0;
     if dir {
-        chevron(p, pos2(x + 6.0, r.center().y), open == Some(true), TEXT3);
+        chevron(p, pos2(x + 6.0, r.center().y), open == Some(true), TEXT3());
         draw_icon(
             p,
             Rect::from_center_size(pos2(x + 22.0, r.center().y), vec2(14.0, 14.0)),
             Icon::Folder,
-            if open == Some(true) { ACCENT.gamma_multiply(0.85) } else { TEXT3 },
+            if open == Some(true) { ACCENT().gamma_multiply(0.85) } else { TEXT3() },
         );
     } else {
         file_badge(p, pos2(x + 20.0, r.center().y), name);
     }
     let mc = match mark {
-        Some('M') => Some(WARN),
-        Some('U') | Some('A') => Some(OK),
-        Some('D') => Some(ERR),
-        Some('•') => Some(WARN.gamma_multiply(0.7)),
+        Some('M') => Some(WARN()),
+        Some('U') | Some('A') => Some(OK()),
+        Some('D') => Some(ERR()),
+        Some('•') => Some(WARN().gamma_multiply(0.7)),
         _ => None,
     };
-    let g = p.layout_no_wrap(name.to_string(), FontId::proportional(12.5), mc.unwrap_or(if active { TEXT } else { TEXT2 }));
+    let g = p.layout_no_wrap(name.to_string(), FontId::proportional(12.5), mc.unwrap_or(if active { TEXT() } else { TEXT2() }));
     let gw = g.size().x;
-    p.galley(pos2(x + 33.0, r.center().y - g.size().y / 2.0), g, TEXT);
+    p.galley(pos2(x + 33.0, r.center().y - g.size().y / 2.0), g, TEXT());
     if let Some(n) = note {
-        p.text(pos2(x + 40.0 + gw, r.center().y), Align2::LEFT_CENTER, n, FontId::proportional(11.0), TEXT3);
+        p.text(pos2(x + 40.0 + gw, r.center().y), Align2::LEFT_CENTER, n, FontId::proportional(11.0), TEXT3());
     }
     if let (Some(c), Some(m)) = (mc, mark) {
         if m == '•' {
@@ -2177,23 +2179,23 @@ pub(crate) fn chevron(p: &egui::Painter, c: egui::Pos2, open: bool, col: Color32
 pub fn file_badge(p: &egui::Painter, c: egui::Pos2, name: &str) {
     let ext = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
     let (label, col) = match ext.as_str() {
-        "c" => ("C", Color32::from_rgb(0x55, 0x9c, 0xf5)),
-        "h" | "hpp" | "hh" => ("H", Color32::from_rgb(0xa0, 0x7c, 0xf0)),
-        "cpp" | "cc" | "cxx" => ("C+", Color32::from_rgb(0x4f, 0x8c, 0xd6)),
-        "rs" => ("RS", Color32::from_rgb(0xf0, 0x8a, 0x4b)),
-        "py" => ("PY", Color32::from_rgb(0xf2, 0xc9, 0x4c)),
-        "js" | "mjs" | "ts" | "tsx" | "jsx" => ("JS", Color32::from_rgb(0xe8, 0xd4, 0x4d)),
-        "go" => ("GO", Color32::from_rgb(0x4d, 0xc6, 0xe6)),
-        "java" | "kt" => ("JV", Color32::from_rgb(0xe0, 0x6c, 0x5a)),
-        "json" => ("{}", Color32::from_rgb(0xe8, 0xc0, 0x4d)),
-        "md" => ("M↓", Color32::from_rgb(0x4e, 0xc9, 0xb0)),
-        "s" | "asm" => ("AS", Color32::from_rgb(0x9a, 0xa5, 0xb4)),
-        "sh" | "bat" | "cmd" | "ps1" => ("$", Color32::from_rgb(0x8b, 0xd3, 0x6a)),
-        "ld" | "lds" => ("LD", Color32::from_rgb(0xc0, 0x8b, 0x6a)),
-        "txt" | "log" => ("≡", Color32::from_rgb(0x8a, 0x93, 0xa3)),
-        "yml" | "yaml" | "toml" | "ini" | "cfg" | "conf" => ("⚙", Color32::from_rgb(0x9a, 0xa5, 0xb4)),
-        _ if name.eq_ignore_ascii_case("makefile") || ext == "mk" || ext == "cmake" => ("MK", Color32::from_rgb(0x6c, 0xc0, 0x6a)),
-        _ => ("", Color32::from_rgb(0x6b, 0x74, 0x84)),
+        "c" => ("C", ink(Color32::from_rgb(0x55, 0x9c, 0xf5))),
+        "h" | "hpp" | "hh" => ("H", ink(Color32::from_rgb(0xa0, 0x7c, 0xf0))),
+        "cpp" | "cc" | "cxx" => ("C+", ink(Color32::from_rgb(0x4f, 0x8c, 0xd6))),
+        "rs" => ("RS", ink(Color32::from_rgb(0xf0, 0x8a, 0x4b))),
+        "py" => ("PY", ink(Color32::from_rgb(0xf2, 0xc9, 0x4c))),
+        "js" | "mjs" | "ts" | "tsx" | "jsx" => ("JS", ink(Color32::from_rgb(0xe8, 0xd4, 0x4d))),
+        "go" => ("GO", ink(Color32::from_rgb(0x4d, 0xc6, 0xe6))),
+        "java" | "kt" => ("JV", ink(Color32::from_rgb(0xe0, 0x6c, 0x5a))),
+        "json" => ("{}", ink(Color32::from_rgb(0xe8, 0xc0, 0x4d))),
+        "md" => ("M↓", ink(Color32::from_rgb(0x4e, 0xc9, 0xb0))),
+        "s" | "asm" => ("AS", ink(Color32::from_rgb(0x9a, 0xa5, 0xb4))),
+        "sh" | "bat" | "cmd" | "ps1" => ("$", ink(Color32::from_rgb(0x8b, 0xd3, 0x6a))),
+        "ld" | "lds" => ("LD", ink(Color32::from_rgb(0xc0, 0x8b, 0x6a))),
+        "txt" | "log" => ("≡", ink(Color32::from_rgb(0x8a, 0x93, 0xa3))),
+        "yml" | "yaml" | "toml" | "ini" | "cfg" | "conf" => ("⚙", ink(Color32::from_rgb(0x9a, 0xa5, 0xb4))),
+        _ if name.eq_ignore_ascii_case("makefile") || ext == "mk" || ext == "cmake" => ("MK", ink(Color32::from_rgb(0x6c, 0xc0, 0x6a))),
+        _ => ("", ink(Color32::from_rgb(0x6b, 0x74, 0x84))),
     };
     let r = Rect::from_center_size(c, vec2(14.0, 14.0));
     if label.is_empty() || label == "⚙" || label == "≡" {
@@ -2223,11 +2225,11 @@ pub fn file_badge(p: &egui::Painter, c: egui::Pos2, name: &str) {
 
 fn kind_color(k: Kind) -> Color32 {
     match k {
-        Kind::Func | Kind::Proto => highlight::pal::FUNC,
-        Kind::Macro => highlight::pal::MACRO,
-        Kind::Struct | Kind::Typedef | Kind::Class => highlight::pal::TY,
-        Kind::Enum | Kind::EnumConst => WARN,
-        Kind::Var => highlight::pal::CONST,
+        Kind::Func | Kind::Proto => highlight::pal::FUNC(),
+        Kind::Macro => highlight::pal::MACRO(),
+        Kind::Struct | Kind::Typedef | Kind::Class => highlight::pal::TY(),
+        Kind::Enum | Kind::EnumConst => WARN(),
+        Kind::Var => highlight::pal::CONST(),
     }
 }
 
@@ -2267,14 +2269,14 @@ fn small_toggle(ui: &mut Ui, v: &mut bool, label: &str, tip: &str) -> bool {
     let (r, resp) = ui.allocate_exact_size(vec2(26.0, 24.0), Sense::click());
     let p = ui.painter();
     if *v {
-        p.rect(r, CornerRadius::same(4), ACCENT.gamma_multiply(0.15), st(1.0, ACCENT.gamma_multiply(0.5)), egui::StrokeKind::Inside);
+        p.rect(r, CornerRadius::same(4), ACCENT().gamma_multiply(0.15), st(1.0, ACCENT().gamma_multiply(0.5)), egui::StrokeKind::Inside);
     } else if resp.hovered() {
-        p.rect_filled(r, CornerRadius::same(4), BG3);
+        p.rect_filled(r, CornerRadius::same(4), BG3());
     }
     let font = if label == "ab" { FontId::new(11.0, mono_bold()) } else { FontId::new(11.5, bold()) };
-    p.text(r.center(), Align2::CENTER_CENTER, label, font, if *v { ACCENT } else { TEXT2 });
+    p.text(r.center(), Align2::CENTER_CENTER, label, font, if *v { ACCENT() } else { TEXT2() });
     if label == "ab" {
-        p.hline(egui::Rangef::new(r.left() + 6.0, r.right() - 6.0), r.bottom() - 6.0, st(1.0, if *v { ACCENT } else { TEXT3 }));
+        p.hline(egui::Rangef::new(r.left() + 6.0, r.right() - 6.0), r.bottom() - 6.0, st(1.0, if *v { ACCENT() } else { TEXT3() }));
     }
     let clicked = resp.on_hover_text(tip).clicked();
     if clicked {

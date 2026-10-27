@@ -1,0 +1,452 @@
+//! 快捷键：所有可绑定的命令集中登记在这里，默认键位尽量和 VS Code 一致，用户可以改。
+//!
+//! 每帧开始时 `Keymap::poll` 把按键事件翻译成命令（并从输入里拿掉，免得再被别的控件处理），
+//! 各页面只处理命令，不直接看按键。支持 VS Code 式的组合键序列（Ctrl+K Ctrl+S）。
+
+use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
+
+use eframe::egui::{self, Key, Modifiers};
+
+use crate::i18n::t;
+
+/// 命令生效的范围
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Scope {
+    Global,
+    Debug,
+    Code,
+    Git,
+}
+
+impl Scope {
+    pub fn label(self) -> &'static str {
+        match self {
+            Scope::Global => t("全局"),
+            Scope::Debug => t("调试"),
+            Scope::Code => t("代码"),
+            Scope::Git => "Git",
+        }
+    }
+}
+
+/// 一个按键组合，如 Ctrl+Shift+P
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Combo {
+    pub ctrl: bool,
+    pub shift: bool,
+    pub alt: bool,
+    pub key: Key,
+}
+
+impl Combo {
+    pub fn from_event(key: Key, m: Modifiers) -> Combo {
+        Combo {
+            ctrl: m.command || m.ctrl,
+            shift: m.shift,
+            alt: m.alt,
+            key,
+        }
+    }
+
+    pub fn parse(s: &str) -> Option<Combo> {
+        let mut c = Combo {
+            ctrl: false,
+            shift: false,
+            alt: false,
+            key: Key::Escape,
+        };
+        let mut key = None;
+        for part in s.split('+').map(str::trim) {
+            match part.to_ascii_lowercase().as_str() {
+                "ctrl" | "cmd" | "control" => c.ctrl = true,
+                "shift" => c.shift = true,
+                "alt" | "option" => c.alt = true,
+                "" => key = Some(Key::Plus), // "Ctrl++"
+                _ => key = key_from_name(part),
+            }
+        }
+        c.key = key?;
+        Some(c)
+    }
+
+    /// 按修饰键数量判断：没有 Ctrl / Alt 的普通键（字母、数字）不能单独绑定，免得打字时触发
+    pub fn usable(&self) -> bool {
+        self.ctrl || self.alt || is_fkey(self.key) || matches!(self.key, Key::Escape)
+    }
+}
+
+impl std::fmt::Display for Combo {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        if self.ctrl {
+            f.write_str(if cfg!(target_os = "macos") { "Cmd+" } else { "Ctrl+" })?;
+        }
+        if self.shift {
+            f.write_str("Shift+")?;
+        }
+        if self.alt {
+            f.write_str("Alt+")?;
+        }
+        f.write_str(key_name(self.key))
+    }
+}
+
+fn is_fkey(k: Key) -> bool {
+    matches!(
+        k,
+        Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::F5 | Key::F6 | Key::F7 | Key::F8 | Key::F9 | Key::F10 | Key::F11 | Key::F12
+    )
+}
+
+fn key_name(k: Key) -> &'static str {
+    match k {
+        Key::Backtick => "`",
+        Key::Plus => "+",
+        Key::Equals => "=",
+        Key::Minus => "-",
+        Key::Comma => ",",
+        Key::Period => ".",
+        Key::Slash => "/",
+        Key::Backslash => "\\",
+        Key::OpenBracket => "[",
+        Key::CloseBracket => "]",
+        Key::Semicolon => ";",
+        Key::Quote => "'",
+        Key::ArrowLeft => "←",
+        Key::ArrowRight => "→",
+        Key::ArrowUp => "↑",
+        Key::ArrowDown => "↓",
+        Key::Num0 => "0",
+        Key::Num1 => "1",
+        Key::Num2 => "2",
+        Key::Num3 => "3",
+        Key::Num4 => "4",
+        Key::Num5 => "5",
+        Key::Num6 => "6",
+        Key::Num7 => "7",
+        Key::Num8 => "8",
+        Key::Num9 => "9",
+        _ => k.name(),
+    }
+}
+
+fn key_from_name(s: &str) -> Option<Key> {
+    let k = match s {
+        "`" => Key::Backtick,
+        "=" => Key::Equals,
+        "-" => Key::Minus,
+        "," => Key::Comma,
+        "." => Key::Period,
+        "/" => Key::Slash,
+        "\\" => Key::Backslash,
+        "[" => Key::OpenBracket,
+        "]" => Key::CloseBracket,
+        ";" => Key::Semicolon,
+        "'" => Key::Quote,
+        "←" | "Left" => Key::ArrowLeft,
+        "→" | "Right" => Key::ArrowRight,
+        "↑" | "Up" => Key::ArrowUp,
+        "↓" | "Down" => Key::ArrowDown,
+        "0" => Key::Num0,
+        "1" => Key::Num1,
+        "2" => Key::Num2,
+        "3" => Key::Num3,
+        "4" => Key::Num4,
+        "5" => Key::Num5,
+        "6" => Key::Num6,
+        "7" => Key::Num7,
+        "8" => Key::Num8,
+        "9" => Key::Num9,
+        _ => return Key::from_name(s).or_else(|| Key::from_name(&s.to_ascii_uppercase())),
+    };
+    Some(k)
+}
+
+/// 一个绑定：一个或两个组合键（序列）
+pub type Chord = Vec<Combo>;
+
+pub fn chord_str(c: &Chord) -> String {
+    c.iter().map(|x| x.to_string()).collect::<Vec<_>>().join(" ")
+}
+
+pub fn parse_chord(s: &str) -> Option<Chord> {
+    let v: Option<Vec<Combo>> = s.split_whitespace().map(Combo::parse).collect();
+    v.filter(|v| !v.is_empty() && v.len() <= 2)
+}
+
+/// 命令。新增命令只需要在 `ACTIONS` 里加一行
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+pub enum Act {
+    Palette,
+    Settings,
+    Keymap,
+    PageDebug,
+    PageCode,
+    PageGit,
+    ThemeToggle,
+    CheckUpdate,
+    // 调试页
+    Connect,
+    LogFind,
+    LogClear,
+    LogSave,
+    LogPause,
+    LogSelectAll,
+    FocusCmdBar,
+    ToggleSidebar,
+    ToggleCmdPanel,
+    ToggleTerminal,
+    Quick(u8),
+    // 代码页
+    QuickOpen,
+    GotoSymbolWs,
+    GotoSymbol,
+    GotoLine,
+    OpenFile,
+    SearchAll,
+    FindInFile,
+    CloseTab,
+    NextTab,
+    SaveFile,
+    ZoomIn,
+    ZoomOut,
+    GotoDef,
+    FindRefs,
+    NavBack,
+    NavFwd,
+    // Git 页
+    GitRefresh,
+    GitFetch,
+    GitFind,
+}
+
+pub struct ActDef {
+    pub act: Act,
+    pub id: &'static str,
+    /// 代码里的中文原文，显示时经 t() 翻译
+    pub label: &'static str,
+    pub scope: Scope,
+    pub keys: &'static [&'static str],
+    /// 终端获得键盘焦点时也生效（其余快捷键都直接发给设备）
+    pub in_term: bool,
+}
+
+macro_rules! acts {
+    ($($act:expr, $id:literal, $label:literal, $scope:ident, [$($k:literal),*] $(, $term:literal)?;)*) => {
+        pub const ACTIONS: &[ActDef] = &[
+            $(ActDef { act: $act, id: $id, label: $label, scope: Scope::$scope, keys: &[$($k),*], in_term: false $(|| $term)? },)*
+        ];
+    };
+}
+
+acts! {
+    Act::Palette, "palette", "命令面板", Global, ["Ctrl+Shift+P", "F1"], true;
+    Act::Settings, "settings", "打开设置", Global, ["Ctrl+,"], true;
+    Act::Keymap, "keymap", "快捷键设置", Global, ["Ctrl+K Ctrl+S"];
+    Act::PageDebug, "page.debug", "切换到调试页", Global, ["Ctrl+Shift+D"], true;
+    Act::PageCode, "page.code", "切换到代码页", Global, ["Ctrl+Shift+E"], true;
+    Act::PageGit, "page.git", "切换到 Git 页", Global, ["Ctrl+Shift+G"], true;
+    Act::ThemeToggle, "theme.toggle", "切换深色 / 浅色主题", Global, ["Ctrl+K Ctrl+T"];
+    Act::CheckUpdate, "update.check", "检查更新", Global, [];
+    Act::Connect, "conn.toggle", "连接 / 断开", Debug, ["F5"], true;
+    Act::LogFind, "log.find", "搜索日志", Debug, ["Ctrl+F"];
+    Act::LogClear, "log.clear", "清屏", Debug, ["Ctrl+L"];
+    Act::LogSave, "log.save", "保存日志", Debug, ["Ctrl+S"];
+    Act::LogPause, "log.pause", "暂停 / 继续", Debug, ["Ctrl+P"];
+    Act::LogSelectAll, "log.select_all", "全选日志", Debug, ["Ctrl+A"];
+    Act::FocusCmdBar, "cmdbar.focus", "聚焦命令栏", Debug, ["Ctrl+K"];
+    Act::ToggleSidebar, "sidebar.toggle", "显示 / 隐藏侧边栏", Global, ["Ctrl+B"];
+    Act::ToggleCmdPanel, "cmds.toggle", "展开 / 收起快捷命令", Debug, ["Ctrl+J"];
+    Act::ToggleTerminal, "term.toggle", "切换 日志 / 终端", Debug, ["Ctrl+`"], true;
+    Act::Quick(0), "quick.1", "发送快捷命令 1", Debug, ["Alt+1"];
+    Act::Quick(1), "quick.2", "发送快捷命令 2", Debug, ["Alt+2"];
+    Act::Quick(2), "quick.3", "发送快捷命令 3", Debug, ["Alt+3"];
+    Act::Quick(3), "quick.4", "发送快捷命令 4", Debug, ["Alt+4"];
+    Act::Quick(4), "quick.5", "发送快捷命令 5", Debug, ["Alt+5"];
+    Act::Quick(5), "quick.6", "发送快捷命令 6", Debug, ["Alt+6"];
+    Act::Quick(6), "quick.7", "发送快捷命令 7", Debug, ["Alt+7"];
+    Act::Quick(7), "quick.8", "发送快捷命令 8", Debug, ["Alt+8"];
+    Act::Quick(8), "quick.9", "发送快捷命令 9", Debug, ["Alt+9"];
+    Act::QuickOpen, "code.quick_open", "快速打开文件", Code, ["Ctrl+P"];
+    Act::GotoSymbolWs, "code.symbol_ws", "跳到工作区符号", Code, ["Ctrl+T"];
+    Act::GotoSymbol, "code.symbol", "跳到文件内符号", Code, ["Ctrl+Shift+O"];
+    Act::GotoLine, "code.line", "跳到行", Code, ["Ctrl+G"];
+    Act::OpenFile, "code.open_file", "打开文件", Code, ["Ctrl+O"];
+    Act::SearchAll, "code.search", "全局搜索", Code, ["Ctrl+Shift+F"];
+    Act::FindInFile, "code.find", "文件内查找", Code, ["Ctrl+F"];
+    Act::CloseTab, "code.close_tab", "关闭标签页", Code, ["Ctrl+W"];
+    Act::NextTab, "code.next_tab", "下一个标签页", Code, ["Ctrl+Tab"];
+    Act::SaveFile, "code.save", "保存文件", Code, ["Ctrl+S"];
+    Act::ZoomIn, "code.zoom_in", "放大字号", Code, ["Ctrl+=", "Ctrl++"];
+    Act::ZoomOut, "code.zoom_out", "缩小字号", Code, ["Ctrl+-"];
+    Act::GotoDef, "code.goto_def", "跳转到定义", Code, ["F12"];
+    Act::FindRefs, "code.refs", "查找引用", Code, ["Shift+F12"];
+    Act::NavBack, "nav.back", "后退", Code, ["Alt+←"];
+    Act::NavFwd, "nav.forward", "前进", Code, ["Alt+→"];
+    Act::GitRefresh, "git.refresh", "刷新仓库", Git, ["F5"];
+    Act::GitFetch, "git.fetch", "从所有远程拉取", Git, [];
+    Act::GitFind, "git.find", "搜索提交", Git, ["Ctrl+F"];
+}
+
+pub fn def(a: Act) -> &'static ActDef {
+    ACTIONS.iter().find(|d| d.act == a).expect("action registered")
+}
+
+/// 用户改过的绑定：命令 id → 键位字符串列表（空列表 = 删除了全部绑定）
+pub type Overrides = BTreeMap<String, Vec<String>>;
+
+pub struct Keymap {
+    /// (命令, 绑定) 的当前生效表
+    table: Vec<(Act, Chord)>,
+    pending: Option<(Combo, Instant)>,
+}
+
+impl Keymap {
+    pub fn new(ov: &Overrides) -> Keymap {
+        let mut k = Keymap { table: vec![], pending: None };
+        k.rebuild(ov);
+        k
+    }
+
+    pub fn rebuild(&mut self, ov: &Overrides) {
+        self.table.clear();
+        for d in ACTIONS {
+            match ov.get(d.id) {
+                Some(list) => self.table.extend(list.iter().filter_map(|s| parse_chord(s)).map(|c| (d.act, c))),
+                None => self.table.extend(d.keys.iter().filter_map(|s| parse_chord(s)).map(|c| (d.act, c))),
+            }
+        }
+    }
+
+    pub fn bindings(&self, a: Act) -> Vec<&Chord> {
+        self.table.iter().filter(|(x, _)| *x == a).map(|(_, c)| c).collect()
+    }
+
+    /// 第一个绑定的文字，用于菜单和提示
+    pub fn label(&self, a: Act) -> String {
+        self.bindings(a).first().map(|c| chord_str(c)).unwrap_or_default()
+    }
+
+    /// 等待序列第二个键时，状态栏显示的提示
+    pub fn pending(&self) -> Option<String> {
+        self.pending.map(|(c, _)| c.to_string())
+    }
+
+    /// 和这个绑定冲突（同一范围或全局重叠）的其他命令
+    pub fn conflicts(&self, a: Act, chord: &Chord) -> Vec<Act> {
+        let s = def(a).scope;
+        self.table
+            .iter()
+            .filter(|(x, c)| *x != a && c == chord && (def(*x).scope == s || def(*x).scope == Scope::Global || s == Scope::Global))
+            .map(|(x, _)| *x)
+            .collect()
+    }
+
+    /// 把这一帧的按键翻译成命令。`scope` 是当前页面；`term` 表示终端拿着键盘焦点
+    pub fn poll(&mut self, ctx: &egui::Context, scope: Scope, term: bool) -> Vec<Act> {
+        if self.pending.is_some_and(|(_, at)| at.elapsed() > Duration::from_millis(1500)) {
+            self.pending = None;
+        }
+        let active = |a: Act| {
+            let d = def(a);
+            (d.scope == scope || d.scope == Scope::Global) && (!term || d.in_term)
+        };
+        // 输入框有焦点时，把编辑用的按键留给输入框
+        let typing = ctx.wants_keyboard_input();
+        let mut out = vec![];
+        let table = &self.table;
+        let pending = &mut self.pending;
+        ctx.input_mut(|i| {
+            i.events.retain(|e| {
+                let egui::Event::Key { key, pressed: true, modifiers, .. } = e else { return true };
+                if matches!(key, Key::Escape) && pending.is_some() {
+                    *pending = None;
+                    return false;
+                }
+                let combo = Combo::from_event(*key, *modifiers);
+                if typing
+                    && combo.ctrl
+                    && !combo.alt
+                    && matches!(
+                        combo.key,
+                        Key::A | Key::Z | Key::Y | Key::X | Key::C | Key::V | Key::ArrowLeft | Key::ArrowRight | Key::Backspace | Key::Delete | Key::Home | Key::End
+                    )
+                {
+                    return true;
+                }
+                // 序列的第二个键
+                if let Some((first, _)) = *pending {
+                    *pending = None;
+                    if let Some((a, _)) = table.iter().find(|(a, c)| c.len() == 2 && c[0] == first && c[1] == combo && active(*a)) {
+                        out.push(*a);
+                        return false;
+                    }
+                }
+                // 页面范围的绑定优先于全局
+                let single = table
+                    .iter()
+                    .filter(|(a, c)| c.len() == 1 && c[0] == combo && active(*a))
+                    .min_by_key(|(a, _)| (def(*a).scope == Scope::Global) as u8)
+                    .map(|(a, _)| *a);
+                let starts_chord = table.iter().any(|(a, c)| c.len() == 2 && c[0] == combo && active(*a));
+                if starts_chord {
+                    *pending = Some((combo, Instant::now()));
+                }
+                if let Some(a) = single {
+                    out.push(a);
+                    return false;
+                }
+                !starts_chord
+            });
+        });
+        // 序列等待期间别让粘在一起的文字事件（例如 Ctrl+K 后的字母）漏进输入框
+        if self.pending.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(1600));
+        }
+        out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_and_print() {
+        let c = Combo::parse("Ctrl+Shift+P").unwrap();
+        assert!(c.ctrl && c.shift && !c.alt && c.key == Key::P);
+        assert_eq!(parse_chord("Ctrl+K Ctrl+S").unwrap().len(), 2);
+        assert_eq!(Combo::parse("Ctrl+`").unwrap().key, Key::Backtick);
+        assert_eq!(Combo::parse("Ctrl++").unwrap().key, Key::Plus);
+        assert_eq!(Combo::parse("Alt+←").unwrap().key, Key::ArrowLeft);
+        assert_eq!(Combo::parse("F12").unwrap().key, Key::F12);
+        for d in ACTIONS {
+            for k in d.keys {
+                let c = parse_chord(k).unwrap_or_else(|| panic!("bad default {k}"));
+                assert!(c.iter().all(|x| x.usable()), "{k}");
+                if !cfg!(target_os = "macos") {
+                    assert_eq!(parse_chord(&chord_str(&c)), Some(c.clone()), "{k}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn ids_unique() {
+        let mut ids: Vec<&str> = ACTIONS.iter().map(|d| d.id).collect();
+        ids.sort();
+        ids.dedup();
+        assert_eq!(ids.len(), ACTIONS.len());
+    }
+
+    #[test]
+    fn overrides() {
+        let mut ov = Overrides::new();
+        ov.insert("log.clear".into(), vec!["Ctrl+Shift+L".into()]);
+        ov.insert("log.save".into(), vec![]);
+        let k = Keymap::new(&ov);
+        assert_eq!(k.label(Act::LogClear), "Ctrl+Shift+L");
+        assert!(k.bindings(Act::LogSave).is_empty());
+        assert_eq!(k.label(Act::Palette), "Ctrl+Shift+P");
+    }
+}

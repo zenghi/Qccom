@@ -486,3 +486,100 @@ SHA-256 校验不一致，文件可能损坏或被篡改，已删除	SHA-256 mis
 启动新版本失败：{}	Failed to start the new version: {}	啟動新版本失敗：{}	新しいバージョンの起動に失敗：{}	새 버전 실행 실패: {}	Neue Version konnte nicht gestartet werden: {}	Impossible de lancer la nouvelle version : {}	No se pudo iniciar la nueva versión: {}	Не удалось запустить новую версию: {}	Falha ao iniciar a nova versão: {}
 关于 QCCOM	About QCCOM	關於 QCCOM	QCCOM について	QCCOM 정보	Über QCCOM	À propos de QCCOM	Acerca de QCCOM	О QCCOM	Sobre o QCCOM
 串口 / 网络调试助手	Serial / network debug tool	串列埠 / 網路除錯助手	シリアル / ネットワーク デバッグツール	시리얼 / 네트워크 디버그 도구	Seriell- / Netzwerk-Debugtool	Outil de débogage série / réseau	Herramienta de depuración serie / red	Отладчик последовательного порта и сети	Ferramenta de depuração serial / rede
+复制（含时间戳）	Copy with timestamps	複製（含時間戳）	コピー（タイムスタンプ付き）	복사 (타임스탬프 포함)	Kopieren (mit Zeitstempel)	Copier (avec horodatage)	Copiar (con marca de tiempo)	Копировать (с метками времени)	Copiar (com carimbo de hora)
+全选	Select All	全選	すべて選択	모두 선택	Alles auswählen	Tout sélectionner	Seleccionar todo	Выделить всё	Selecionar tudo
+管理	Manage	管理	管理	관리	Verwalten	Gérer	Gestionar	Управление	Gerenciar
+深色	Dark	深色	ダーク	다크	Dunkel	Sombre	Oscuro	Тёмная	Escuro
+浅色	Light	淺色	ライト	라이트	Hell	Clair	Claro	Светлая	Claro
+关于	About	關於	バージョン情報	정보	Über	À propos	Acerca de	О программе	Sobre
+拖动 / 双击 / 三击	Drag / double / triple click	拖曳 / 雙擊 / 三擊	ドラッグ / ダブル / トリプルクリック	드래그 / 더블 / 트리플 클릭	Ziehen / Doppel- / Dreifachklick	Glisser / double / triple clic	Arrastrar / doble / triple clic	Перетащить / двойной / тройной щелчок	Arrastar / clique duplo / triplo
+选择文字 / 单词 / 整行	Select text / word / line	選擇文字 / 單字 / 整行	テキスト / 単語 / 行を選択	텍스트 / 단어 / 줄 선택	Text / Wort / Zeile auswählen	Sélectionner texte / mot / ligne	Seleccionar texto / palabra / línea	Выделить текст / слово / строку	Selecionar texto / palavra / linha
+点击行号	Click line number	點擊行號	行番号をクリック	줄 번호 클릭	Zeilennummer klicken	Cliquer le numéro de ligne	Clic en número de línea	Щелчок по номеру строки	Clicar no número da linha
+选中整行，Shift 多选	Select whole lines, Shift for range	選取整行，Shift 多選	行全体を選択、Shift で範囲選択	전체 줄 선택, Shift로 범위 선택	Ganze Zeilen, Shift für Bereich	Lignes entières, Maj pour une plage	Líneas completas, Mayús para rango	Целые строки, Shift — диапазон	Linhas inteiras, Shift para intervalo
+复制选中内容	Copy selection	複製選取內容	選択範囲をコピー	선택 영역 복사	Auswahl kopieren	Copier la sélection	Copiar selección	Копировать выделенное	Copiar seleção
+点击可自定义快捷键	Click to customize shortcuts	點擊可自訂快捷鍵	クリックしてショートカットを変更	클릭하여 단축키 사용자 지정	Klicken, um Tastenkürzel anzupassen	Cliquer pour personnaliser les raccourcis	Clic para personalizar atajos	Нажмите, чтобы настроить сочетания	Clique para personalizar atalhos
+已按下 {}，等待第二个按键…	{} pressed, waiting for second key…	已按下 {}，等待第二個按鍵…	{} を押しました。次のキーを待っています…	{} 누름, 두 번째 키 대기 중…	{} gedrückt, warte auf zweite Taste…	{} appuyé, en attente de la seconde touche…	{} pulsado, esperando segunda tecla…	Нажато {}, ожидание второй клавиши…	{} pressionado, aguardando a segunda tecla…
+全局	Global	全域	グローバル	전역	Global	Global	Global	Глобально	Global
+调试	Debug	除錯	デバッグ	디버그	Debug	Débogage	Depuración	Отладка	Depuração
+代码	Code	程式碼	コード	코드	Code	Code	Código	Код	Código
+语言	Language	語言	言語	언어	Sprache	Langue	Idioma	Язык	Idioma
+设置	Settings	設定	設定	설정	Einstellungen	Paramètres	Configuración	Настройки	Configurações
+输入命令名称，例如「主题」「清屏」「快捷键」	Type a command, e.g. "theme", "clear", "shortcuts"	輸入命令名稱，例如「主題」「清屏」「快捷鍵」	コマンド名を入力（例：「テーマ」「クリア」「ショートカット」）	명령 입력 (예: "테마", "지우기", "단축키")	Befehl eingeben, z. B. „Design“, „Leeren“, „Tastenkürzel“	Tapez une commande, ex. « thème », « effacer », « raccourcis »	Escriba un comando, p. ej. «tema», «limpiar», «atajos»	Введите команду, например «тема», «очистить», «сочетания»	Digite um comando, ex. "tema", "limpar", "atalhos"
+常规	General	一般	一般	일반	Allgemein	Général	General	Общие	Geral
+外观	Appearance	外觀	外観	모양	Darstellung	Apparence	Apariencia	Внешний вид	Aparência
+代码编辑器	Code Editor	程式碼編輯器	コードエディター	코드 편집기	Code-Editor	Éditeur de code	Editor de código	Редактор кода	Editor de código
+快捷键	Keyboard Shortcuts	快捷鍵	キーボードショートカット	단축키	Tastenkürzel	Raccourcis clavier	Atajos de teclado	Сочетания клавиш	Atalhos de teclado
+搜索设置	Search settings	搜尋設定	設定を検索	설정 검색	Einstellungen durchsuchen	Rechercher dans les paramètres	Buscar configuración	Поиск настроек	Pesquisar configurações
+关闭设置（Esc）	Close settings (Esc)	關閉設定（Esc）	設定を閉じる（Esc）	설정 닫기 (Esc)	Einstellungen schließen (Esc)	Fermer les paramètres (Échap)	Cerrar configuración (Esc)	Закрыть настройки (Esc)	Fechar configurações (Esc)
+没有匹配的设置	No matching settings	沒有符合的設定	一致する設定はありません	일치하는 설정 없음	Keine passenden Einstellungen	Aucun paramètre correspondant	No hay configuraciones coincidentes	Нет подходящих настроек	Nenhuma configuração correspondente
+默认跟随系统语言，切换立即生效	Follows the system language by default; changes apply immediately	預設跟隨系統語言，切換立即生效	既定ではシステム言語に従います。変更はすぐに反映されます	기본적으로 시스템 언어를 따르며 즉시 적용됩니다	Folgt standardmäßig der Systemsprache; Änderungen gelten sofort	Suit la langue du système par défaut ; effet immédiat	Sigue el idioma del sistema por defecto; se aplica al instante	По умолчанию язык системы; применяется сразу	Segue o idioma do sistema por padrão; aplica-se imediatamente
+有新版本时在右下角提示，不会自动安装	Shows a notice when a new version is out; never installs on its own	有新版本時在右下角提示，不會自動安裝	新しいバージョンがあると通知します。自動ではインストールしません	새 버전이 있으면 알려 주며 자동 설치하지 않습니다	Zeigt einen Hinweis bei neuer Version; installiert nie selbst	Signale une nouvelle version ; n'installe jamais seul	Avisa cuando hay una versión nueva; nunca instala por sí solo	Сообщает о новой версии; сам не устанавливает	Avisa quando há nova versão; nunca instala sozinho
+立即检查	Check now	立即檢查	今すぐ確認	지금 확인	Jetzt prüfen	Vérifier maintenant	Comprobar ahora	Проверить сейчас	Verificar agora
+命令面板	Command Palette	命令面板	コマンドパレット	명령 팔레트	Befehlspalette	Palette de commandes	Paleta de comandos	Палитра команд	Paleta de comandos
+打开	Open	開啟	開く	열기	Öffnen	Ouvrir	Abrir	Открыть	Abrir
+界面缩放	UI scale	介面縮放	UI の拡大率	UI 배율	UI-Skalierung	Échelle de l'interface	Escala de la interfaz	Масштаб интерфейса	Escala da interface
+高分屏上觉得字小可以放大	Enlarge if text looks small on high-DPI screens	高解析度螢幕上覺得字小可以放大	高解像度画面で文字が小さいときに拡大	고해상도 화면에서 글자가 작으면 확대하세요	Vergrößern, wenn Text auf HiDPI-Bildschirmen klein wirkt	Agrandir si le texte paraît petit sur écran HiDPI	Ampliar si el texto se ve pequeño en pantallas HiDPI	Увеличьте, если текст мелкий на HiDPI-экране	Aumente se o texto parecer pequeno em telas HiDPI
+日志字号	Log font size	日誌字號	ログのフォントサイズ	로그 글꼴 크기	Log-Schriftgröße	Taille de police du journal	Tamaño de fuente del registro	Размер шрифта журнала	Tamanho da fonte do log
+日志和终端使用的等宽字体大小	Monospace font size used by the log and terminal	日誌和終端使用的等寬字體大小	ログとターミナルの等幅フォントのサイズ	로그와 터미널에 쓰이는 고정폭 글꼴 크기	Größe der Monospace-Schrift für Log und Terminal	Taille de la police à chasse fixe du journal et du terminal	Tamaño de la fuente monoespaciada del registro y terminal	Размер моноширинного шрифта журнала и терминала	Tamanho da fonte monoespaçada do log e terminal
+复制时带时间戳	Include timestamps when copying	複製時帶時間戳	コピー時にタイムスタンプを含める	복사 시 타임스탬프 포함	Beim Kopieren Zeitstempel einfügen	Inclure l'horodatage lors de la copie	Incluir marca de tiempo al copiar	Копировать с метками времени	Incluir carimbo de hora ao copiar
+Ctrl+C 复制选中内容时，每行带上时间戳；右键菜单里两种都有	Ctrl+C adds a timestamp to each copied line; the right-click menu offers both	Ctrl+C 複製選取內容時，每行帶上時間戳；右鍵選單裡兩種都有	Ctrl+C でコピーすると各行にタイムスタンプを付けます。右クリックメニューには両方あります	Ctrl+C 복사 시 줄마다 타임스탬프를 붙입니다. 오른쪽 클릭 메뉴에는 둘 다 있습니다	Strg+C fügt jeder Zeile einen Zeitstempel hinzu; das Kontextmenü bietet beides	Ctrl+C ajoute l'horodatage à chaque ligne ; le menu contextuel propose les deux	Ctrl+C añade la marca de tiempo a cada línea; el menú contextual ofrece ambos	Ctrl+C добавляет метку времени к каждой строке; в контекстном меню есть оба варианта	Ctrl+C adiciona o carimbo de hora a cada linha; o menu de contexto oferece ambos
+保留行数	Lines to keep	保留行數	保持する行数	보관할 줄 수	Zu behaltende Zeilen	Lignes conservées	Líneas a conservar	Хранить строк	Linhas a manter
+超过后丢弃最早的日志，避免占用太多内存	Oldest lines are dropped beyond this to save memory	超過後丟棄最早的日誌，避免佔用太多記憶體	超えると古いログから破棄し、メモリを節約します	초과하면 오래된 로그부터 버려 메모리를 아낍니다	Darüber hinaus werden die ältesten Zeilen verworfen	Au-delà, les lignes les plus anciennes sont supprimées	Por encima se descartan las líneas más antiguas	Сверх этого старые строки удаляются	Acima disso, as linhas mais antigas são descartadas
+代码字号	Code font size	程式碼字號	コードのフォントサイズ	코드 글꼴 크기	Code-Schriftgröße	Taille de police du code	Tamaño de fuente del código	Размер шрифта кода	Tamanho da fonte do código
+代码浏览器的字体大小（Ctrl+= / Ctrl+- 也可以调）	Font size in the code browser (Ctrl+= / Ctrl+- also work)	程式碼瀏覽器的字體大小（Ctrl+= / Ctrl+- 也可以調）	コードブラウザーのフォントサイズ（Ctrl+= / Ctrl+- でも変更可）	코드 브라우저 글꼴 크기 (Ctrl+= / Ctrl+- 도 가능)	Schriftgröße im Code-Browser (auch Strg+= / Strg+-)	Taille de police du navigateur de code (Ctrl+= / Ctrl+- aussi)	Tamaño de fuente del explorador de código (también Ctrl+= / Ctrl+-)	Размер шрифта в браузере кода (также Ctrl+= / Ctrl+-)	Tamanho da fonte no navegador de código (Ctrl+= / Ctrl+- também)
+缩略图	Minimap	縮圖	ミニマップ	미니맵	Minimap	Minimap	Minimapa	Мини-карта	Minimapa
+编辑器右侧显示整个文件的缩略图，可拖动定位	Overview of the whole file at the editor's right edge; drag to navigate	編輯器右側顯示整個檔案的縮圖，可拖曳定位	エディター右側にファイル全体の縮小表示。ドラッグで移動	편집기 오른쪽에 파일 전체 미리보기, 드래그로 이동	Dateiübersicht am rechten Rand; zum Navigieren ziehen	Aperçu du fichier à droite de l'éditeur ; glisser pour naviguer	Vista general del archivo a la derecha; arrastre para navegar	Обзор файла справа; перетаскивайте для перехода	Visão geral do arquivo à direita; arraste para navegar
+使用手册	User guide	使用手冊	ユーザーガイド	사용 설명서	Handbuch	Guide d'utilisation	Guía de usuario	Руководство	Guia do usuário
+问题反馈	Report an issue	問題回報	問題を報告	문제 신고	Problem melden	Signaler un problème	Informar de un problema	Сообщить о проблеме	Relatar um problema
+按命令名称或按键搜索，如「清屏」「Ctrl+L」	Search by command or key, e.g. "clear", "Ctrl+L"	按命令名稱或按鍵搜尋，如「清屏」「Ctrl+L」	コマンド名またはキーで検索（例：「クリア」「Ctrl+L」）	명령 또는 키로 검색 (예: "지우기", "Ctrl+L")	Nach Befehl oder Taste suchen, z. B. „Leeren“, „Strg+L“	Rechercher par commande ou touche, ex. « effacer », « Ctrl+L »	Buscar por comando o tecla, p. ej. «limpiar», «Ctrl+L»	Поиск по команде или клавише, например «очистить», «Ctrl+L»	Pesquisar por comando ou tecla, ex. "limpar", "Ctrl+L"
+恢复全部默认	Reset all to defaults	恢復全部預設	すべて既定に戻す	모두 기본값으로	Alle zurücksetzen	Tout réinitialiser	Restablecer todo	Сбросить всё	Restaurar tudo
+导出	Export	匯出	エクスポート	내보내기	Exportieren	Exporter	Exportar	Экспорт	Exportar
+已导出	Exported	已匯出	エクスポートしました	내보냄	Exportiert	Exporté	Exportado	Экспортировано	Exportado
+导入	Import	匯入	インポート	가져오기	Importieren	Importer	Importar	Импорт	Importar
+已导入快捷键	Shortcuts imported	已匯入快捷鍵	ショートカットをインポートしました	단축키를 가져왔습니다	Tastenkürzel importiert	Raccourcis importés	Atajos importados	Сочетания импортированы	Atalhos importados
+导入失败：{}	Import failed: {}	匯入失敗：{}	インポートに失敗しました：{}	가져오기 실패: {}	Import fehlgeschlagen: {}	Échec de l'importation : {}	Error al importar: {}	Ошибка импорта: {}	Falha na importação: {}
+点击按键可以修改，按 Esc 取消；连按两组组合键可以设成序列（如 Ctrl+K Ctrl+S）。右键可恢复默认或删除。	Click a key to change it, Esc cancels. Press two combos in a row for a sequence (e.g. Ctrl+K Ctrl+S). Right-click to reset or remove.	點擊按鍵可以修改，按 Esc 取消；連按兩組組合鍵可以設成序列（如 Ctrl+K Ctrl+S）。右鍵可恢復預設或刪除。	キーをクリックして変更、Esc で取り消し。2 つの組み合わせを続けて押すとシーケンスになります（例：Ctrl+K Ctrl+S）。右クリックで既定に戻す／削除。	키를 클릭해 변경하고 Esc로 취소합니다. 두 조합을 연속으로 누르면 시퀀스가 됩니다 (예: Ctrl+K Ctrl+S). 오른쪽 클릭으로 초기화/삭제.	Taste anklicken zum Ändern, Esc bricht ab. Zwei Kombinationen hintereinander ergeben eine Folge (z. B. Strg+K Strg+S). Rechtsklick zum Zurücksetzen oder Entfernen.	Cliquez une touche pour la modifier, Échap annule. Deux combinaisons à la suite forment une séquence (ex. Ctrl+K Ctrl+S). Clic droit pour réinitialiser ou supprimer.	Haga clic en una tecla para cambiarla, Esc cancela. Dos combinaciones seguidas forman una secuencia (p. ej. Ctrl+K Ctrl+S). Clic derecho para restablecer o quitar.	Щёлкните клавишу, чтобы изменить, Esc — отмена. Две комбинации подряд образуют последовательность (например Ctrl+K Ctrl+S). ПКМ — сброс или удаление.	Clique numa tecla para alterar, Esc cancela. Duas combinações seguidas formam uma sequência (ex. Ctrl+K Ctrl+S). Clique direito para restaurar ou remover.
+修改	Change	修改	変更	변경	Ändern	Modifier	Cambiar	Изменить	Alterar
+删除这个快捷键	Remove this shortcut	刪除這個快捷鍵	このショートカットを削除	이 단축키 삭제	Dieses Tastenkürzel entfernen	Supprimer ce raccourci	Quitar este atajo	Удалить это сочетание	Remover este atalho
+请按下新的快捷键…	Press the new shortcut…	請按下新的快捷鍵…	新しいショートカットを押してください…	새 단축키를 누르세요…	Neues Tastenkürzel drücken…	Appuyez sur le nouveau raccourci…	Pulse el nuevo atajo…	Нажмите новое сочетание…	Pressione o novo atalho…
+添加快捷键	Add shortcut	新增快捷鍵	ショートカットを追加	단축키 추가	Tastenkürzel hinzufügen	Ajouter un raccourci	Añadir atajo	Добавить сочетание	Adicionar atalho
+恢复默认	Reset to default	恢復預設	既定に戻す	기본값으로	Zurücksetzen	Réinitialiser	Restablecer	Сбросить	Restaurar padrão
+删除全部快捷键	Remove all shortcuts	刪除全部快捷鍵	すべてのショートカットを削除	모든 단축키 삭제	Alle Tastenkürzel entfernen	Supprimer tous les raccourcis	Quitar todos los atajos	Удалить все сочетания	Remover todos os atalhos
+当前版本 v{}	Current version v{}	目前版本 v{}	現在のバージョン v{}	현재 버전 v{}	Aktuelle Version v{}	Version actuelle v{}	Versión actual v{}	Текущая версия v{}	Versão atual v{}
+按 {} 可以搜索并执行任何功能	Press {} to search and run any command	按 {} 可以搜尋並執行任何功能	{} で任意のコマンドを検索・実行できます	{} 를 눌러 모든 명령을 검색하고 실행	{} drücken, um jeden Befehl zu suchen und auszuführen	Appuyez sur {} pour rechercher et lancer une commande	Pulse {} para buscar y ejecutar cualquier comando	Нажмите {}, чтобы найти и выполнить любую команду	Pressione {} para pesquisar e executar qualquer comando
+⚠ 和「{}」冲突，同一页面里按下时只会执行其中一个	⚠ Conflicts with "{}"; only one of them will run on the same page	⚠ 和「{}」衝突，同一頁面裡按下時只會執行其中一個	⚠「{}」と競合しています。同じページではどちらか一方だけ実行されます	⚠ "{}"와 충돌합니다. 같은 페이지에서는 하나만 실행됩니다	⚠ Konflikt mit „{}“; auf derselben Seite wird nur einer ausgeführt	⚠ En conflit avec « {} » ; un seul sera exécuté sur la même page	⚠ Conflicto con «{}»; solo se ejecutará uno en la misma página	⚠ Конфликт с «{}»; на одной странице сработает только одна	⚠ Conflito com "{}"; só um será executado na mesma página
+打开设置	Open Settings	開啟設定	設定を開く	설정 열기	Einstellungen öffnen	Ouvrir les paramètres	Abrir configuración	Открыть настройки	Abrir configurações
+快捷键设置	Keyboard Shortcuts	快捷鍵設定	キーボードショートカット	단축키 설정	Tastenkürzel	Raccourcis clavier	Atajos de teclado	Сочетания клавиш	Atalhos de teclado
+切换到调试页	Go to Debug	切換到除錯頁	デバッグに移動	디버그로 이동	Zu Debug wechseln	Aller à Débogage	Ir a Depuración	Перейти к отладке	Ir para Depuração
+切换到代码页	Go to Code	切換到程式碼頁	コードに移動	코드로 이동	Zu Code wechseln	Aller au Code	Ir a Código	Перейти к коду	Ir para Código
+切换到 Git 页	Go to Git	切換到 Git 頁	Git に移動	Git로 이동	Zu Git wechseln	Aller à Git	Ir a Git	Перейти к Git	Ir para Git
+切换深色 / 浅色主题	Toggle dark / light theme	切換深色 / 淺色主題	ダーク / ライトテーマを切り替え	다크 / 라이트 테마 전환	Dunkles / helles Design umschalten	Basculer thème sombre / clair	Alternar tema oscuro / claro	Переключить тёмную / светлую тему	Alternar tema escuro / claro
+搜索日志	Search log	搜尋日誌	ログを検索	로그 검색	Log durchsuchen	Rechercher dans le journal	Buscar en el registro	Поиск в журнале	Pesquisar no log
+全选日志	Select all log	全選日誌	ログをすべて選択	로그 모두 선택	Gesamtes Log auswählen	Sélectionner tout le journal	Seleccionar todo el registro	Выделить весь журнал	Selecionar todo o log
+展开 / 收起快捷命令	Show / hide quick commands	展開 / 收起快捷命令	クイックコマンドの表示 / 非表示	빠른 명령 표시 / 숨기기	Schnellbefehle ein- / ausblenden	Afficher / masquer les commandes rapides	Mostrar / ocultar comandos rápidos	Показать / скрыть быстрые команды	Mostrar / ocultar comandos rápidos
+发送快捷命令 1	Send quick command 1	傳送快捷命令 1	クイックコマンド 1 を送信	빠른 명령 1 보내기	Schnellbefehl 1 senden	Envoyer la commande rapide 1	Enviar comando rápido 1	Отправить быструю команду 1	Enviar comando rápido 1
+发送快捷命令 2	Send quick command 2	傳送快捷命令 2	クイックコマンド 2 を送信	빠른 명령 2 보내기	Schnellbefehl 2 senden	Envoyer la commande rapide 2	Enviar comando rápido 2	Отправить быструю команду 2	Enviar comando rápido 2
+发送快捷命令 3	Send quick command 3	傳送快捷命令 3	クイックコマンド 3 を送信	빠른 명령 3 보내기	Schnellbefehl 3 senden	Envoyer la commande rapide 3	Enviar comando rápido 3	Отправить быструю команду 3	Enviar comando rápido 3
+发送快捷命令 4	Send quick command 4	傳送快捷命令 4	クイックコマンド 4 を送信	빠른 명령 4 보내기	Schnellbefehl 4 senden	Envoyer la commande rapide 4	Enviar comando rápido 4	Отправить быструю команду 4	Enviar comando rápido 4
+发送快捷命令 5	Send quick command 5	傳送快捷命令 5	クイックコマンド 5 を送信	빠른 명령 5 보내기	Schnellbefehl 5 senden	Envoyer la commande rapide 5	Enviar comando rápido 5	Отправить быструю команду 5	Enviar comando rápido 5
+发送快捷命令 6	Send quick command 6	傳送快捷命令 6	クイックコマンド 6 を送信	빠른 명령 6 보내기	Schnellbefehl 6 senden	Envoyer la commande rapide 6	Enviar comando rápido 6	Отправить быструю команду 6	Enviar comando rápido 6
+发送快捷命令 7	Send quick command 7	傳送快捷命令 7	クイックコマンド 7 を送信	빠른 명령 7 보내기	Schnellbefehl 7 senden	Envoyer la commande rapide 7	Enviar comando rápido 7	Отправить быструю команду 7	Enviar comando rápido 7
+发送快捷命令 8	Send quick command 8	傳送快捷命令 8	クイックコマンド 8 を送信	빠른 명령 8 보내기	Schnellbefehl 8 senden	Envoyer la commande rapide 8	Enviar comando rápido 8	Отправить быструю команду 8	Enviar comando rápido 8
+发送快捷命令 9	Send quick command 9	傳送快捷命令 9	クイックコマンド 9 を送信	빠른 명령 9 보내기	Schnellbefehl 9 senden	Envoyer la commande rapide 9	Enviar comando rápido 9	Отправить быструю команду 9	Enviar comando rápido 9
+快速打开文件	Quick Open File	快速開啟檔案	ファイルをすばやく開く	빠르게 파일 열기	Datei schnell öffnen	Ouverture rapide de fichier	Abrir archivo rápido	Быстро открыть файл	Abrir arquivo rapidamente
+跳到工作区符号	Go to Symbol in Workspace	跳到工作區符號	ワークスペースのシンボルへ移動	작업 영역 기호로 이동	Gehe zu Symbol im Arbeitsbereich	Aller au symbole dans l'espace de travail	Ir a símbolo del área de trabajo	Перейти к символу в проекте	Ir para símbolo no espaço de trabalho
+跳到文件内符号	Go to Symbol in File	跳到檔案內符號	ファイル内のシンボルへ移動	파일 내 기호로 이동	Gehe zu Symbol in Datei	Aller au symbole dans le fichier	Ir a símbolo del archivo	Перейти к символу в файле	Ir para símbolo no arquivo
+跳到行	Go to Line	跳到行	行へ移動	줄로 이동	Gehe zu Zeile	Aller à la ligne	Ir a línea	Перейти к строке	Ir para linha
+文件内查找	Find in File	檔案內尋找	ファイル内を検索	파일에서 찾기	In Datei suchen	Rechercher dans le fichier	Buscar en archivo	Найти в файле	Localizar no arquivo
+关闭标签页	Close Tab	關閉分頁	タブを閉じる	탭 닫기	Tab schließen	Fermer l'onglet	Cerrar pestaña	Закрыть вкладку	Fechar aba
+下一个标签页	Next Tab	下一個分頁	次のタブ	다음 탭	Nächster Tab	Onglet suivant	Pestaña siguiente	Следующая вкладка	Próxima aba
+保存文件	Save File	儲存檔案	ファイルを保存	파일 저장	Datei speichern	Enregistrer le fichier	Guardar archivo	Сохранить файл	Salvar arquivo
+放大字号	Increase Font Size	放大字號	フォントを大きく	글꼴 크게	Schrift vergrößern	Agrandir la police	Aumentar fuente	Увеличить шрифт	Aumentar fonte
+缩小字号	Decrease Font Size	縮小字號	フォントを小さく	글꼴 작게	Schrift verkleinern	Réduire la police	Reducir fuente	Уменьшить шрифт	Diminuir fonte
+查找引用	Find References	尋找參考	参照を検索	참조 찾기	Referenzen suchen	Rechercher les références	Buscar referencias	Найти ссылки	Localizar referências
+后退	Go Back	返回	戻る	뒤로	Zurück	Précédent	Atrás	Назад	Voltar
+前进	Go Forward	前進	進む	앞으로	Vorwärts	Suivant	Adelante	Вперёд	Avançar
+刷新仓库	Refresh Repository	重新整理儲存庫	リポジトリを更新	저장소 새로 고침	Repository aktualisieren	Actualiser le dépôt	Actualizar repositorio	Обновить репозиторий	Atualizar repositório
+从所有远程拉取	Fetch from All Remotes	從所有遠端擷取	すべてのリモートからフェッチ	모든 원격에서 가져오기	Von allen Remotes abrufen	Récupérer depuis tous les dépôts distants	Obtener de todos los remotos	Получить со всех удалённых	Buscar de todos os remotos
+搜索提交	Search Commits	搜尋提交	コミットを検索	커밋 검색	Commits durchsuchen	Rechercher des commits	Buscar commits	Поиск коммитов	Pesquisar commits
+界面主题	Theme	介面主題	テーマ	테마	Design	Thème	Tema	Тема	Tema

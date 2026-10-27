@@ -1,0 +1,46 @@
+[package]
+name = "qccom"
+version = "0.5.0"
+edition = "2021"
+description = "Lightweight serial / TCP / UDP / MQTT debug tool with a VT100 terminal, C code viewer and Git browser"
+authors = ["zenghi <https://github.com/zenghi>"]
+license = "Apache-2.0"
+repository = "https://github.com/zenghi/QCCOM"
+homepage = "https://github.com/zenghi/QCCOM"
+readme = "README.md"
+keywords = ["serial", "uart", "mqtt", "terminal", "embedded"]
+categories = ["development-tools", "embedded", "gui"]
+
+[dependencies]
+eframe = { version = "0.31", default-features = false, features = ["glow", "x11", "wayland", "persistence"] }
+serialport = "4"
+rfd = "0.15"
+chrono = "0.4"
+encoding_rs = "0.8"
+serde = { version = "1", features = ["derive"] }
+memmap2 = "0.9.11"
+vte = { version = "0.13", default-features = false }
+serde_json = "1"
+sys-locale = "0.3"
+sha2 = { version = "0.10", default-features = false }
+
+# HTTPS (self-update) and MQTT over TLS: Windows uses the system SChannel, which adds almost nothing to the size;
+# Linux uses pure-Rust rustls so it does not depend on the distribution's OpenSSL version
+[target.'cfg(windows)'.dependencies]
+ureq = { version = "2", default-features = false, features = ["native-tls"] }
+native-tls = "0.2"
+
+[target.'cfg(not(windows))'.dependencies]
+ureq = { version = "2", default-features = false, features = ["tls"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+webpki-roots = "0.26"
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[build-dependencies]
+winresource = "0.1.34"

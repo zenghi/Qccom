@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.7.0
+
+- New code editor: undo / redo, multiple cursors (`Alt+click`, `Ctrl+D`, `Ctrl+Shift+L`, `Ctrl+Alt+↑/↓`), column selection, auto-closing brackets and quotes, bracket matching, auto-indent, indent guides, word highlight, code folding (`{}`, `#if`, comments), sticky scroll, `Ctrl+/` comments and line move / copy / delete. Files are editable without a separate edit mode; unsaved tabs show a dot.
+- Correct spacing for CJK text and wide characters in the editor.
+- Semantic colors: functions, macros, types, enum constants and globals are colored by kind from the project index.
+- Context window (`Ctrl+Shift+Y`): the definition of the symbol under the cursor, with its comment, below the editor.
+- Call hierarchy (`Ctrl+Shift+R`): calls / called-by tree for the current function, with pinning.
+- Bookmarks (`Ctrl+F2`, `F2`, `Shift+F2`), listed at the top of the Outline panel.
+- Optional clangd: when clangd and a `compile_commands.json` are found, Go to Definition uses clangd (local variables, struct members, same-name static functions). Falls back to the built-in index otherwise.
+- 23 new editor commands in the keyboard shortcut editor and command palette.
+
 ## 0.6.0
 
 - Light theme, and a **System default** option that follows the OS theme live. Fixed popups turning white with unreadable text when the OS used a light theme.

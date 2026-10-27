@@ -161,6 +161,7 @@ mod tests {
             include_str!("keymap.rs"),
             include_str!("app/palette.rs"),
             include_str!("app/prefs.rs"),
+            include_str!("codeview/insight.rs"),
         ];
         let mut missing = vec![];
         for src in sources {

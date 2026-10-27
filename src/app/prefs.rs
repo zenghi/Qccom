@@ -118,7 +118,7 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号"],
         Cat::Log => &["时间戳", "行号", "发送回显", "ANSI 颜色", "级别着色", "复制时带时间戳", "保留行数", "空闲分帧"],
         Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS"],
-        Cat::Editor => &["代码字号", "缩略图"],
+        Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径"],
         Cat::Keys => &["快捷键"],
         Cat::About => &["关于", "版本", "许可证"],
     };
@@ -379,6 +379,25 @@ impl App {
         });
         row(ui, q, t("缩略图"), t("编辑器右侧显示整个文件的缩略图，可拖动定位"), |ui| {
             switch(ui, &mut self.code.s.minimap);
+        });
+        row(
+            ui,
+            q,
+            t("使用 clangd"),
+            t("装了 clangd 且工程里有 compile_commands.json 时，跳转定义交给 clangd，更准确；否则用内置索引"),
+            |ui| {
+                switch(ui, &mut self.code.s.clangd);
+            },
+        );
+        let (status, ok) = self.code.clangd_status();
+        if q.is_empty() || find_ci("clangd", q).is_some() {
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(if ok { "●" } else { "○" }).size(10.0).color(if ok { ACCENT() } else { TEXT3() }));
+                ui.label(RichText::new(status).size(12.0).color(TEXT2()));
+            });
+        }
+        row(ui, q, t("clangd 路径"), t("留空会自动查找（PATH、LLVM 默认安装目录）"), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.code.s.clangd_path).desired_width(240.0).hint_text(t("自动")));
         });
     }
 

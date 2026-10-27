@@ -84,6 +84,10 @@ pub enum Cmd {
     Subscribe(String),
     Unsubscribe(String),
     PubOptions(String, u8, bool),
+    /// 发送 Break 信号，持续毫秒数
+    Break(u32),
+    /// 依次设置 DTR / RTS 并保持一段时间（复位、进下载模式这类时序）；None = 不变
+    Pulse(Vec<(Option<bool>, Option<bool>, u32)>),
     Close,
 }
 
@@ -100,6 +104,10 @@ pub enum Evt {
     Peers(usize),
     /// None = 用户主动关闭；Some(err) = 出错/设备拔出
     Closed(u64, Option<String>),
+    /// 输入信号线状态变化：(连接代号, [CTS, DSR, RI, CD])
+    Signals(u64, [bool; 4]),
+    /// 双口监听时第二个串口（B）收到的数据
+    DataB(Vec<u8>),
     AutoBaudProgress(u32),
     AutoBaudDone(Result<(u32, f32), String>),
 }
@@ -164,6 +172,12 @@ pub struct Connection {
 
 /// 打开串口并启动收发线程。打开失败直接返回错误。
 pub fn open(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, tx: Sender<Evt>, ctx: egui::Context) -> Result<Connection, String> {
+    open_side(gen, name, cfg, dtr, rts, false, tx, ctx)
+}
+
+/// side_b = 双口监听的第二个串口：数据用 DataB 送出
+#[allow(clippy::too_many_arguments)]
+pub fn open_side(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, side_b: bool, tx: Sender<Evt>, ctx: egui::Context) -> Result<Connection, String> {
     let mut port = cfg.builder(name).timeout(Duration::from_millis(20)).open().map_err(|e| e.to_string())?;
     let _ = port.write_data_terminal_ready(dtr);
     let _ = port.write_request_to_send(rts);
@@ -171,20 +185,42 @@ pub fn open(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, tx: Sen
     let name = name.to_string();
     thread::Builder::new()
         .name("serial-io".into())
-        .spawn(move || io_loop(gen, port, name, cmd_rx, tx, ctx))
+        .spawn(move || io_loop(gen, port, name, side_b, cmd_rx, tx, ctx))
         .map_err(|e| e.to_string())?;
     Ok(Connection { cmd: cmd_tx })
 }
 
-fn io_loop(gen: u64, mut port: Box<dyn serialport::SerialPort>, name: String, cmd_rx: Receiver<Cmd>, tx: Sender<Evt>, ctx: egui::Context) {
+fn read_signals(port: &mut Box<dyn serialport::SerialPort>) -> [bool; 4] {
+    [
+        port.read_clear_to_send().unwrap_or(false),
+        port.read_data_set_ready().unwrap_or(false),
+        port.read_ring_indicator().unwrap_or(false),
+        port.read_carrier_detect().unwrap_or(false),
+    ]
+}
+
+fn io_loop(gen: u64, mut port: Box<dyn serialport::SerialPort>, name: String, side_b: bool, cmd_rx: Receiver<Cmd>, tx: Sender<Evt>, ctx: egui::Context) {
     let _ = tx.send(Evt::Opened(gen, name));
     ctx.request_repaint();
     let mut buf = vec![0u8; 16 * 1024];
+    let mut signals: Option<[bool; 4]> = None;
+    let mut sig_at = Instant::now() - Duration::from_secs(1);
     let reason = loop {
+        // 输入信号线每 250 ms 看一次，有变化才通知
+        if !side_b && sig_at.elapsed() >= Duration::from_millis(250) {
+            sig_at = Instant::now();
+            let now = read_signals(&mut port);
+            if signals != Some(now) {
+                signals = Some(now);
+                let _ = tx.send(Evt::Signals(gen, now));
+                ctx.request_repaint();
+            }
+        }
         match port.read(&mut buf) {
             Ok(0) => {}
             Ok(n) => {
-                if tx.send(Evt::Data(buf[..n].to_vec())).is_err() {
+                let d = buf[..n].to_vec();
+                if tx.send(if side_b { Evt::DataB(d) } else { Evt::Data(d) }).is_err() {
                     break None;
                 }
                 // 合并重绘：最多约 30 FPS，数据再快界面也不会把 CPU 吃满
@@ -211,6 +247,22 @@ fn io_loop(gen: u64, mut port: Box<dyn serialport::SerialPort>, name: String, cm
                 }
                 Ok(Cmd::SetRts(v)) => {
                     let _ = port.write_request_to_send(v);
+                }
+                Ok(Cmd::Break(ms)) => {
+                    let _ = port.set_break();
+                    thread::sleep(Duration::from_millis(ms.clamp(1, 5000) as u64));
+                    let _ = port.clear_break();
+                }
+                Ok(Cmd::Pulse(steps)) => {
+                    for (dtr, rts, ms) in steps {
+                        if let Some(v) = dtr {
+                            let _ = port.write_data_terminal_ready(v);
+                        }
+                        if let Some(v) = rts {
+                            let _ = port.write_request_to_send(v);
+                        }
+                        thread::sleep(Duration::from_millis(ms.min(5000) as u64));
+                    }
                 }
                 Ok(Cmd::Subscribe(_) | Cmd::Unsubscribe(_) | Cmd::PubOptions(..)) => {}
                 Ok(Cmd::Close) | Err(TryRecvError::Disconnected) => {

@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.0
+
+Debugging tools. Everything rarely used sits in the new **⋯** menu, the command palette or the right-hand panel, so the main window looks the same as before.
+
+- **Plot** (`Ctrl+Shift+W`): numbers in the log (`temp=25.3`, `vbat: 3.71`, CSV lines, or your own regex) drawn as live curves above the log. Constant values are listed but not drawn; zoom with the wheel, hover for values, freeze, resize.
+- **Filter & highlight rules** (`Ctrl+Shift+H`): text or regex rules that highlight, show only or hide lines.
+- **Protocol framing**: split binary data by header + fixed length or length field, check SUM / XOR / CRC-8 / CRC-16 / CRC-32 and show each frame in colored HEX; bad frames turn red.
+- **Auto-reply** rules (right panel → Replies): reply with text or HEX after a delay, notify, pause, or run a script when a line matches.
+- **Scripts** (right panel → Scripts): Rhai scripts with `send`, `wait`, `wait_re`, `read_line`, `sleep`, `dtr`, `rts`…
+- **Modbus master**: RTU on serial, Modbus TCP on TCP; read / write coils and registers, 16 / 32-bit and float display, polling.
+- **Send file** with XMODEM, XMODEM-1K and YMODEM.
+- **Checksum calculator**, and HEX sending can append a checksum automatically.
+- **AT command assistant**: suggestions with descriptions while you type `AT…`, `Tab` to complete.
+- **Multi-line sending**: whole block or line by line with a gap.
+- **Open and replay log files** with the original timing (0.5×–10× or as fast as possible); drag a log into the window, or `qccom --open` / `--replay`.
+- **Statistics** window, **time delta** column, **markers** (`Ctrl+M`) and **log bookmarks** (`Ctrl+F2`, `F2`, `Shift+F2`), *Copy as HEX* and *New auto-reply rule from this line* in the context menu.
+- **Serial extras**: DTR / RTS toggles and live CTS / DSR / RI / CD, reset pulses including the ESP32 bootloader sequence, Break, **share the port over TCP**, a second **sniffing port B**, port aliases.
+- **Profiles**: save and switch connection settings, commands, rules, replies and scripts together.
+- **New window** (`Ctrl+Shift+N`): run several QCCOM windows, each with its own settings.
+- Recording can start a new file every N minutes or N MB.
+- Files dropped on the code page open in the editor.
+
 ## 0.9.0
 
 - Firmware files open in dedicated viewers (toggle back to the source with the pill in the breadcrumb bar):

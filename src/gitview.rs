@@ -1508,7 +1508,7 @@ fn branch_row(ui: &mut Ui, b: &Branch, active: bool) -> egui::Response {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     let tip = format!("{}\n{} · {}\n{}", b.name, b.hash, absolute(b.time), b.subject);
-    resp.on_hover_text(tip + "\n\n" + &t("单击：只看这个分支的提交  ·  双击：切换到此分支"))
+    resp.on_hover_text(format!("{tip}\n\n{}", t("单击：只看这个分支的提交  ·  双击：切换到此分支")))
 }
 
 fn file_row(ui: &mut Ui, status: char, path: &str, adds: Option<u32>, dels: Option<u32>, active: bool) -> egui::Response {

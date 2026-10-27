@@ -198,6 +198,18 @@ pub enum Act {
     ToggleSidebar,
     ToggleCmdPanel,
     ToggleTerminal,
+    LogMarker,
+    LogNextMark,
+    LogPrevMark,
+    LogBookmark,
+    LogRules,
+    LogStats,
+    LogOpen,
+    TogglePlot,
+    Modbus,
+    SendFile,
+    Checksum,
+    NewWindow,
     Quick(u8),
     // 代码页
     QuickOpen,
@@ -292,6 +304,18 @@ acts! {
     Act::ToggleSidebar, "sidebar.toggle", "显示 / 隐藏侧边栏", Global, ["Ctrl+B"];
     Act::ToggleCmdPanel, "cmds.toggle", "展开 / 收起快捷命令", Debug, ["Ctrl+J"];
     Act::ToggleTerminal, "term.toggle", "切换 日志 / 终端", Debug, ["Ctrl+`"], true;
+    Act::LogMarker, "log.marker", "插入分隔标记", Debug, ["Ctrl+M"];
+    Act::LogBookmark, "log.bookmark", "添加 / 移除书签", Debug, ["Ctrl+F2"];
+    Act::LogNextMark, "log.next_mark", "下一个书签", Debug, ["F2"];
+    Act::LogPrevMark, "log.prev_mark", "上一个书签", Debug, ["Shift+F2"];
+    Act::LogRules, "log.rules", "过滤与高亮规则", Debug, ["Ctrl+Shift+H"];
+    Act::LogStats, "log.stats", "数据统计", Debug, [];
+    Act::LogOpen, "log.open", "打开日志文件", Debug, ["Ctrl+O"];
+    Act::TogglePlot, "plot.toggle", "显示 / 隐藏波形图", Debug, ["Ctrl+Shift+W"];
+    Act::Modbus, "tools.modbus", "Modbus 主站", Debug, [];
+    Act::SendFile, "tools.send_file", "发送文件（XMODEM / YMODEM）", Debug, [];
+    Act::Checksum, "tools.checksum", "校验计算器", Global, [], true;
+    Act::NewWindow, "window.new", "新建窗口", Global, ["Ctrl+Shift+N"], true;
     Act::Quick(0), "quick.1", "发送快捷命令 1", Debug, ["Alt+1"];
     Act::Quick(1), "quick.2", "发送快捷命令 2", Debug, ["Alt+2"];
     Act::Quick(2), "quick.3", "发送快捷命令 3", Debug, ["Alt+3"];

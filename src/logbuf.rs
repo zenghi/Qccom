@@ -55,6 +55,8 @@ pub enum Level {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Dir {
     Rx,
+    /// 双口监听时第二个串口（B）收到的
+    Rx2,
     Tx,
     Sys,
 }
@@ -79,6 +81,10 @@ pub struct Line {
     pub level: Level,
     /// 级别标记在 plain 里的位置（如 "[ERROR]"、"E (12)"），用来单独上色
     pub level_span: Option<(usize, usize)>,
+    /// 按帧格式切出来的帧：校验对不对（没配置校验时是 Some(true)）
+    pub check_ok: Option<bool>,
+    /// 用户打的书签
+    pub bookmark: bool,
 }
 
 impl Line {
@@ -91,6 +97,8 @@ impl Line {
             spans: vec![],
             level: Level::None,
             level_span: None,
+            check_ok: None,
+            bookmark: false,
         };
         l.render(enc);
         l
@@ -132,6 +140,8 @@ pub struct LogBuf {
     pub committed: Vec<u64>,
     /// 缓冲区里已收完的 RX 行按级别计数（下标是 Level as usize）
     pub counts: [u64; 6],
+    /// 按帧格式切分二进制数据（帧头 + 长度 + 校验），代替按换行分行
+    pub framer: Option<Framer>,
 }
 
 impl LogBuf {
@@ -146,6 +156,7 @@ impl LogBuf {
             frame_gap_ms: 0,
             committed: vec![],
             counts: [0; 6],
+            framer: None,
         }
     }
 
@@ -181,6 +192,10 @@ impl LogBuf {
     }
 
     pub fn push_rx(&mut self, data: &[u8], enc: Encoding) {
+        if self.framer.is_some() {
+            self.push_frames(data, enc);
+            return;
+        }
         let now = Instant::now();
         if self.frame_gap_ms > 0 {
             if let Some(t) = self.last_rx {
@@ -218,12 +233,55 @@ impl LogBuf {
         self.trim();
     }
 
+    fn push_frames(&mut self, data: &[u8], enc: Encoding) {
+        let now = Instant::now();
+        let f = self.framer.as_mut().unwrap();
+        // 隔了很久才来的数据：之前没收全的半帧丢掉（作为一行原样显示）
+        let stale = self.last_rx.is_some_and(|t| now.duration_since(t).as_millis() > f.timeout_ms as u128);
+        self.last_rx = Some(now);
+        let mut out = vec![];
+        if stale && !f.pending.is_empty() {
+            out.push((std::mem::take(&mut f.pending), None));
+        }
+        f.pending.extend_from_slice(data);
+        out.extend(f.drain());
+        for (raw, ok) in out {
+            self.close_open();
+            let mut l = Line::new(Dir::Rx, raw, enc);
+            l.check_ok = ok;
+            if ok == Some(false) {
+                l.level = Level::Error;
+            }
+            l.compact();
+            self.counts[l.level as usize] += 1;
+            self.lines.push_back(l);
+            self.committed.push(self.total() - 1);
+        }
+        self.trim();
+    }
+
     pub fn push_line(&mut self, dir: Dir, raw: Vec<u8>, enc: Encoding) {
         self.close_open();
         let mut l = Line::new(dir, raw, enc);
         l.compact();
         self.lines.push_back(l);
         self.committed.push(self.total() - 1);
+        self.trim();
+    }
+
+    /// 打开日志文件时逐行载入：RX 行也要计入级别统计
+    pub fn push_loaded(&mut self, dir: Dir, raw: Vec<u8>, enc: Encoding, ts: Option<DateTime<Local>>) {
+        self.close_open();
+        let mut l = Line::new(dir, raw, if dir == Dir::Sys { Encoding::Utf8 } else { enc });
+        if let Some(ts) = ts {
+            l.ts = ts;
+        }
+        l.compact();
+        if dir == Dir::Rx {
+            self.counts[l.level as usize] += 1;
+        }
+        // 不进 committed：载入的旧日志不触发应答、不重复录制
+        self.lines.push_back(l);
         self.trim();
     }
 
@@ -257,6 +315,81 @@ impl LogBuf {
                 self.counts[l.level as usize] += 1;
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------- 帧解析
+
+/// 帧长度怎么定
+#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
+pub enum LenSpec {
+    /// 每帧固定字节数
+    Fixed(usize),
+    /// 帧里有长度字段：从帧头开始第 offset 个字节，size 字节，be = 大端；整帧长度 = 字段值 + adjust
+    Field { offset: usize, size: u8, be: bool, adjust: i32 },
+}
+
+pub struct Framer {
+    pub header: Vec<u8>,
+    pub len: LenSpec,
+    pub check: crate::checksum::Check,
+    /// 半帧超过这么久没收全就丢掉
+    pub timeout_ms: u32,
+    pending: Vec<u8>,
+}
+
+impl Framer {
+    pub fn new(header: Vec<u8>, len: LenSpec, check: crate::checksum::Check, timeout_ms: u32) -> Self {
+        Framer { header, len, check, timeout_ms, pending: vec![] }
+    }
+
+    /// 整帧长度；字节还不够判断时返回 None
+    fn frame_len(&self, b: &[u8]) -> Option<usize> {
+        match self.len {
+            LenSpec::Fixed(n) => Some(n.max(self.header.len() + 1)),
+            LenSpec::Field { offset, size, be, adjust } => {
+                let f = b.get(offset..offset + size as usize)?;
+                let v = f.iter().enumerate().fold(0u64, |a, (i, &x)| if be { (a << 8) | x as u64 } else { a | (x as u64) << (8 * i) });
+                Some((v as i64 + adjust as i64).max((offset + size as usize) as i64) as usize)
+            }
+        }
+    }
+
+    /// 切出所有完整的帧：(字节, 校验是否通过)；帧头前面的杂数据单独成一行（校验 None）
+    fn drain(&mut self) -> Vec<(Vec<u8>, Option<bool>)> {
+        let mut out = vec![];
+        loop {
+            let b = &self.pending;
+            let start = if self.header.is_empty() { Some(0) } else { b.windows(self.header.len()).position(|w| w == self.header.as_slice()) };
+            let Some(start) = start else {
+                // 没找到帧头：保留可能是帧头开头的最后几个字节，其余算杂数据
+                let keep = self.header.len().saturating_sub(1).min(b.len());
+                if b.len() > keep + 256 {
+                    let junk: Vec<u8> = self.pending.drain(..b.len() - keep).collect();
+                    out.push((junk, None));
+                }
+                break;
+            };
+            if start > 0 {
+                let junk: Vec<u8> = self.pending.drain(..start).collect();
+                out.push((junk, None));
+                continue;
+            }
+            let Some(n) = self.frame_len(b) else { break };
+            if n > 65536 {
+                // 长度字段明显不对：跳过这个帧头继续找
+                let junk: Vec<u8> = self.pending.drain(..self.header.len().max(1)).collect();
+                out.push((junk, Some(false)));
+                continue;
+            }
+            if b.len() < n {
+                break;
+            }
+            let frame: Vec<u8> = self.pending.drain(..n).collect();
+            let ok = self.check.verify(&frame);
+            out.push((frame, Some(ok)));
+        }
+        out
     }
 }
 
@@ -498,6 +631,28 @@ pub fn detect_level(s: &str) -> (Level, Option<(usize, usize)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn frames() {
+        use crate::checksum::Check;
+        let mut b = LogBuf::new(100);
+        // AA 55 | len | payload… | sum8（长度字段 = 负载字节数，整帧 = len + 4）
+        b.framer = Some(Framer::new(vec![0xAA, 0x55], LenSpec::Field { offset: 2, size: 1, be: true, adjust: 4 }, Check::Sum8, 1000));
+        let mut f1 = vec![0xAA, 0x55, 0x02, 0x10, 0x20];
+        f1.push(Check::Sum8.value(&f1) as u8);
+        let mut data = vec![0x00, 0x01];
+        data.extend(&f1);
+        data.extend(&f1[..3]);
+        b.push_rx(&data, Encoding::Utf8);
+        assert_eq!(b.lines.len(), 2);
+        assert_eq!(b.lines[0].raw, vec![0x00, 0x01]);
+        assert_eq!(b.lines[1].check_ok, Some(true));
+        let mut rest = f1[3..].to_vec();
+        rest[2] ^= 1;
+        b.push_rx(&rest, Encoding::Utf8);
+        assert_eq!(b.lines.len(), 3);
+        assert_eq!(b.lines[2].check_ok, Some(false));
+    }
 
     #[test]
     fn ansi_basic() {

@@ -831,20 +831,15 @@ impl Parser {
 pub struct Hit {
     pub path: PathBuf,
     pub line: u32,
+    /// 去掉首尾空白、截断后的这一行
     pub text: String,
+    /// 第一处匹配在 text 里的字节范围
+    pub m: (usize, usize),
 }
 
-pub struct SearchOpts {
-    pub case: bool,
-    pub word: bool,
-}
-
-pub fn search(root: &Path, files: &[PathBuf], q: &str, o: &SearchOpts, cancel: &AtomicBool, limit: usize) -> Vec<Hit> {
+/// 全工程搜索：每行最多记一条（第一处匹配）
+pub fn search(root: &Path, files: &[PathBuf], re: &regex_lite::Regex, cancel: &AtomicBool, limit: usize) -> Vec<Hit> {
     let mut out = vec![];
-    if q.is_empty() {
-        return out;
-    }
-    let needle = if o.case { q.to_string() } else { q.to_lowercase() };
     for rel in files {
         if cancel.load(Ordering::Relaxed) || out.len() >= limit {
             break;
@@ -855,22 +850,20 @@ pub fn search(root: &Path, files: &[PathBuf], q: &str, o: &SearchOpts, cancel: &
         }
         let Some(text) = read_text(&p) else { continue };
         for (i, line) in text.lines().enumerate() {
-            let hay = if o.case { std::borrow::Cow::Borrowed(line) } else { std::borrow::Cow::Owned(line.to_lowercase()) };
-            let mut from = 0;
-            while let Some(k) = hay[from..].find(&needle) {
-                let at = from + k;
-                let end = at + needle.len();
-                let ok = !o.word || (!hay[..at].chars().next_back().is_some_and(is_ident) && !hay[end..].chars().next().is_some_and(is_ident));
-                if ok {
-                    out.push(Hit {
-                        path: rel.clone(),
-                        line: i as u32,
-                        text: clip(line.trim(), 200),
-                    });
-                    break;
-                }
-                from = end;
+            let Some(m) = re.find_iter(line).find(|m| !m.is_empty()) else { continue };
+            let lead = line.len() - line.trim_start().len();
+            let shown = clip(line.trim(), 200);
+            let a = m.start().saturating_sub(lead).min(shown.len());
+            let mut b = (m.end().saturating_sub(lead)).min(shown.len());
+            while !shown.is_char_boundary(b) {
+                b -= 1;
             }
+            out.push(Hit {
+                path: rel.clone(),
+                line: i as u32,
+                text: shown,
+                m: (a, b.max(a)),
+            });
             if out.len() >= limit {
                 break;
             }

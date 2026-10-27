@@ -125,14 +125,16 @@ TLS uses the operating system's certificate store on Windows and the Mozilla roo
 Click `</>` in the activity bar, then **Open folder** to open your firmware project. QCCOM remembers it, along with your open tabs.
 
 - **Explorer** (`Ctrl+Shift+E`): the file tree with Git status colors (M modified, U untracked), a filter box, refresh and collapse-all. Symbol indexing and search skip folders such as `.git`, `node_modules`, `target` and `dist`.
-- **Tabs**: `Ctrl+Tab` switches tabs and `Ctrl+W` closes one. Middle-click also closes a tab.
+- **Explorer actions**: right-click a file or folder to create a file (you can type `drv/spi.c` to create folders on the way), create a folder, rename or delete it. Right-click empty space to create at the root. Right-click the folder button at the top for recent projects.
+- **Tabs**: `Ctrl+Tab` switches tabs and `Ctrl+W` closes one. Middle-click also closes a tab. Drag tabs to reorder them. Right-click a tab to close others, close to the right, close saved tabs, split right, copy the path or reveal it in the file manager.
+- **Split editor** (`Ctrl+\`, or the button on the right of the breadcrumb bar): two files side by side; drag the divider to resize.
 - **Highlighting** for C / C++, Rust, Python, JavaScript / TypeScript, Go, Java / Kotlin, shell, JSON, Makefile / CMake, INI / TOML / YAML, Markdown and assembly.
 - **Quick open** (`Ctrl+P`): type part of a file name. You can also prefix the query:
   - `#` searches symbols across the workspace (`Ctrl+T`).
   - `@` lists the symbols in the current file (`Ctrl+Shift+O`).
   - `:` goes to a line (`Ctrl+G`).
-- **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with a case-sensitive option. Click a result to jump to it.
-- **Find in file** (`Ctrl+F`).
+- **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with match case, whole word and regular expression options. Click a result to jump to it. Open the replace row to replace across the project: every result shows a preview, and **Replace all** asks for a second click. Open files are changed in the editor (undoable), the rest are written to disk keeping their encoding.
+- **Find and replace in file** (`Ctrl+F` / `Ctrl+H`): match case, whole word and regular expressions (`$1` refers to a group). The bar shows the count and a preview of the current replacement. `Enter` replaces the current match and `Ctrl+Enter` replaces all, which `Ctrl+Z` undoes in one step.
 - **C / C++ navigation**: hover an identifier to see its definition. Hovering a macro shows the `#define`, the full expansion and the computed value (for example `BRR_VALUE` → `((72 * 1000 * 1000) / 115200)` → `0x271 (625)`). Hovering an enum constant shows its value. `Ctrl+click` or `F12` goes to the definition, `Shift+F12` finds references, and `Alt+←` / `Alt+→` go back and forward.
 - **clangd (optional)**: if [clangd](https://clangd.llvm.org/) is installed (on PATH, or in the default LLVM folder on Windows) and the project has a `compile_commands.json` in its root or `build/`, Go to Definition uses clangd. It tells apart static functions with the same name, local variables and struct members. The status bar shows `· clangd`. Without it QCCOM falls back to its built-in index; nothing to configure. You can turn it off or set the clangd path in Settings → Code Editor.
 - `Ctrl+=` and `Ctrl+-` change the font size. A minimap is on the right.
@@ -148,6 +150,8 @@ Files are editable; `Ctrl+S` saves, and a dot on the tab marks unsaved changes. 
 - **Indentation**: Enter keeps the indentation and opens a block after `{`. `Tab` / `Shift+Tab` indent and outdent. Indent guides highlight the current block.
 - **Folding**: click the arrow next to a line number, or `Ctrl+Shift+[` / `Ctrl+Shift+]`. `Ctrl+K Ctrl+0` folds everything and `Ctrl+K Ctrl+J` unfolds everything. Works for `{}`, `#if/#endif` and multi-line comments.
 - **Lines**: `Ctrl+/` toggles comments, `Alt+↑/↓` moves lines, `Shift+Alt+↑/↓` copies them, `Ctrl+Shift+K` deletes them, `Ctrl+L` selects the line, and `Ctrl+Enter` / `Ctrl+Shift+Enter` insert a line below / above.
+- **Saving**: files changed by another program reload on their own; if you have unsaved edits too, a bar lets you reload or keep yours. Turn on **Auto save** in Settings → Code Editor to save one second after you stop typing. Unsaved files are backed up every few seconds, and after a crash QCCOM offers to restore them.
+- **Git**: colored bars left of the code mark added (green), modified (blue) and deleted (red) lines compared with the last commit. The end of the current line shows who last changed it, when and why (turn off in settings).
 - **More**: the word under the cursor is highlighted everywhere; the enclosing function and blocks stay pinned at the top while you scroll; holding `Ctrl` underlines identifiers you can jump to.
 
 ### Context window, call hierarchy and bookmarks
@@ -160,6 +164,12 @@ These follow Source Insight and help when reading an unfamiliar project.
 - **Semantic colors**: functions, macros, types, enum constants and globals each get their own color.
 
 ![Context window and call hierarchy](screenshot-insight.png)
+
+## Terminal panel
+
+`` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.
+
+![Split editor and terminal panel](screenshot-shell.png)
 
 ## Git viewer
 
@@ -235,7 +245,10 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+O | Open a file |
 | Ctrl+Shift+F | Search everywhere |
 | Ctrl+Shift+E | Show the explorer |
-| Ctrl+F | Find in the file |
+| Ctrl+F / Ctrl+H | Find / replace in the file |
+| Ctrl+\\ | Split editor |
+| Ctrl+Shift+\` / Alt+F12 | Show / hide the terminal panel |
+| Ctrl+Shift+5 | New terminal |
 | F12 / Ctrl+click | Go to definition |
 | Shift+F12 | Find references |
 | Alt+← / Alt+→ | Back / forward |
@@ -267,6 +280,8 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 On macOS-style keyboards, Ctrl may be shown as ⌘. QCCOM uses the platform's command key.
 
 ## Troubleshooting
+
+**Portable mode.** If a folder named `qccom-data` exists next to the program, settings and recovery data are stored there instead of the user profile, so QCCOM can live on a USB stick. Settings → General → Portable mode creates it for you.
 
 **No ports on Linux, or "Permission denied".** Add yourself to the `dialout` group (`uucp` on Arch): `sudo usermod -aG dialout $USER`, then log out and back in. Some distributions also need `brltty` removed for CH340 adapters.
 

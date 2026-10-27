@@ -13,10 +13,28 @@ mod keymap;
 mod logbuf;
 mod lsp;
 mod net;
+mod pattern;
 mod serial;
+mod shell;
 mod term;
+mod termview;
 mod theme;
 mod update;
+
+static DATA_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+
+/// 程序数据目录（设置、崩溃恢复）：便携模式下是 exe 旁边的 qccom-data，否则是系统的应用数据目录
+pub fn data_dir() -> std::path::PathBuf {
+    DATA_DIR
+        .get_or_init(|| portable_dir().or_else(|| eframe::storage_dir("qccom")).unwrap_or_else(|| std::path::PathBuf::from(".")))
+        .clone()
+}
+
+/// exe 旁边有 qccom-data 文件夹就是便携模式（放 U 盘里带着走，设置跟着走）
+pub fn portable_dir() -> Option<std::path::PathBuf> {
+    let d = std::env::current_exe().ok()?.parent()?.join("qccom-data");
+    d.is_dir().then_some(d)
+}
 
 fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
@@ -26,6 +44,7 @@ fn main() -> eframe::Result {
             .with_min_inner_size([900.0, 520.0])
             .with_icon(icon()),
         vsync: true,
+        persistence_path: portable_dir().map(|d| d.join("app.ron")),
         ..Default::default()
     };
     migrate_storage();

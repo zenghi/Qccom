@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.8.0
+
+- Integrated terminal panel (`` Ctrl+Shift+` `` / `Alt+F12`): cmd, PowerShell, Git Bash and WSL on Windows; bash, zsh, fish on Linux. Multiple tabs, maximize, and `Ctrl+click` on `file:line` (compiler errors, grep output) opens the file at that line. Starts in the project folder.
+- Find and replace in the file (`Ctrl+H`): regular expressions with `$1` groups, match case, whole word, a live preview of the replacement and one-step undo for Replace All.
+- Replace across the project from the search panel, with a strikethrough / green preview per result and a two-click confirm. Files that are not open are written back keeping their encoding (GBK, BOM, CRLF).
+- Split editor (`Ctrl+\`) with a draggable divider; drag tabs to reorder; tab context menu (close others / to the right / saved, split right, copy path, reveal).
+- Explorer: new file / new folder / rename / delete from the context menu (rename follows open tabs). Right-click the folder button for recent projects.
+- Git in the editor: added / modified / deleted bars in the gutter, updated as you type, and an inline blame on the current line (author, time, commit message).
+- Files changed outside QCCOM reload automatically; if you also have unsaved edits a bar asks whether to reload or keep yours.
+- Crash recovery: unsaved files are backed up two seconds after you stop typing. After a crash or power loss QCCOM offers to restore them.
+- Optional auto save (1 s after you stop typing).
+- Portable mode: put a `qccom-data` folder next to the program (or click Enable in Settings → General) and settings live there.
 ## 0.7.0
 
 - New code editor: undo / redo, multiple cursors (`Alt+click`, `Ctrl+D`, `Ctrl+Shift+L`, `Ctrl+Alt+↑/↓`), column selection, auto-closing brackets and quotes, bracket matching, auto-indent, indent guides, word highlight, code folding (`{}`, `#if`, comments), sticky scroll, `Ctrl+/` comments and line move / copy / delete. Files are editable without a separate edit mode; unsaved tabs show a dot.

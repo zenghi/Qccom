@@ -185,6 +185,8 @@ pub enum Act {
     PageGit,
     ThemeToggle,
     CheckUpdate,
+    ToggleShell,
+    NewShell,
     // 调试页
     Connect,
     LogFind,
@@ -205,6 +207,9 @@ pub enum Act {
     OpenFile,
     SearchAll,
     FindInFile,
+    ReplaceInFile,
+    SplitEditor,
+    ToggleBlame,
     CloseTab,
     NextTab,
     SaveFile,
@@ -272,6 +277,8 @@ acts! {
     Act::PageGit, "page.git", "切换到 Git 页", Global, ["Ctrl+Shift+G"], true;
     Act::ThemeToggle, "theme.toggle", "切换深色 / 浅色主题", Global, ["Ctrl+K Ctrl+T"];
     Act::CheckUpdate, "update.check", "检查更新", Global, [];
+    Act::ToggleShell, "shell.toggle", "显示 / 隐藏终端面板", Global, ["Ctrl+Shift+`", "Alt+F12"], true;
+    Act::NewShell, "shell.new", "新建终端", Global, ["Ctrl+Shift+5"], true;
     Act::Connect, "conn.toggle", "连接 / 断开", Debug, ["F5"], true;
     Act::LogFind, "log.find", "搜索日志", Debug, ["Ctrl+F"];
     Act::LogClear, "log.clear", "清屏", Debug, ["Ctrl+L"];
@@ -298,6 +305,9 @@ acts! {
     Act::OpenFile, "code.open_file", "打开文件", Code, ["Ctrl+O"];
     Act::SearchAll, "code.search", "全局搜索", Code, ["Ctrl+Shift+F"];
     Act::FindInFile, "code.find", "文件内查找", Code, ["Ctrl+F"];
+    Act::ReplaceInFile, "code.replace", "文件内替换", Code, ["Ctrl+H"];
+    Act::SplitEditor, "code.split", "拆分编辑器", Code, ["Ctrl+\\"];
+    Act::ToggleBlame, "code.blame", "显示 / 隐藏行内 Blame", Code, [];
     Act::CloseTab, "code.close_tab", "关闭标签页", Code, ["Ctrl+W"];
     Act::NextTab, "code.next_tab", "下一个标签页", Code, ["Ctrl+Tab"];
     Act::SaveFile, "code.save", "保存文件", Code, ["Ctrl+S"];

@@ -162,6 +162,10 @@ mod tests {
             include_str!("app/palette.rs"),
             include_str!("app/prefs.rs"),
             include_str!("codeview/insight.rs"),
+            include_str!("shell.rs"),
+            include_str!("termview.rs"),
+            include_str!("pattern.rs"),
+            include_str!("lsp.rs"),
         ];
         let mut missing = vec![];
         for src in sources {

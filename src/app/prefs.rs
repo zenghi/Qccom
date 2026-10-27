@@ -114,11 +114,11 @@ fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mu
 /// 这一类里有没有设置项匹配搜索（决定搜索时显示不显示分类标题）
 fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
-        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "命令面板"],
+        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "命令面板"],
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号"],
         Cat::Log => &["时间戳", "行号", "发送回显", "ANSI 颜色", "级别着色", "复制时带时间戳", "保留行数", "空闲分帧"],
         Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS"],
-        Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径"],
+        Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径", "自动保存", "行内 Blame"],
         Cat::Keys => &["快捷键"],
         Cat::About => &["关于", "版本", "许可证"],
     };
@@ -262,6 +262,19 @@ impl App {
                 self.check_update(true);
             }
         });
+        let portable = crate::portable_dir();
+        let desc = match &portable {
+            Some(d) => tf("已启用：设置和恢复数据保存在 {}", &[&d.display()]),
+            None => t("把设置保存在程序旁边的 qccom-data 文件夹里，整个文件夹拷到 U 盘就能带着走").to_string(),
+        };
+        row(ui, q, t("便携模式"), &desc, |ui| {
+            if portable.is_none() && ui.button(t("启用")).clicked() {
+                match enable_portable() {
+                    Ok(()) => self.toast(t("已启用便携模式，重启后生效"), OK()),
+                    Err(e) => self.toast(e.to_string(), ERR()),
+                }
+            }
+        });
         let pk = self.km.label(Act::Palette);
         row(ui, q, t("命令面板"), &tf("按 {} 可以搜索并执行任何功能", &[&pk]), |ui| {
             if ui.button(t("打开")).clicked() {
@@ -398,6 +411,12 @@ impl App {
         }
         row(ui, q, t("clangd 路径"), t("留空会自动查找（PATH、LLVM 默认安装目录）"), |ui| {
             ui.add(egui::TextEdit::singleline(&mut self.code.s.clangd_path).desired_width(240.0).hint_text(t("自动")));
+        });
+        row(ui, q, t("自动保存"), t("停止输入 1 秒后自动保存修改过的文件"), |ui| {
+            switch(ui, &mut self.code.s.autosave);
+        });
+        row(ui, q, t("行内 Blame"), t("在当前行末尾淡淡显示最后修改它的人、时间和提交说明"), |ui| {
+            switch(ui, &mut self.code.s.inline_blame);
         });
     }
 
@@ -769,4 +788,15 @@ fn theme_card(ui: &mut egui::Ui, mode: &str, name: &str, on: bool) -> egui::Resp
         p.circle_filled(pos2(rect.right() - 8.0, rect.bottom() - 10.0), 4.0, ACCENT());
     }
     resp
+}
+
+/// 在 exe 旁边建 qccom-data，并把现有设置拷过去（下次启动就从那里读）
+fn enable_portable() -> std::io::Result<()> {
+    let exe = std::env::current_exe()?;
+    let dir = exe.parent().ok_or_else(|| std::io::Error::other("exe dir"))?.join("qccom-data");
+    std::fs::create_dir_all(&dir)?;
+    if let Some(old) = eframe::storage_dir("qccom") {
+        let _ = std::fs::copy(old.join("app.ron"), dir.join("app.ron"));
+    }
+    Ok(())
 }

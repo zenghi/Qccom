@@ -207,7 +207,14 @@ impl CodeView {
         let ctx = ctx.clone();
         std::thread::spawn(move || {
             let cancel = std::sync::atomic::AtomicBool::new(false);
-            let hits = cindex::search(&root, &idx.files, &n, &SearchOpts { case: true, word: true }, &cancel, 5000);
+            let re = crate::pattern::Pat {
+                q: n.clone(),
+                case: true,
+                word: true,
+                regex: false,
+            }
+            .compile();
+            let hits = re.map(|re| cindex::search(&root, &idx.files, &re, &cancel, 5000)).unwrap_or_default();
             // 每个文件里的函数（按行排好），用来找调用点所在的函数
             let mut funcs: HashMap<PathBuf, Vec<(u32, String)>> = HashMap::new();
             for s in idx.syms.iter().filter(|s| s.kind == Kind::Func) {

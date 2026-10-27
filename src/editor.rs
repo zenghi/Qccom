@@ -302,15 +302,16 @@ pub struct View<'a> {
     pub lang: Lang,
     pub font_size: f32,
     pub minimap: bool,
-    /// 查找结果：(起点, 长度)，当前项
-    pub find: &'a [usize],
-    pub find_len: usize,
+    /// 查找结果：[起点, 终点) 字节范围（按起点排序），当前项
+    pub find: &'a [(usize, usize)],
     pub find_cur: Option<usize>,
     /// 索引里的符号种类，用来给函数、宏、类型、全局变量上色
     pub sem: Option<&'a HashMap<String, Kind>>,
     /// 行的 Git 改动标记：(起始行, 结束行, 'A' 新增 / 'M' 修改 / 'D' 删除)
     pub git: &'a [(usize, usize, char)],
     pub big: bool,
+    /// 某一行末尾的淡色附注（行内 blame）
+    pub ghost: Option<(usize, &'a str)>,
 }
 
 pub struct Editor {
@@ -553,15 +554,21 @@ impl Editor {
         self.normalize();
     }
 
-    /// 整体替换文本（外部修改后重新加载），保留撤销历史之外的状态
-    pub fn reset_text(&mut self, buf: &mut Buf, text: String) {
-        buf.text = text;
-        buf.rebuild();
-        buf.ver += 1;
-        self.undo.clear();
-        self.redo.clear();
-        self.clean = Some(0);
-        self.clamp(buf);
+    /// 一次替换多处（查找替换用）：可以整体撤销；光标停在第一处替换的末尾
+    pub fn replace_ranges(&mut self, buf: &mut Buf, items: Vec<(Range<usize>, String)>, now: f64) {
+        let reps = items
+            .into_iter()
+            .enumerate()
+            .map(|(i, (r, ins))| {
+                let n = ins.len();
+                Rep {
+                    r,
+                    ins,
+                    sels: if i == 0 { vec![(n, n)] } else { vec![] },
+                }
+            })
+            .collect();
+        self.apply(buf, reps, EK::Other, now);
     }
 
     // ---------------------------------------------------- 输入
@@ -1865,12 +1872,27 @@ impl Editor {
             }
         }
 
+        // ---- 行尾附注
+        if let Some((l, g)) = v.ghost {
+            let di = line_di(l);
+            if di >= first && di < last && disp.get(di) == Some(&l) {
+                let x = x_of(buf.end(l)) + m.cw * 4.0;
+                tp.text(
+                    pos2(x, row_y(di) + row_h / 2.0),
+                    Align2::LEFT_CENTER,
+                    g,
+                    FontId::new(font.size * 0.88, FontFamily::Proportional),
+                    TEXT3().gamma_multiply(0.85),
+                );
+            }
+        }
+
         // ---- 查找结果
-        if !v.find.is_empty() && v.find_len > 0 {
+        if !v.find.is_empty() {
             let lo = disp.get(first).map_or(0, |&l| buf.start(l));
             let hi = disp.get(last.saturating_sub(1)).map_or(buf.text.len(), |&l| buf.end(l));
-            let i0 = v.find.partition_point(|&h| h < lo);
-            for (k, &h) in v.find.iter().enumerate().skip(i0) {
+            let i0 = v.find.partition_point(|&(h, _)| h < lo);
+            for (k, &(h, he)) in v.find.iter().enumerate().skip(i0) {
                 if h > hi {
                     break;
                 }
@@ -1880,7 +1902,7 @@ impl Editor {
                     continue;
                 }
                 let y = row_y(di);
-                let r = Rect::from_min_max(pos2(x_of(h), y + 1.0), pos2(x_of((h + v.find_len).min(buf.end(l))), y + row_h - 1.0));
+                let r = Rect::from_min_max(pos2(x_of(h), y + 1.0), pos2(x_of(he.min(buf.end(l))), y + row_h - 1.0));
                 let cur = v.find_cur == Some(k);
                 tp.rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.45 } else { 0.2 }));
                 if cur {
@@ -2306,7 +2328,7 @@ impl Editor {
                 let y = track_v.top() + line_di(l) as f32 / disp.len().max(1) as f32 * track_v.height();
                 tp.rect_filled(Rect::from_min_size(pos2(track_v.left() + x0, y), vec2(w, 2.0)), 0.0, c);
             };
-            for &h in v.find.iter().take(3000) {
+            for &(h, _) in v.find.iter().take(3000) {
                 mark(buf.line_of(h), WARN(), 5.0, 5.0);
             }
             for &bm in &self.bookmarks {
@@ -2372,7 +2394,7 @@ impl Editor {
                 }
                 di += step;
             }
-            for &h in v.find.iter().take(2000) {
+            for &(h, _) in v.find.iter().take(2000) {
                 let y = mm.top() + 4.0 + line_di(buf.line_of(h)) as f32 * scale;
                 mp.rect_filled(Rect::from_min_size(pos2(mm.right() - 5.0, y), vec2(4.0, 2.0)), 0.0, WARN());
             }

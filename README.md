@@ -68,6 +68,18 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 |---|
 | ![CAN in the toolbox](docs/screenshot-toolbox.png) |
 
+## See it in action
+
+| Auto baud, colored log, search | Live plot from log values |
+|---|---|
+| ![Connect](docs/gif/demo-connect.gif) | ![Plot](docs/gif/demo-plot.gif) |
+| **Terminal mode** | **Macro values and go to definition** |
+| ![Terminal](docs/gif/demo-terminal.gif) | ![Code](docs/gif/demo-code.gif) |
+| **HTTP API** | **Toolbox** |
+| ![API](docs/gif/demo-api.gif) | ![Toolbox](docs/gif/demo-toolbox.gif) |
+
+More in the [user guide](docs/USER_GUIDE.md).
+
 ## Download
 
 Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/releases).

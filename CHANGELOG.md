@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.1
+
+- Animated demos in the README and user guide (`docs/gif/`).
+- `qccom <folder>` opens that folder as a project on the Code page.
+- The log view draws the line-drawing characters used by `top`, `dialog` and similar programs instead of `lqqk`.
+- API tab: a query typed into the URL (`?device=1`) is moved into the Params table, so it is no longer sent twice when the same parameter is already there.
+
 ## 1.2.0
 
 A **Toolbox** page in the activity bar (`Ctrl+Shift+B`), with the small utilities embedded work keeps needing:

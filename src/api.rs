@@ -239,6 +239,24 @@ pub fn encode(s: &str) -> String {
     out
 }
 
+/// 地址栏里手写的 ?k=v 挪进参数表：同名参数改值，没有的追加（不然会和参数表重复拼两次）
+pub fn absorb_query(req: &mut Request) {
+    let Some((base, q)) = req.url.split_once('?') else { return };
+    let (base, q) = (base.to_string(), q.to_string());
+    for p in q.split('&').filter(|p| !p.is_empty()) {
+        let (k, v) = p.split_once('=').unwrap_or((p, ""));
+        let (k, v) = (decode(k), decode(v));
+        match req.params.iter_mut().find(|x| x.k == k) {
+            Some(x) => {
+                x.v = v;
+                x.on = true;
+            }
+            None => req.params.push(Kv::new(&k, &v)),
+        }
+    }
+    req.url = base;
+}
+
 pub fn decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -850,6 +868,14 @@ mod tests {
         let r2 = from_curl(&back).unwrap();
         assert_eq!(r2.url, r.url);
         assert_eq!(r2.params, r.params);
+        let mut q = Request {
+            url: "http://h/a?device=x&n=1".into(),
+            params: vec![Kv::new("device", "qccom")],
+            ..Default::default()
+        };
+        absorb_query(&mut q);
+        assert_eq!(q.url, "http://h/a");
+        assert_eq!(q.params, vec![Kv::new("device", "x"), Kv::new("n", "1")]);
         assert_eq!(r2.token, r.token);
         assert!(from_curl("wget x").is_err());
         let f = from_curl("curl -u admin:pw -d a=1 -d b=2 http://h/form").unwrap();

@@ -85,6 +85,9 @@ impl App {
         if self.api.busy.is_some() {
             return;
         }
+        if !self.s.api.current.url.trim_start().starts_with("curl ") {
+            api::absorb_query(&mut self.s.api.current);
+        }
         let missing = api::missing_vars(&self.s.api.current, &self.s.api.env);
         if !missing.is_empty() {
             self.toast(tf("没有定义的变量：{}", &[&missing.join(", ")]), WARN());
@@ -372,6 +375,9 @@ impl App {
                     }
                     Err(e) => self.toast(e, ERR()),
                 }
+            }
+            if r.lost_focus() && !is_curl {
+                api::absorb_query(&mut self.s.api.current);
             }
             if enter && !is_curl {
                 self.api_send();

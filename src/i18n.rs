@@ -166,11 +166,17 @@ mod tests {
             include_str!("termview.rs"),
             include_str!("pattern.rs"),
             include_str!("lsp.rs"),
+            include_str!("tools.rs"),
+            include_str!("snippets.rs"),
+            include_str!("binview.rs"),
+            include_str!("binview/parse.rs"),
+            include_str!("vim.rs"),
+            include_str!("editor.rs"),
         ];
         let mut missing = vec![];
         for src in sources {
             let src = src.split("#[cfg(test)]").next().unwrap_or(src);
-            for pat in ["t(\"", "tf(\"", "tr(\""] {
+            for pat in ["t(\"", "tf(\"", "tr(\"", "c(\""] {
                 for (i, _) in src.match_indices(pat) {
                     if src[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
                         continue;

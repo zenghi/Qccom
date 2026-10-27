@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod binview;
 mod cindex;
 mod cmds;
 mod codeview;
@@ -16,10 +17,13 @@ mod net;
 mod pattern;
 mod serial;
 mod shell;
+mod snippets;
 mod term;
 mod termview;
 mod theme;
+mod tools;
 mod update;
+mod vim;
 
 static DATA_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 

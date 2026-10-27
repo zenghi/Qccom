@@ -118,7 +118,7 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号"],
         Cat::Log => &["时间戳", "行号", "发送回显", "ANSI 颜色", "级别着色", "复制时带时间戳", "保留行数", "空闲分帧"],
         Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS"],
-        Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径", "自动保存", "行内 Blame"],
+        Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径", "代码片段", "Vim 键位", "自动保存", "行内 Blame"],
         Cat::Keys => &["快捷键"],
         Cat::About => &["关于", "版本", "许可证"],
     };
@@ -411,6 +411,21 @@ impl App {
         }
         row(ui, q, t("clangd 路径"), t("留空会自动查找（PATH、LLVM 默认安装目录）"), |ui| {
             ui.add(egui::TextEdit::singleline(&mut self.code.s.clangd_path).desired_width(240.0).hint_text(t("自动")));
+        });
+        row(
+            ui,
+            q,
+            t("代码片段"),
+            t("输入前缀后按 Tab 展开，或按 Ctrl+Alt+J 搜索；片段保存在一个 JSON 文件里"),
+            |ui| {
+                if ui.button(t("编辑…")).clicked() {
+                    self.code.edit_snippets();
+                    self.set_page(Page::Code);
+                }
+            },
+        );
+        row(ui, q, t("Vim 键位"), t("普通 / 插入 / 可视模式、hjkl、dw、ciw、. 重复、:w 等常用操作"), |ui| {
+            switch(ui, &mut self.code.s.vim);
         });
         row(ui, q, t("自动保存"), t("停止输入 1 秒后自动保存修改过的文件"), |ui| {
             switch(ui, &mut self.code.s.autosave);

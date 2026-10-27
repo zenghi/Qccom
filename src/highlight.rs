@@ -18,18 +18,29 @@ pub enum Lang {
     Ini,
     Markdown,
     Asm,
+    Kconfig,
+    Dts,
+    Ld,
     Plain,
 }
 
 impl Lang {
     pub fn from_path(p: &std::path::Path) -> Lang {
         let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("").to_ascii_lowercase();
-        if name == "makefile" || name == "gnumakefile" || name.ends_with(".mk") || name == "kconfig" || name == "cmakelists.txt" || name.ends_with(".cmake") {
+        if name == "makefile" || name == "gnumakefile" || name.ends_with(".mk") || name == "cmakelists.txt" || name.ends_with(".cmake") {
             return Lang::Make;
+        }
+        if name == "kconfig" || name.starts_with("kconfig.") || name.starts_with("kconfig-") {
+            return Lang::Kconfig;
+        }
+        if name == ".config" || name == "defconfig" || name.ends_with("_defconfig") || name == "sdkconfig" || name.starts_with("sdkconfig.") {
+            return Lang::Ini;
         }
         let ext = name.rsplit('.').next().unwrap_or("");
         match ext {
-            "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "ino" | "cs" | "m" | "ld" | "lds" | "dts" | "dtsi" => Lang::C,
+            "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "ino" | "cs" | "m" => Lang::C,
+            "ld" | "lds" | "icf" | "sct" => Lang::Ld,
+            "dts" | "dtsi" | "overlay" => Lang::Dts,
             "rs" => Lang::Rust,
             "py" | "pyw" => Lang::Python,
             "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "vue" => Lang::Js,
@@ -58,6 +69,9 @@ impl Lang {
             Lang::Ini => t("配置文件"),
             Lang::Markdown => "Markdown",
             Lang::Asm => t("汇编"),
+            Lang::Kconfig => "Kconfig",
+            Lang::Dts => "Device Tree",
+            Lang::Ld => t("链接脚本"),
             Lang::Plain => t("纯文本"),
         }
     }
@@ -159,6 +173,30 @@ impl Lang {
                 kw: &[],
                 ty: &[],
                 consts: &[],
+            },
+            Lang::Kconfig => Spec {
+                line: &["#"],
+                block: None,
+                strings: &['"'],
+                hash_pre: false,
+                kw: KCONFIG_KW,
+                ty: &["bool", "tristate", "string", "hex", "int"],
+                consts: &["y", "n", "m"],
+            },
+            Lang::Dts => Spec {
+                hash_pre: true,
+                kw: DTS_KW,
+                ty: &[],
+                consts: &["okay", "disabled", "reserved", "fail"],
+                strings: &['"'],
+                ..c_like
+            },
+            Lang::Ld => Spec {
+                kw: LD_KW,
+                ty: &[],
+                consts: &[],
+                strings: &['"'],
+                ..c_like
             },
             Lang::Markdown | Lang::Plain => Spec {
                 line: &[],
@@ -448,6 +486,118 @@ const PY_TY: &[&str] = &["int", "float", "str", "bytes", "bool", "list", "dict",
 const SH_KW: &[&str] = &[
     "if", "then", "else", "elif", "fi", "for", "while", "do", "done", "case", "esac", "in", "function", "return", "export", "local", "echo", "set", "call", "goto", "exit", "cd", "source",
 ];
+const KCONFIG_KW: &[&str] = &[
+    "config",
+    "menuconfig",
+    "choice",
+    "endchoice",
+    "menu",
+    "endmenu",
+    "if",
+    "endif",
+    "source",
+    "rsource",
+    "osource",
+    "orsource",
+    "comment",
+    "mainmenu",
+    "default",
+    "depends",
+    "on",
+    "select",
+    "imply",
+    "help",
+    "prompt",
+    "range",
+    "visible",
+    "def_bool",
+    "def_tristate",
+    "def_int",
+    "def_hex",
+    "def_string",
+    "option",
+    "modules",
+    "optional",
+    "transitional",
+];
+
+const DTS_KW: &[&str] = &["compatible", "reg", "status", "interrupts", "interrupt-parent", "clocks", "label", "phandle"];
+
+const LD_KW: &[&str] = &[
+    "SECTIONS",
+    "MEMORY",
+    "ENTRY",
+    "KEEP",
+    "ALIGN",
+    "PROVIDE",
+    "PROVIDE_HIDDEN",
+    "ORIGIN",
+    "LENGTH",
+    "AT",
+    "ADDR",
+    "SIZEOF",
+    "LOADADDR",
+    "INCLUDE",
+    "OUTPUT_FORMAT",
+    "OUTPUT_ARCH",
+    "SEARCH_DIR",
+    "GROUP",
+    "ASSERT",
+    "FILL",
+    "NOLOAD",
+    "ABSOLUTE",
+    "DEFINED",
+    "SORT",
+    "SORT_BY_NAME",
+    "SORT_BY_ALIGNMENT",
+    "EXCLUDE_FILE",
+    "COMMON",
+    "INPUT",
+    "OUTPUT",
+    "STARTUP",
+    "TARGET",
+    "INSERT",
+    "AFTER",
+    "BEFORE",
+    "MAX",
+    "MIN",
+    "DISCARD",
+    "COPY",
+    "INFO",
+    "OVERLAY",
+    "CONSTRUCTORS",
+    "NEXT",
+    "BLOCK",
+    // IAR .icf / Keil .sct
+    "define",
+    "symbol",
+    "region",
+    "block",
+    "place",
+    "in",
+    "at",
+    "start",
+    "end",
+    "with",
+    "alignment",
+    "size",
+    "initialize",
+    "by",
+    "copy",
+    "do",
+    "not",
+    "readonly",
+    "readwrite",
+    "zeroinit",
+    "first",
+    "last",
+    "export",
+    "keep",
+    "mem",
+    "from",
+    "to",
+];
+
 const MAKE_KW: &[&str] = &[
     "ifeq",
     "ifneq",

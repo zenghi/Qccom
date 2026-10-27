@@ -309,6 +309,7 @@ pub struct App {
     prev_page: Page,
     /// 命令面板选中后、需要下一帧在对应页面执行的命令
     pending_acts: Vec<Act>,
+    bitcalc: crate::tools::BitCalc,
 }
 
 impl App {
@@ -428,6 +429,7 @@ impl App {
             prefs: prefs::Prefs::default(),
             prev_page: Page::Debug,
             pending_acts: Vec::new(),
+            bitcalc: Default::default(),
         };
         app.parse_keywords();
         if just_updated {
@@ -2545,6 +2547,7 @@ impl App {
                     self.set_theme(ctx, if light { "light" } else { "dark" });
                 }
                 Act::CheckUpdate => self.check_update(true),
+                Act::BitCalc => self.bitcalc.toggle(),
                 Act::ToggleShell => {
                     let cwd = self.shell_cwd();
                     self.shells.toggle(ctx, &cwd);
@@ -3165,6 +3168,7 @@ impl eframe::App for App {
                 for e in std::mem::take(&mut self.code.events) {
                     match e {
                         CodeEvt::Toast(m, c) => self.toast(m, c),
+                        CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
                     }
                 }
             }
@@ -3183,6 +3187,8 @@ impl eframe::App for App {
             Page::Debug => self.debug_page(ctx),
             Page::Settings => self.settings_page(ctx),
         }
+        let code = &self.code;
+        self.bitcalc.ui(ctx, &|s| code.eval_expr(s));
         self.palette_ui(ctx);
 
         // 提示气泡
@@ -3607,6 +3613,7 @@ pub(crate) enum Icon {
     Split,
     Maximize,
     Restore,
+    Todo,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -3719,6 +3726,13 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
         Icon::Files => {
             p.add(Shape::line(vec![pt(-4.0, -7.0), pt(2.0, -7.0), pt(5.5, -3.5), pt(5.5, 5.0), pt(-4.0, 5.0), pt(-4.0, -7.0)], s));
             p.add(Shape::line(vec![pt(-6.5, -4.0), pt(-6.5, 7.5), pt(2.5, 7.5)], s));
+        }
+        Icon::Todo => {
+            p.rect_stroke(Rect::from_min_max(pt(-6.5, -6.0), pt(-1.5, -1.0)), 1.0, s, egui::StrokeKind::Middle);
+            p.add(Shape::line(vec![pt(-5.6, -3.6), pt(-4.2, -2.3), pt(-2.0, -5.0)], s));
+            p.line_segment([pt(1.0, -3.5), pt(7.0, -3.5)], s);
+            p.rect_stroke(Rect::from_min_max(pt(-6.5, 1.5), pt(-1.5, 6.5)), 1.0, s, egui::StrokeKind::Middle);
+            p.line_segment([pt(1.0, 4.0), pt(7.0, 4.0)], s);
         }
         Icon::Outline => {
             for (x, y) in [(-6.0, -4.5), (-3.0, 0.0), (-3.0, 4.5)] {

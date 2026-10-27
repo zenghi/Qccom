@@ -66,7 +66,12 @@ pub(super) fn list_profiles() -> Vec<String> {
     let mut v: Vec<String> = std::fs::read_dir(profile_dir())
         .map(|rd| {
             rd.flatten()
-                .filter_map(|e| e.path().file_stem().filter(|_| e.path().extension().is_some_and(|x| x == "json")).map(|s| s.to_string_lossy().into_owned()))
+                .filter_map(|e| {
+                    e.path()
+                        .file_stem()
+                        .filter(|_| e.path().extension().is_some_and(|x| x == "json"))
+                        .map(|s| s.to_string_lossy().into_owned())
+                })
                 .collect()
         })
         .unwrap_or_default();
@@ -179,7 +184,11 @@ impl App {
                     }
                 }
             });
-            if ui.add(egui::Button::new(RichText::new("Break").size(12.0)).min_size(vec2(0.0, 24.0))).on_hover_text(t("发送 Break 信号（250 ms）")).clicked() {
+            if ui
+                .add(egui::Button::new(RichText::new("Break").size(12.0)).min_size(vec2(0.0, 24.0)))
+                .on_hover_text(t("发送 Break 信号（250 ms）"))
+                .clicked()
+            {
                 self.send_break();
             }
         });
@@ -412,7 +421,10 @@ impl App {
         }
         let _ = std::fs::create_dir_all(profile_dir());
         let p = profile_dir().join(format!("{name}.json"));
-        match serde_json::to_string_pretty(&self.current_profile()).map_err(|e| e.to_string()).and_then(|j| std::fs::write(&p, j).map_err(|e| e.to_string())) {
+        match serde_json::to_string_pretty(&self.current_profile())
+            .map_err(|e| e.to_string())
+            .and_then(|j| std::fs::write(&p, j).map_err(|e| e.to_string()))
+        {
             Ok(()) => {
                 self.s.profile = name.clone();
                 self.toast(tf("已保存配置方案「{}」", &[&name]), OK());
@@ -485,7 +497,12 @@ impl App {
     pub(super) fn profile_button(&mut self, ui: &mut egui::Ui) {
         let label = if self.s.profile.is_empty() { t("默认").to_string() } else { self.s.profile.clone() };
         let r = ui
-            .add(egui::Button::new(RichText::new(format!("{label} ▾")).size(11.5).color(TEXT2())).fill(Color32::TRANSPARENT).stroke(st(1.0, LINE())).min_size(vec2(0.0, 22.0)))
+            .add(
+                egui::Button::new(RichText::new(format!("{label} ▾")).size(11.5).color(TEXT2()))
+                    .fill(Color32::TRANSPARENT)
+                    .stroke(st(1.0, LINE()))
+                    .min_size(vec2(0.0, 22.0)),
+            )
             .on_hover_text(t("配置方案：连接参数、快捷命令、规则、脚本一起保存和切换"));
         let id = egui::Id::new("profiles");
         if r.clicked() {

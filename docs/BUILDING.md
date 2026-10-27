@@ -6,9 +6,9 @@ QCCOM is a plain Cargo project with no code generation or extra build tools. Thi
 
 | | Windows | Linux |
 |---|---|---|
-| Rust | stable, 1.81 or newer, via [rustup](https://rustup.rs) | same |
+| Rust | stable, 1.85 or newer, via [rustup](https://rustup.rs) | same |
 | C toolchain | MSVC Build Tools (installed by rustup) | `gcc` / `cc` |
-| System packages | none | `pkg-config` and the libudev headers |
+| System packages | none | `pkg-config`, the libudev and libdbus headers |
 | Runtime | nothing extra | X11 or Wayland, OpenGL 2+ (Mesa is fine); `xdg-desktop-portal` for the file dialogs |
 | Optional | `git` in `PATH` for the Git viewer | same |
 
@@ -16,9 +16,9 @@ Linux packages:
 
 ```bash
 # Debian / Ubuntu
-sudo apt install build-essential pkg-config libudev-dev
+sudo apt install build-essential pkg-config libudev-dev libdbus-1-dev
 # Fedora
-sudo dnf install gcc pkgconf-pkg-config systemd-devel
+sudo dnf install gcc pkgconf-pkg-config systemd-devel dbus-devel
 # Arch
 sudo pacman -S base-devel pkgconf systemd-libs
 ```

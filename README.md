@@ -5,7 +5,7 @@
 <h1 align="center">QCCOM</h1>
 
 <p align="center">
-  A fast, lightweight serial / TCP / UDP / MQTT debug tool for embedded developers,<br>
+  A fast, lightweight serial / TCP / UDP / MQTT / BLE debug tool for embedded developers,<br>
   with a built-in terminal, code viewer and Git history browser.
 </p>
 
@@ -32,6 +32,8 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Encodings:** UTF-8, GBK / GB2312, ASCII and Latin-1. Switching re-decodes the existing history instantly.
 - **Full terminal mode.** VT100 / xterm emulation for U-Boot and Linux shells. vi, top, less and menuconfig all render correctly, with scrollback, mouse selection and copy / paste.
 - **Network transports.** TCP client, TCP server (multiple clients), UDP and MQTT 3.1.1 (TLS, user / password, QoS 0–2, retain, multiple subscriptions). Every log, terminal and quick-command feature works the same over the network.
+- **Bluetooth LE.** Scan nearby devices with signal bars, connect, browse services and characteristics, subscribe to notifications, read values and write from the command bar. Nordic UART, HM-10 (FFE0) and similar serial-over-BLE modules are picked up automatically.
+- **HTTP API testing.** A Postman-style **API** tab for the REST endpoints on your board: methods, params, headers, JSON / form / text bodies, Bearer / Basic auth, `{{variables}}`, saved requests and history, colored JSON responses, and cURL import / export (paste a "Copy as cURL" straight into the URL bar).
 - **Quick commands.** Groups of one-click commands (text or HEX) with per-command line endings, `Alt+1…9` hotkeys and "send the whole group" sequencing.
 - **Debugging tools.** Live plots of numbers in the log, filter / highlight rules, binary protocol framing with checksum checks, auto-replies, [Rhai](https://rhai.rs) test scripts, a Modbus RTU / TCP master, XMODEM / YMODEM file transfer, CRC on send, an AT command assistant, multi-line sending, log replay with the original timing, statistics, markers and bookmarks.
 - **Serial extras.** DTR / RTS / Break and live CTS / DSR / RI / CD, one-click reset (including the ESP32 bootloader sequence), sharing a port over TCP, a second sniffing port, port aliases, profiles and multiple windows.
@@ -57,6 +59,10 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 |---|---|
 | ![Terminal](docs/screenshot-terminal.png) | ![Light theme](docs/screenshot-light.png) |
 
+| HTTP API | Bluetooth LE |
+|---|---|
+| ![API tab](docs/screenshot-api.png) | ![BLE tab](docs/screenshot-ble.png) |
+
 ## Download
 
 Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/releases).
@@ -76,21 +82,21 @@ Each release also ships a `SHA256SUMS.txt` so you can verify the download.
 2. Click **Connect** or press **F5**. If you do not know the baud rate, click **⚡ Auto** while the device is printing.
 3. Read the log. Type a command at the bottom and press **Enter** to send it.
 
-To talk to a shell interactively (like PuTTY or minicom), switch to **Terminal** in the top bar or press **Ctrl+\`**. For TCP, UDP or MQTT, pick the tab above the device list.
+To talk to a shell interactively (like PuTTY or minicom), switch to **Terminal** in the top bar or press **Ctrl+\`**. For TCP, UDP, MQTT or BLE, pick the tab above the device list; **API** opens the HTTP request editor.
 
 The full manual is in [docs/USER_GUIDE.md](docs/USER_GUIDE.md).
 
 ## Build from source
 
-You need a recent stable Rust toolchain (`rustup`, Rust 1.81 or newer).
+You need a recent stable Rust toolchain (`rustup`, Rust 1.85 or newer).
 
 ```bash
 git clone https://github.com/zenghi/QCCOM.git
 cd QCCOM
 
-# Linux only: system headers for serial-port enumeration
-sudo apt install pkg-config libudev-dev      # Debian / Ubuntu
-# sudo dnf install pkgconf-pkg-config systemd-devel   # Fedora
+# Linux only: system headers for serial-port enumeration and Bluetooth
+sudo apt install pkg-config libudev-dev libdbus-1-dev   # Debian / Ubuntu
+# sudo dnf install pkgconf-pkg-config systemd-devel dbus-devel   # Fedora
 # sudo pacman -S pkgconf systemd-libs                 # Arch
 
 cargo build --release
@@ -109,6 +115,8 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/app.rs` | Main window: sidebar, log view, command bar, activity bar, update card |
 | `src/serial.rs` | Port scanning, I/O thread, auto-baud detection |
 | `src/net.rs` | TCP client / server, UDP, a small MQTT 3.1.1 client |
+| `src/ble.rs`, `src/app/blex.rs` | Bluetooth LE (btleplug): scanning, GATT, notifications; BLE sidebar |
+| `src/api.rs`, `src/app/apiview.rs` | HTTP requests, variables, cURL import / export, JSON formatting; API tab |
 | `src/logbuf.rs` | Line splitting, decoding, ANSI parsing, log-level detection |
 | `src/term.rs` | VT100 / xterm terminal emulator |
 | `src/cmds.rs` | Quick-command panel |

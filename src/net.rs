@@ -23,6 +23,7 @@ pub enum Transport {
     TcpServer,
     Udp,
     Mqtt,
+    Ble,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -71,6 +72,7 @@ pub struct NetConfig {
     pub udp_host: String,
     pub udp_port: u16,
     pub mqtt: MqttConfig,
+    pub ble: crate::ble::BleConfig,
 }
 
 impl Default for NetConfig {
@@ -83,6 +85,7 @@ impl Default for NetConfig {
             udp_host: "192.168.1.100".into(),
             udp_port: 9000,
             mqtt: MqttConfig::default(),
+            ble: Default::default(),
         }
     }
 }
@@ -95,6 +98,7 @@ impl NetConfig {
             Transport::TcpClient => format!("tcp://{}:{}", self.tcp_host.trim(), self.tcp_port),
             Transport::TcpServer => tf("tcp 监听 :{}", &[&self.server_port]),
             Transport::Udp => format!("udp :{} → {}:{}", self.udp_local, self.udp_host.trim(), self.udp_port),
+            Transport::Ble => self.ble.label(),
             Transport::Mqtt => {
                 let scheme = if self.mqtt.tls { "mqtts" } else { "mqtt" };
                 format!("{scheme}://{}:{}", self.mqtt.host.trim(), self.mqtt.port)
@@ -116,7 +120,7 @@ pub fn open(gen: u64, kind: Transport, cfg: NetConfig, tx: Sender<Evt>, ctx: egu
                 Transport::TcpServer => tcp_server(&io, &cfg, &label),
                 Transport::Udp => udp(&io, &cfg, &label),
                 Transport::Mqtt => mqtt::run(&io, &cfg.mqtt, &label),
-                Transport::Serial => Err(t("内部错误").into()),
+                Transport::Serial | Transport::Ble => Err(t("内部错误").into()),
             };
             io.closed(r.err());
         })

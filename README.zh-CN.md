@@ -5,7 +5,7 @@
 <h1 align="center">QCCOM</h1>
 
 <p align="center">
-  给嵌入式开发者的串口 / TCP / UDP / MQTT 调试助手，轻量、快速，<br>
+  给嵌入式开发者的串口 / TCP / UDP / MQTT / BLE 调试助手，轻量、快速，<br>
   自带串口终端、代码浏览器和 Git 历史查看器。
 </p>
 
@@ -32,6 +32,8 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **多种编码**：UTF-8、GBK / GB2312、ASCII、Latin-1，切换后历史日志立即按新编码重新显示。
 - **完整的终端模式**：VT100 / xterm 仿真，直接操作 U-Boot 和 Linux shell；vi、top、less、menuconfig 都能正常显示；支持回滚历史、鼠标选择复制、粘贴。
 - **网络连接**：TCP 客户端、TCP 服务器（可多客户端）、UDP、MQTT 3.1.1（TLS、用户名密码、QoS 0–2、retain、多个订阅）。日志、终端、快捷命令等功能在网络连接下全部可用。
+- **低功耗蓝牙（BLE）**：扫描附近设备（带信号格），连接后列出服务和特征，订阅通知、读取，在命令栏直接写入。Nordic UART、HM-10（FFE0）这类蓝牙串口模块自动识别写入特征。
+- **HTTP 接口调试**：类似 Postman 的 **API** 标签，调开发板上的 REST 接口：各种方法、参数、请求头、JSON / 表单 / 文本请求体、Bearer / Basic 认证、`{{变量}}`、收藏和历史、彩色 JSON 响应，支持 cURL 导入导出（浏览器里「复制为 cURL」直接粘到地址栏）。
 - **快捷命令**：多组一键发送的命令（文本或 HEX），每条可单独设换行符，`Alt+1…9` 快捷发送，可按间隔依次发送整组。
 - **代码浏览器**：在日志旁打开固件工程，文件树、多标签、12 类语言语法高亮、按文件名快速打开、全工程搜索；C / C++ 支持跳转到定义、查找引用、宏展开并计算出数值。
 - **完整的代码编辑器**：多光标、列选择、代码折叠、括号匹配、粘性滚动、行操作，以及 Source Insight 式的上下文窗口、调用关系、书签和语义着色。装了 clangd 且工程有 `compile_commands.json` 时自动使用 clangd。
@@ -57,6 +59,10 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 |---|---|
 | ![终端](docs/screenshot-terminal.png) | ![浅色主题](docs/screenshot-light.png) |
 
+| HTTP 接口 | 低功耗蓝牙 |
+|---|---|
+| ![API 标签](docs/screenshot-api.png) | ![BLE 标签](docs/screenshot-ble.png) |
+
 ## 下载
 
 到 [Releases 页面](https://github.com/zenghi/QCCOM/releases) 下载最新版。
@@ -76,21 +82,21 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 2. 点 **连接** 或按 **F5**。不知道波特率就在设备输出日志时点 **⚡ 自动**。
 3. 看日志。在底部输入命令，按 **回车** 发送。
 
-想像 PuTTY、minicom 那样直接敲命令，就点顶栏的 **终端** 或按 **Ctrl+\`**。要用 TCP、UDP 或 MQTT，点设备列表上方的对应标签。
+想像 PuTTY、minicom 那样直接敲命令，就点顶栏的 **终端** 或按 **Ctrl+\`**。要用 TCP、UDP、MQTT 或 BLE，点设备列表上方的对应标签；**API** 标签打开 HTTP 请求编辑器。
 
 完整说明见 [使用手册](docs/USER_GUIDE.zh-CN.md)。
 
 ## 从源码编译
 
-需要较新的 Rust 稳定版（用 `rustup` 安装，1.81 或更高）。
+需要较新的 Rust 稳定版（用 `rustup` 安装，1.85 或更高）。
 
 ```bash
 git clone https://github.com/zenghi/QCCOM.git
 cd QCCOM
 
-# 仅 Linux：枚举串口需要的系统头文件
-sudo apt install pkg-config libudev-dev      # Debian / Ubuntu
-# sudo dnf install pkgconf-pkg-config systemd-devel   # Fedora
+# 仅 Linux：枚举串口和蓝牙需要的系统头文件
+sudo apt install pkg-config libudev-dev libdbus-1-dev   # Debian / Ubuntu
+# sudo dnf install pkgconf-pkg-config systemd-devel dbus-devel   # Fedora
 # sudo pacman -S pkgconf systemd-libs                 # Arch
 
 cargo build --release

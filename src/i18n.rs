@@ -183,6 +183,10 @@ mod tests {
             include_str!("bridge.rs"),
             include_str!("script.rs"),
             include_str!("logbuf.rs"),
+            include_str!("api.rs"),
+            include_str!("app/apiview.rs"),
+            include_str!("ble.rs"),
+            include_str!("app/blex.rs"),
         ];
         let mut missing = vec![];
         for src in sources {

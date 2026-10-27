@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.0
+
+Two new tabs next to MQTT in the sidebar.
+
+- **BLE**: scan nearby Bluetooth LE devices (name, address, service / manufacturer hint, signal bars), connect, browse services and characteristics, subscribe to notifications, read values, pick the write target and send from the command bar like any other connection. Nordic UART, HM-10 and similar modules work out of the box. Built on btleplug (WinRT on Windows, BlueZ on Linux).
+- **API**: a Postman-style HTTP client: methods, params, headers, JSON / form / text bodies, Bearer / Basic auth, `{{variables}}`, saved requests and history, colored JSON responses, response headers, cURL import (paste into the URL bar) and export. The serial or network connection keeps logging in the background.
+- The sidebar keeps the same width on every tab.
+
 ## 1.0.0
 
 Debugging tools. Everything rarely used sits in the new **⋯** menu, the command palette or the right-hand panel, so the main window looks the same as before.

@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]

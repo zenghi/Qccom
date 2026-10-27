@@ -433,10 +433,13 @@ impl App {
         // --open 文件 / --replay 文件：启动后打开或回放日志
         let mut open_log = None;
         let mut extra_port = None;
+        // 参数是文件夹：在代码页打开这个工程（qccom ~/fw）
+        let mut open_dir = None;
         let mut it = args.into_iter();
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--open" | "--replay" => open_log = it.next().map(|p| (PathBuf::from(p), a == "--replay")),
+                _ if !a.starts_with("--") && std::path::Path::new(&a).is_dir() => open_dir = Some(PathBuf::from(&a)),
                 _ if !a.starts_with("--") && extra_port.is_none() => extra_port = Some(a),
                 _ => {}
             }
@@ -567,6 +570,10 @@ impl App {
         app.compile_rules();
         app.compile_triggers();
         app.apply_frame();
+        if let Some(d) = open_dir {
+            app.code.open_root(std::fs::canonicalize(&d).unwrap_or(d));
+            app.set_page(Page::Code);
+        }
         if just_updated {
             app.toast(tf("已更新到 v{}", &[&env!("CARGO_PKG_VERSION")]), OK());
         } else if !app.code.recovery.is_empty() && app.page != Page::Code {

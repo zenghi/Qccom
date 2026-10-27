@@ -68,6 +68,18 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 |---|
 | ![工具箱里的 CAN 调试](docs/screenshot-toolbox.png) |
 
+## 动图演示
+
+| 自动波特率、彩色日志、搜索 | 日志数值实时曲线 |
+|---|---|
+| ![连接](docs/gif/demo-connect.gif) | ![曲线](docs/gif/demo-plot.gif) |
+| **终端模式** | **宏展开和跳转定义** |
+| ![终端](docs/gif/demo-terminal.gif) | ![代码](docs/gif/demo-code.gif) |
+| **HTTP 接口调试** | **工具箱** |
+| ![API](docs/gif/demo-api.gif) | ![工具箱](docs/gif/demo-toolbox.gif) |
+
+更多见[使用手册](docs/USER_GUIDE.zh-CN.md)。
+
 ## 下载
 
 到 [Releases 页面](https://github.com/zenghi/QCCOM/releases) 下载最新版。

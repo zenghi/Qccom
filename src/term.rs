@@ -534,7 +534,7 @@ impl Perform for Screen {
     }
 }
 
-fn dec_graphics(c: char) -> char {
+pub(crate) fn dec_graphics(c: char) -> char {
     match c {
         '`' => '◆',
         'a' => '▒',

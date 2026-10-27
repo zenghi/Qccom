@@ -465,6 +465,7 @@ pub fn parse_ansi(s: &str) -> (String, Vec<Span>) {
         };
     }
 
+    let mut dec = false;
     while let Some(c) = chars.next() {
         match c {
             '\x1b' => {
@@ -536,15 +537,20 @@ pub fn parse_ansi(s: &str) -> (String, Vec<Span>) {
                         }
                     }
                 } else {
-                    // 其他 ESC 序列：跳过下一个字符；ESC ( 0 这类字符集切换再多跳一个
-                    if matches!(chars.next(), Some('(' | ')' | '#')) {
-                        chars.next();
+                    // 其他 ESC 序列：跳过下一个字符；ESC ( 0 / ESC ( B 切换线条字符集（top、dialog 画框用）
+                    match chars.next() {
+                        Some('(') => dec = chars.next() == Some('0'),
+                        Some(')' | '#') => {
+                            chars.next();
+                        }
+                        _ => {}
                     }
                 }
             }
             '\t' => plain.push_str("    "),
             '\r' => {}
             c if (c as u32) < 0x20 || c == '\x7f' => plain.push('·'),
+            c if dec => plain.push(crate::term::dec_graphics(c)),
             c => plain.push(c),
         }
     }
@@ -641,6 +647,12 @@ pub fn detect_level(s: &str) -> (Level, Option<(usize, usize)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dec_line_drawing() {
+        assert_eq!(parse_ansi("\x1b(0lqqk\x1b(B ok").0, "┌──┐ ok");
+        assert_eq!(parse_ansi("\x1b(0x\x1b(B PID").0, "│ PID");
+    }
 
     #[test]
     fn frames() {

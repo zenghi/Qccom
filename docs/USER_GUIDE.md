@@ -31,6 +31,8 @@ The **gear** at the bottom of the activity bar holds everything you need less of
 
 ### Command palette
 
+![Command palette](gif/demo-palette.gif)
+
 Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for example *theme*, *clear* or *shortcut*. Arrow keys move, Enter runs, Esc closes. Every command, theme, language and settings page is listed, and the ones you used recently come first.
 
 ### Settings
@@ -46,6 +48,8 @@ The Debug page has three columns:
 The status bar at the bottom shows the connection, RX / TX activity lights, the encoding, the line count and the version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
 
 ## Serial connection
+
+![Auto baud, colored log and search](gif/demo-connect.gif)
 
 1. **Choose a port.** Ports are rescanned every second. Each card shows the chip name and VID:PID, and the connected one is marked **LIVE**. A newly plugged device is selected for you.
 2. **Choose a baud rate**, either by typing it or picking it from the list. If you don't know the rate, let the device print something and click **⚡ Auto**. QCCOM tries 18 common rates, scores the received data for readability and connects with the best one.
@@ -101,6 +105,8 @@ Everything is saved automatically.
 
 ## Terminal mode
 
+![Terminal mode](gif/demo-terminal.gif)
+
 Switch to **Terminal** in the top bar or press `Ctrl+\``. Click inside the terminal and your keyboard goes straight to the device, just like PuTTY or minicom.
 
 - Every key is sent through: Ctrl+C, Tab completion, arrow-key history, Ctrl+R, Ctrl+D, F1–F12, Home / End / PgUp / PgDn. The only exceptions are F5 and `Ctrl+\``.
@@ -141,6 +147,8 @@ Requirements: Windows 10 or later with Bluetooth turned on; on Linux, BlueZ with
 
 ## HTTP API testing
 
+![HTTP API request](gif/demo-api.gif)
+
 The **API** tab turns the main area into a Postman-style request editor, which is handy for the REST endpoints of ESP32, Linux boards and cloud services. A serial or network connection stays open in the background while you use it.
 
 - Pick the method, type the URL and press **Send** (or `Enter` / `Ctrl+Enter`). The status, time and size appear above the response; JSON is indented and colored (toggle **Format**), and the **Headers** tab lists the response headers. Copy or save the body with the buttons on the right.
@@ -152,6 +160,8 @@ The **API** tab turns the main area into a Postman-style request editor, which i
 Requests to `localhost`, private and link-local addresses never go through the system proxy.
 
 ## Debugging tools
+
+![Live plot](gif/demo-plot.gif)
 
 ![Plot, highlight rules and the reply panel](screenshot-debug-tools.png)
 
@@ -202,7 +212,9 @@ Right-click a port card to give it an alias (for example *Main board*) or to set
 
 ## Code viewer
 
-Click `</>` in the activity bar, then **Open folder** to open your firmware project. QCCOM remembers it, along with your open tabs.
+![Macro hover and go to definition](gif/demo-code.gif)
+
+Click `</>` in the activity bar, then **Open folder** to open your firmware project (or start QCCOM with a folder: `qccom ~/fw`). QCCOM remembers it, along with your open tabs.
 
 - **Explorer** (`Ctrl+Shift+E`): the file tree with Git status colors (M modified, U untracked), a filter box, refresh and collapse-all. Symbol indexing and search skip folders such as `.git`, `node_modules`, `target` and `dist`.
 - **Explorer actions**: right-click a file or folder to create a file (you can type `drv/spi.c` to create folders on the way), create a folder, rename or delete it. Right-click empty space to create at the root. Right-click the folder button at the top for recent projects.
@@ -257,6 +269,8 @@ These follow Source Insight and help when reading an unfamiliar project.
 ![Map viewer and bit calculator](screenshot-embedded.png)
 
 ## Toolbox
+
+![Data converter and baud calculator](gif/demo-toolbox.gif)
 
 The toolbox icon in the activity bar (`Ctrl+Shift+B`) opens a page with small utilities. A green dot next to a tool means it is running; servers keep running when you switch pages.
 

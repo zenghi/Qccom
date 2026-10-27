@@ -18,13 +18,14 @@ English · [简体中文](USER_GUIDE.zh-CN.md)
 
 ## The window
 
-The thin **activity bar** on the far left switches between the three pages:
+The thin **activity bar** on the far left switches between the four pages:
 
 | Icon | Page |
 |---|---|
 | Pulse | **Debug**: connections, log, terminal, quick commands. A green dot means a connection is open. |
 | `</>` | **Code**: browse source code next to the log. |
 | Branch | **Git**: branches, commit graph and diffs. |
+| Toolbox | **Toolbox**: file servers, device discovery, converters, CAN and HID. |
 
 The **gear** at the bottom of the activity bar holds everything you need less often: the command palette, settings, keyboard shortcuts, theme, language, update check and About. A **download arrow** appears above it only while an update needs your attention.
 
@@ -255,6 +256,20 @@ These follow Source Insight and help when reading an unfamiliar project.
 
 ![Map viewer and bit calculator](screenshot-embedded.png)
 
+## Toolbox
+
+The toolbox icon in the activity bar (`Ctrl+Shift+B`) opens a page with small utilities. A green dot next to a tool means it is running; servers keep running when you switch pages.
+
+- **TFTP server**: pick a folder and a port (69 needs admin rights; the default on Linux is 6969) and click *Start server*. The page shows the U-Boot command to copy. Turn on *Allow upload* to accept `tftp put`. Every transfer is listed with its progress.
+- **HTTP file server**: shares a folder with a directory listing and resumable downloads, handy for OTA tests. *Allow PUT upload* lets devices push logs with `curl -T`.
+- **Device discovery**: scans the local /24 network for common ports and asks mDNS for named devices. Click a port to connect: HTTP opens the API tab, MQTT fills in the MQTT tab, anything else uses the TCP client.
+- **Data converter**: type HEX, text, Base64 or a number and see all the other forms, including every integer and float reading in both byte orders. Text understands `\r`, `\n`, `\t`, `\0` and `\xNN`. *Put in send bar* copies the bytes to the command bar as HEX.
+- **Baud calculator**: enter the peripheral clock (`72M`, `16MHz`…) and a baud rate to get the divider register for STM32, AVR, 16550 and ESP32 and the real error. Click a chip below to try another common rate.
+- **CAN**: works with SLCAN adapters (CANable, USBtin and many USB-CAN modules). Choose the adapter's serial port and bitrate and click *Open*. *Listen only* sends no ACK. Send single frames or repeat them at a period. *By ID* shows the latest data, count and period per ID, with bytes that changed in the last second highlighted; *Chronological* shows every frame.
+- **USB HID**: pick a device to open it; input reports appear in the log. The first byte you send is the report ID (00 if the device does not number its reports). On Linux you may need a udev rule for `/dev/hidraw*`.
+
+![CAN in the toolbox](screenshot-toolbox.png)
+
 ## Terminal panel
 
 `` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.
@@ -303,7 +318,7 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+, | Settings |
 | Ctrl+K Ctrl+S | Keyboard shortcuts |
 | Ctrl+K Ctrl+T | Toggle dark / light theme |
-| Ctrl+Shift+D / E / G | Debug / Code / Git page |
+| Ctrl+Shift+D / E / G / B | Debug / Code / Git / Toolbox page |
 | Ctrl+Shift+N | New window |
 
 **Debug page**

@@ -28,6 +28,7 @@ mod snippets;
 mod term;
 mod termview;
 mod theme;
+mod toolbox;
 mod tools;
 mod update;
 mod vim;

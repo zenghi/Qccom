@@ -496,3 +496,182 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+// ------------------------------------------------------------ 编辑器行标记 / 行内 blame
+
+/// 文件在 HEAD 里的内容（没提交过、不在仓库里时返回 None）
+pub fn head_text(file: &Path) -> Option<String> {
+    let dir = file.parent()?;
+    let name = file.file_name()?.to_string_lossy();
+    let out = git(dir, &["show", &format!("HEAD:./{name}")]).ok()?;
+    Some(out.replace("\r\n", "\n"))
+}
+
+/// 新旧文本按行比较，得到编辑器行号栏的改动标记：(起始行, 结束行（含）, 'A' 新增 / 'M' 修改 / 'D' 删除)
+pub fn line_marks(old: &str, new: &str) -> Vec<(usize, usize, char)> {
+    use std::hash::{Hash, Hasher};
+    let h = |l: &str| {
+        let mut s = std::collections::hash_map::DefaultHasher::new();
+        l.hash(&mut s);
+        s.finish()
+    };
+    let a: Vec<u64> = old.split('\n').map(h).collect();
+    let b: Vec<u64> = new.split('\n').map(h).collect();
+    let mut out = vec![];
+    for (os, ol, ns, nl) in diff_hunks(&a, &b) {
+        let _ = os;
+        if ol == 0 {
+            out.push((ns, ns + nl - 1, 'A'));
+        } else if nl == 0 {
+            out.push((ns.min(b.len().saturating_sub(1)), ns.min(b.len().saturating_sub(1)), 'D'));
+        } else {
+            out.push((ns, ns + nl - 1, 'M'));
+        }
+    }
+    out
+}
+
+/// Myers 差分，返回 (旧起点, 旧行数, 新起点, 新行数) 的列表。改动太多时整段算一处
+pub fn diff_hunks(a: &[u64], b: &[u64]) -> Vec<(usize, usize, usize, usize)> {
+    // 先去掉相同的头尾，大部分情况剩下的很短
+    let pre = a.iter().zip(b).take_while(|(x, y)| x == y).count();
+    let suf = a[pre..].iter().rev().zip(b[pre..].iter().rev()).take_while(|(x, y)| x == y).count();
+    let (a2, b2) = (&a[pre..a.len() - suf], &b[pre..b.len() - suf]);
+    if a2.is_empty() && b2.is_empty() {
+        return vec![];
+    }
+    let (n, m) = (a2.len() as isize, b2.len() as isize);
+    let max = (n + m) as usize;
+    let limit = max.min(3000);
+    let off = max as isize + 1;
+    let mut v = vec![0isize; 2 * max + 3];
+    let mut trace: Vec<Vec<isize>> = vec![];
+    let mut found = false;
+    'outer: for d in 0..=limit as isize {
+        trace.push(v.clone());
+        let mut k = -d;
+        while k <= d {
+            let i = (k + off) as usize;
+            let mut x = if k == -d || (k != d && v[i - 1] < v[i + 1]) { v[i + 1] } else { v[i - 1] + 1 };
+            let mut y = x - k;
+            while x < n && y < m && a2[x as usize] == b2[y as usize] {
+                x += 1;
+                y += 1;
+            }
+            v[i] = x;
+            if x >= n && y >= m {
+                found = true;
+                break 'outer;
+            }
+            k += 2;
+        }
+    }
+    if !found {
+        return vec![(pre, a2.len(), pre, b2.len())];
+    }
+    // 回溯出逐行的操作
+    let (mut x, mut y) = (n, m);
+    let mut ops: Vec<(isize, isize, bool)> = vec![]; // (x, y, 是删除) 记下每个非对角步
+    for d in (1..trace.len() as isize).rev() {
+        let v = &trace[d as usize];
+        let k = x - y;
+        let i = (k + off) as usize;
+        let prev_k = if k == -d || (k != d && v[i - 1] < v[i + 1]) { k + 1 } else { k - 1 };
+        let px = v[(prev_k + off) as usize];
+        let py = px - prev_k;
+        while x > px && y > py && x > 0 && y > 0 {
+            x -= 1;
+            y -= 1;
+        }
+        if prev_k == k + 1 {
+            ops.push((px, py, false)); // 插入 b[py]
+        } else {
+            ops.push((px, py, true)); // 删除 a[px]
+        }
+        x = px;
+        y = py;
+    }
+    ops.reverse();
+    // 相邻的操作合成块
+    let mut hunks: Vec<(usize, usize, usize, usize)> = vec![];
+    for (x, y, del) in ops {
+        let (x, y) = (x as usize + pre, y as usize + pre);
+        let (dl, il) = if del { (1, 0) } else { (0, 1) };
+        if let Some(h) = hunks.last_mut() {
+            if h.0 + h.1 == x && h.2 + h.3 == y {
+                h.1 += dl;
+                h.3 += il;
+                continue;
+            }
+        }
+        hunks.push((x, dl, y, il));
+    }
+    hunks
+}
+
+#[derive(Clone)]
+pub struct BlameLine {
+    pub author: String,
+    pub time: i64,
+    pub summary: String,
+    #[allow(dead_code)] // 以后点 blame 跳到对应提交用
+    pub hash: String,
+}
+
+/// 整个文件的 blame（磁盘上的版本），按行
+pub fn blame(file: &Path) -> Result<Vec<Option<std::sync::Arc<BlameLine>>>, String> {
+    let dir = file.parent().ok_or("")?;
+    let name = file.file_name().ok_or("")?.to_string_lossy().to_string();
+    let out = git(dir, &["blame", "--porcelain", "--", &name])?;
+    let mut info: std::collections::HashMap<String, std::sync::Arc<BlameLine>> = Default::default();
+    let mut lines = vec![];
+    let mut cur: Option<(String, BlameLine)> = None;
+    for l in out.lines() {
+        if let Some(rest) = l.strip_prefix('\t') {
+            let _ = rest;
+            if let Some((h, b)) = cur.take() {
+                let e = info.entry(h.clone()).or_insert_with(|| std::sync::Arc::new(b)).clone();
+                lines.push((!h.starts_with("0000000")).then_some(e));
+            }
+            continue;
+        }
+        let mut it = l.splitn(2, ' ');
+        let (k, v) = (it.next().unwrap_or(""), it.next().unwrap_or(""));
+        if k.len() == 40 && k.bytes().all(|c| c.is_ascii_hexdigit()) {
+            let known = info.get(k).map(|b| (**b).clone());
+            cur = Some((
+                k.to_string(),
+                known.unwrap_or(BlameLine {
+                    author: String::new(),
+                    time: 0,
+                    summary: String::new(),
+                    hash: k[..8].to_string(),
+                }),
+            ));
+        } else if let Some((_, b)) = cur.as_mut() {
+            match k {
+                "author" => b.author = v.to_string(),
+                "author-time" => b.time = v.parse().unwrap_or(0),
+                "summary" => b.summary = v.to_string(),
+                _ => {}
+            }
+        }
+    }
+    Ok(lines)
+}
+
+#[cfg(test)]
+mod diff_tests {
+    use super::*;
+
+    #[test]
+    fn marks() {
+        assert!(line_marks("a\nb\nc", "a\nb\nc").is_empty());
+        assert_eq!(line_marks("a\nb\nc", "a\nx\nb\nc"), vec![(1, 1, 'A')]);
+        assert_eq!(line_marks("a\nb\nc", "a\nB\nc"), vec![(1, 1, 'M')]);
+        assert_eq!(line_marks("a\nb\nc\nd", "a\nd"), vec![(1, 1, 'D')]);
+        let old: String = (0..200).map(|i| format!("l{i}\n")).collect();
+        let new = old.replace("l5\n", "L5\n").replace("l150\n", "l150\nnew\n");
+        assert_eq!(line_marks(&old, &new), vec![(5, 5, 'M'), (151, 151, 'A')]);
+    }
+}

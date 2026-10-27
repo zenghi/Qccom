@@ -1576,7 +1576,7 @@ fn friendly_err(e: &str) -> String {
         .unwrap_or_else(|| e.lines().next().unwrap_or("").to_string())
 }
 
-fn now_secs() -> i64 {
+pub fn now_secs() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
 

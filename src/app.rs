@@ -21,7 +21,8 @@ use crate::keymap::{self, Act, Keymap, Overrides, Scope};
 use crate::logbuf::{Dir, Encoding, Level, Line, LogBuf};
 use crate::net::{self, NetConfig, Transport};
 use crate::serial::{self, Cmd, Connection, Evt, PortConfig, PortEntry, COMMON_BAUDS};
-use crate::term::{self, Term};
+use crate::shell::{ShellEvt, ShellSettings, Shells};
+use crate::termview::TermView;
 use crate::theme::*;
 use crate::update::{self, Release, UpdEvt};
 
@@ -100,6 +101,7 @@ pub struct Settings {
     pub net: NetConfig,
     pub code: CodeSettings,
     pub git: GitSettings,
+    pub shell: ShellSettings,
     /// 界面语言："auto" 跟随系统
     pub lang: String,
     pub auto_update: bool,
@@ -154,6 +156,7 @@ impl Default for Settings {
             net: NetConfig::default(),
             code: CodeSettings::default(),
             git: GitSettings::default(),
+            shell: ShellSettings::default(),
             lang: "auto".into(),
             auto_update: true,
             skip_version: String::new(),
@@ -278,15 +281,8 @@ pub struct App {
     at_bottom: bool,
     jump_bottom: bool,
 
-    term: Term,
-    /// 终端往上翻了多少行（0 = 看最新）
-    term_scroll: usize,
-    term_wheel: f32,
-    /// 终端里鼠标选中的范围：（绝对行, 列）锚点和终点
-    term_sel: Option<((usize, usize), (usize, usize))>,
-    term_focus_req: bool,
-    /// 光标闪烁从这个时间重新计时（打字时光标保持常亮）
-    term_blink_at: f64,
+    /// 串口终端模式
+    tv: TermView,
 
     /// TCP 服务器当前的客户端数
     peers: Option<usize>,
@@ -297,6 +293,8 @@ pub struct App {
     page: Page,
     code: CodeView,
     gitv: GitView,
+    /// 底部的命令行终端面板
+    shells: Shells,
     upd: Upd,
     upd_tx: Sender<UpdEvt>,
     upd_rx: Receiver<UpdEvt>,
@@ -336,6 +334,9 @@ impl App {
         let (upd_tx, upd_rx) = mpsc::channel();
         let code = CodeView::new(std::mem::take(&mut s.code));
         let gitv = GitView::new(std::mem::take(&mut s.git), cc.egui_ctx.clone());
+        let mut shell_s = std::mem::take(&mut s.shell);
+        shell_s.open = false; // 启动时不自动开 shell
+        let shells = Shells::new(shell_s);
         let auto_update = s.auto_update;
         let km = Keymap::new(&s.keys);
         if (s.ui_scale - 1.0).abs() > 0.01 {
@@ -404,18 +405,18 @@ impl App {
             last_tx_at: None,
             at_bottom: true,
             jump_bottom: false,
-            term: Term::new(100, 30),
-            term_scroll: 0,
-            term_wheel: 0.0,
-            term_sel: None,
-            term_focus_req: true,
-            term_blink_at: 0.0,
+            tv: {
+                let mut tv = TermView::new("term-view", 100, 30);
+                tv.focus_req = true;
+                tv
+            },
             peers: None,
             net_quiet: false,
             sub_input: String::new(),
             page: Page::Debug,
             code,
             gitv,
+            shells,
             upd: Upd::Idle,
             upd_tx,
             upd_rx,
@@ -431,6 +432,8 @@ impl App {
         app.parse_keywords();
         if just_updated {
             app.toast(tf("已更新到 v{}", &[&env!("CARGO_PKG_VERSION")]), OK());
+        } else if !app.code.recovery.is_empty() && app.page != Page::Code {
+            app.toast(tf("有 {} 个上次没保存的文件可以恢复，到代码页处理", &[&app.code.recovery.len()]), WARN());
         }
         app
     }
@@ -637,8 +640,8 @@ impl App {
                     let end = d.iter().rposition(|&b| b != b'\r' && b != b'\n').map_or(0, |i| i + 1);
                     line.extend_from_slice(&d[..end]);
                     line.push(b'\n');
-                    self.term.feed(&line);
-                    self.term.feed(b"\r");
+                    self.tv.feed(&line);
+                    self.tv.feed(b"\r");
                     if self.paused {
                         self.pause_buf.extend_from_slice(&line);
                     } else {
@@ -651,15 +654,8 @@ impl App {
                     self.rx_bytes += d.len() as u64;
                     self.last_rx_at = Some(Instant::now());
                     self.rate_acc += d.len() as u64;
-                    let before = self.term.s.scrollback.len();
-                    self.term.feed(&d);
-                    if self.term_scroll > 0 {
-                        // 正在往上翻时，新数据进来画面保持不动
-                        let grown = self.term.s.scrollback.len().saturating_sub(before);
-                        self.term_scroll = (self.term_scroll + grown).min(self.term.s.scrollback.len());
-                    }
-                    if !self.term.s.reply.is_empty() {
-                        let r = std::mem::take(&mut self.term.s.reply);
+                    let r = self.tv.feed(&d);
+                    if !r.is_empty() {
                         self.send_raw(r);
                     }
                     if self.paused {
@@ -1733,7 +1729,7 @@ impl App {
             let was = self.s.terminal;
             segmented(ui, &mut self.s.terminal, &[(true, t("终端")), (false, t("日志"))]);
             if self.s.terminal != was {
-                self.term_focus_req = self.s.terminal;
+                self.tv.focus_req = self.s.terminal;
             }
             ui.add_space(4.0);
             if self.s.terminal {
@@ -2412,25 +2408,38 @@ impl App {
 
 // ---------------------------------------------------------------- 终端
 
-fn term_id() -> egui::Id {
-    egui::Id::new("term-view")
-}
-
 impl App {
+    fn term_view(&mut self, ui: &mut egui::Ui) {
+        let enc = self.s.encoding;
+        let empty = if self.conn.is_none() {
+            let e = (t("终端模式"), t("先在左侧连接串口，然后在这里直接和设备交互"));
+            [e, e]
+        } else {
+            [(t("已连接"), t("点击这里，键盘输入会直接发给设备")), (t("已连接"), t("直接打字，按回车唤出设备的提示符"))]
+        };
+        let o = self.tv.show(ui, &|s| enc.encode(s), Some(empty), false);
+        if !o.input.is_empty() {
+            self.send_raw(o.input);
+        }
+        if let Some(m) = o.toast {
+            self.toast(m, OK());
+        }
+    }
+
     fn term_header(&mut self, ui: &mut egui::Ui) {
-        let s = &self.term.s;
+        let s = &self.tv.term.s;
         let mono = FontId::new(11.5, FontFamily::Monospace);
         ui.label(RichText::new(format!("{}×{}", s.cols, s.rows)).font(mono.clone()).color(TEXT3()))
             .on_hover_text(t("终端当前的列数 × 行数（随窗口大小变化）"));
         if s.in_alt() {
             pill(ui, t("全屏程序"), VIOLET());
         }
-        if self.term_scroll > 0 {
-            pill(ui, &tf("回滚 {} 行", &[&self.term_scroll]), WARN());
+        if self.tv.scroll > 0 {
+            pill(ui, &tf("回滚 {} 行", &[&self.tv.scroll]), WARN());
         }
         let hint = if self.conn.is_none() {
             t("先在左侧连接串口")
-        } else if ui.memory(|m| m.has_focus(term_id())) {
+        } else if ui.memory(|m| m.has_focus(self.tv.id())) {
             t("键盘直接发给设备  ·  Ctrl+` 回到日志")
         } else {
             t("点击下方终端区域开始输入")
@@ -2446,15 +2455,15 @@ impl App {
             ui.painter().vline(r.center().x, r.y_range(), st(1.0, LINE()));
             ui.add_space(2.0);
             if icon_button(ui, Icon::Copy, t("复制整屏文本"), false).clicked() {
-                let tv = self.term_screen_text();
+                let tv = self.tv.screen_text();
                 ui.ctx().copy_text(tv);
                 self.toast(t("已复制整屏"), OK());
             }
             if icon_button(ui, Icon::Trash, t("清屏并重置终端（不影响设备）"), false).clicked() {
-                self.term.reset();
-                self.term_scroll = 0;
-                self.term_sel = None;
-                self.term_focus_req = true;
+                self.tv.reset();
+                self.tv.scroll = 0;
+                self.tv.sel = None;
+                self.tv.focus_req = true;
             }
             let b = egui::Button::new(RichText::new(t("同步窗口大小")).size(12.0).color(TEXT2()))
                 .fill(BG2())
@@ -2463,397 +2472,12 @@ impl App {
                 .min_size(vec2(0.0, 24.0));
             let tip = t("把当前行列数告诉设备（发送 stty rows R cols C），\nvi、top、less 等全屏程序就能铺满窗口。\n只适用于 Linux shell，请在提示符下点击。");
             if ui.add_enabled(self.conn.is_some(), b).on_hover_text(tip).clicked() {
-                let (c, r) = (self.term.s.cols, self.term.s.rows);
+                let (c, r) = (self.tv.term.s.cols, self.tv.term.s.rows);
                 self.send_raw(format!("stty rows {r} cols {c}\r").into_bytes());
-                self.term_focus_req = true;
+                self.tv.focus_req = true;
             }
         });
     }
-
-    fn term_row(&self, abs: usize) -> Option<&term::Row> {
-        let sb = &self.term.s.scrollback;
-        if abs < sb.len() {
-            sb.get(abs)
-        } else {
-            self.term.s.grid.get(abs - sb.len())
-        }
-    }
-
-    fn term_screen_text(&self) -> String {
-        let s = &self.term.s;
-        let mut lines: Vec<String> = s.grid.iter().map(|r| term::row_text(r, 0, s.cols)).collect();
-        while lines.last().is_some_and(|l| l.is_empty()) {
-            lines.pop();
-        }
-        lines.join("\n")
-    }
-
-    fn term_sel_text(&self) -> Option<String> {
-        let (a, b) = self.term_sel?;
-        let (a, b) = (a.min(b), a.max(b));
-        let mut out = vec![];
-        for abs in a.0..=b.0 {
-            let row = self.term_row(abs)?;
-            let from = if abs == a.0 { a.1 } else { 0 };
-            let to = if abs == b.0 { b.1 + 1 } else { row.len() };
-            out.push(term::row_text(row, from, to));
-        }
-        Some(out.join("\n"))
-    }
-
-    /// 键盘、粘贴 → 发给设备
-    fn term_input(&mut self, ui: &egui::Ui) {
-        let (events, shift, time) = ui.input(|i| (i.events.clone(), i.modifiers.shift, i.time));
-        let app_cursor = self.term.s.app_cursor;
-        let mut out = Vec::new();
-        for e in events {
-            match e {
-                egui::Event::Text(t) => out.extend(self.s.encoding.encode(&t)),
-                egui::Event::Key { key, pressed: true, modifiers, .. } => {
-                    if let Some(b) = term::key_bytes(key, modifiers, app_cursor) {
-                        out.extend(b);
-                    }
-                }
-                egui::Event::Copy => {
-                    // Ctrl+Shift+C 复制选中；Ctrl+C 照常发 ^C 给设备
-                    match self.term_sel_text().filter(|_| shift) {
-                        Some(tv) => {
-                            ui.ctx().copy_text(tv);
-                            self.toast(t("已复制"), OK());
-                        }
-                        None => out.push(0x03),
-                    }
-                }
-                egui::Event::Cut => out.push(0x18),
-                egui::Event::Paste(p) => out.extend(self.s.encoding.encode(&p.replace('\n', "\r"))),
-                _ => {}
-            }
-        }
-        if !out.is_empty() {
-            self.term_scroll = 0;
-            self.term_sel = None;
-            self.term_blink_at = time;
-            self.send_raw(out);
-        }
-    }
-
-    fn term_view(&mut self, ui: &mut egui::Ui) {
-        let card_rect = ui.max_rect();
-        let id = term_id();
-        let resp = ui.interact(card_rect, id, Sense::click_and_drag());
-        if self.term_focus_req {
-            resp.request_focus();
-            self.term_focus_req = false;
-        }
-        if resp.clicked() || resp.drag_started() || resp.secondary_clicked() {
-            resp.request_focus();
-        }
-        let focused = resp.has_focus();
-        if focused {
-            // Tab、方向键、Esc 也交给终端，不用来切换焦点
-            ui.memory_mut(|m| {
-                m.set_focus_lock_filter(
-                    id,
-                    egui::EventFilter {
-                        tab: true,
-                        horizontal_arrows: true,
-                        vertical_arrows: true,
-                        escape: true,
-                    },
-                )
-            });
-            self.term_input(ui);
-        }
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
-        }
-
-        let painter = ui.painter_at(card_rect);
-        painter.rect(
-            card_rect,
-            R_CARD,
-            BG0(),
-            st(1.0, if focused { ACCENT().gamma_multiply(0.35) } else { LINE() }),
-            egui::StrokeKind::Inside,
-        );
-        hgrad_line(&painter, card_rect.top() + 0.5, card_rect.x_range(), ACCENT().gamma_multiply(if focused { 0.8 } else { 0.4 }));
-
-        // 按可用空间算出行列数
-        let font = TextStyle::Monospace.resolve(ui.style());
-        let bold_font = FontId::new(font.size, mono_bold());
-        // 用一长串字符量出实际步进（排版时会按像素取整，单个字宽乘列数会越画越偏）
-        let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT()).size().x / 100.0);
-        let rh = (ui.fonts(|f| f.row_height(&font)) + 2.0).round();
-        let inner = card_rect.shrink2(vec2(12.0, 10.0));
-        let cols = ((inner.width() - 10.0) / cw).floor().max(0.0) as usize;
-        let rows = (inner.height() / rh).floor().max(0.0) as usize;
-        if cols >= 10 && rows >= 3 && (cols, rows) != (self.term.s.cols, self.term.s.rows) {
-            self.term.s.resize(cols, rows);
-        }
-
-        // 滚轮翻看历史
-        let sbl = self.term.s.scrollback.len();
-        if resp.hovered() {
-            self.term_wheel += ui.input(|i| i.smooth_scroll_delta.y);
-            let n = (self.term_wheel / rh).trunc();
-            if n != 0.0 {
-                self.term_wheel -= n * rh;
-                self.term_scroll = (self.term_scroll as i64 + n as i64 * 3).clamp(0, sbl as i64) as usize;
-            }
-        }
-        self.term_scroll = self.term_scroll.min(sbl);
-        let top_abs = sbl - self.term_scroll;
-        let (tcols, trows) = (self.term.s.cols, self.term.s.rows);
-        let origin = inner.min;
-        let cell_at = |p: egui::Pos2| {
-            let c = ((p.x - origin.x) / cw).floor().clamp(0.0, (tcols - 1) as f32) as usize;
-            let r = ((p.y - origin.y) / rh).floor().clamp(0.0, (trows - 1) as f32) as usize;
-            (top_abs + r, c)
-        };
-
-        // 鼠标拖动选择，松开自动复制
-        if resp.drag_started() {
-            if let Some(p) = ui.input(|i| i.pointer.press_origin()) {
-                let c = cell_at(p);
-                self.term_sel = Some((c, c));
-            }
-        }
-        if resp.dragged() {
-            if let (Some((a, _)), Some(p)) = (self.term_sel, resp.interact_pointer_pos()) {
-                self.term_sel = Some((a, cell_at(p)));
-            }
-        }
-        if resp.drag_stopped() {
-            if let Some(tv) = self.term_sel_text().filter(|tv| !tv.trim().is_empty()) {
-                ui.ctx().copy_text(tv);
-                self.toast(t("已复制选中文本"), OK());
-            }
-        }
-        if resp.clicked() {
-            self.term_sel = None;
-        }
-        let mut paste = None;
-        let mut reset = false;
-        resp.context_menu(|ui| {
-            if self.term_sel.is_some() && ui.button(t("复制选中")).clicked() {
-                if let Some(t) = self.term_sel_text() {
-                    ui.ctx().copy_text(t);
-                }
-                ui.close_menu();
-            }
-            if ui.button(t("粘贴")).clicked() {
-                paste = Some(());
-                ui.close_menu();
-            }
-            if ui.button(t("复制整屏")).clicked() {
-                ui.ctx().copy_text(self.term_screen_text());
-                ui.close_menu();
-            }
-            ui.separator();
-            if ui.button(t("清屏并重置终端")).clicked() {
-                reset = true;
-                ui.close_menu();
-            }
-        });
-        if paste.is_some() {
-            ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
-            self.term_focus_req = true;
-        }
-        if reset {
-            self.term.reset();
-            self.term_scroll = 0;
-            self.term_sel = None;
-        }
-
-        // 画屏幕
-        let sel = self.term_sel.map(|(a, b)| (a.min(b), a.max(b)));
-        let sel_bg = ACCENT().gamma_multiply(0.28);
-        let mut blank = sbl == 0;
-        for r in 0..trows {
-            let abs = top_abs + r;
-            let Some(row) = self.term_row(abs) else { continue };
-            let y = origin.y + r as f32 * rh;
-            let mut run = String::new();
-            let mut run_x = 0usize;
-            let mut run_key: Option<(Color32, bool)> = None;
-            let flush = |run: &mut String, run_x: usize, key: Option<(Color32, bool)>| {
-                if let Some((c, b)) = key {
-                    if !run.trim().is_empty() {
-                        let f = if b { &bold_font } else { &font };
-                        painter.text(pos2(origin.x + run_x as f32 * cw, y + rh / 2.0), Align2::LEFT_CENTER, run.as_str(), f.clone(), c);
-                    }
-                }
-                run.clear();
-            };
-            for (c, cell) in row.iter().enumerate() {
-                if cell.wide_tail {
-                    continue;
-                }
-                let wide = term::is_wide(cell.ch);
-                let w = if wide { 2.0 } else { 1.0 };
-                let st_ = cell.style;
-                let (mut fg, mut bg) = (st_.fg.unwrap_or(if st_.bold { TEXT() } else { LOG_TEXT() }), st_.bg);
-                if st_.inverse {
-                    (fg, bg) = (bg.unwrap_or(BG0()), Some(fg));
-                }
-                if bg.is_none() {
-                    fg = ink(fg);
-                }
-                let in_sel = sel.is_some_and(|(a, b)| (abs, c) >= a && (abs, c) <= b);
-                let cell_rect = Rect::from_min_size(pos2(origin.x + c as f32 * cw, y), vec2(cw * w, rh));
-                if let Some(b) = bg {
-                    painter.rect_filled(cell_rect, 0.0, b);
-                }
-                if in_sel {
-                    painter.rect_filled(cell_rect, 0.0, sel_bg);
-                }
-                if cell.ch != ' ' {
-                    blank = false;
-                }
-                if st_.underline {
-                    painter.hline(cell_rect.x_range(), cell_rect.bottom() - 1.5, st(1.0, fg));
-                }
-                // ASCII 连成一段画；中文、线框等非 ASCII 字符按格子单独放，保证对齐
-                if cell.ch.is_ascii() {
-                    let key = Some((fg, st_.bold));
-                    if key != run_key {
-                        flush(&mut run, run_x, run_key);
-                        run_key = key;
-                        run_x = c;
-                    }
-                    run.push(cell.ch);
-                } else {
-                    flush(&mut run, run_x, run_key);
-                    run_key = None;
-                    if !draw_block_char(&painter, cell_rect, cell.ch, fg) {
-                        let f = if st_.bold { &bold_font } else { &font };
-                        painter.text(cell_rect.center(), Align2::CENTER_CENTER, cell.ch, f.clone(), fg);
-                    }
-                }
-            }
-            flush(&mut run, run_x, run_key);
-        }
-
-        // 光标：获得焦点时闪烁的实心块，失去焦点时空心框
-        let s = &self.term.s;
-        if self.term_scroll == 0 && s.cursor_visible {
-            let wide = s.grid.get(s.y).and_then(|r| r.get(s.x)).is_some_and(|c| term::is_wide(c.ch));
-            let cr = Rect::from_min_size(pos2(origin.x + s.x as f32 * cw, origin.y + s.y as f32 * rh), vec2(cw * if wide { 2.0 } else { 1.0 }, rh));
-            if focused {
-                let t = ui.input(|i| i.time) - self.term_blink_at;
-                let phase = t % 1.06;
-                if phase < 0.6 {
-                    painter.rect_filled(cr, 1.0, ACCENT().gamma_multiply(0.85));
-                    if let Some(c) = s.grid.get(s.y).and_then(|r| r.get(s.x)).filter(|c| c.ch != ' ') {
-                        painter.text(cr.center(), Align2::CENTER_CENTER, c.ch, font.clone(), ON_ACCENT());
-                    }
-                }
-                let next = if phase < 0.6 { 0.6 - phase } else { 1.06 - phase };
-                ui.ctx().request_repaint_after(Duration::from_secs_f64(next.max(0.02)));
-            } else {
-                painter.rect_stroke(cr.shrink(0.5), 1.0, st(1.0, ACCENT().gamma_multiply(0.6)), egui::StrokeKind::Inside);
-            }
-        }
-
-        // 空屏提示
-        if blank {
-            let (t1, t2) = if self.conn.is_none() {
-                (t("终端模式"), t("先在左侧连接串口，然后在这里直接和设备交互"))
-            } else if focused {
-                (t("已连接"), t("直接打字，按回车唤出设备的提示符"))
-            } else {
-                (t("已连接"), t("点击这里，键盘输入会直接发给设备"))
-            };
-            let c = card_rect.center();
-            painter.text(c - vec2(0.0, 12.0), Align2::CENTER_CENTER, t1, FontId::new(15.0, bold()), TEXT2());
-            painter.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, t2, FontId::proportional(12.5), TEXT3());
-        }
-
-        // 回滚条
-        if sbl > 0 {
-            let total = (sbl + trows) as f32;
-            let track = Rect::from_min_max(pos2(card_rect.right() - 7.0, inner.top()), pos2(card_rect.right() - 4.0, inner.bottom()));
-            let h = (trows as f32 / total * track.height()).max(16.0);
-            let top = track.top() + top_abs as f32 / sbl as f32 * (track.height() - h);
-            let thumb = Rect::from_min_size(pos2(track.left(), top), vec2(track.width(), h));
-            painter.rect_filled(thumb, 1.5, if self.term_scroll > 0 { ACCENT().gamma_multiply(0.6) } else { LINE_HI() });
-        }
-        if self.term_scroll > 0 {
-            let r = Rect::from_center_size(pos2(card_rect.center().x, card_rect.bottom() - 26.0), vec2(116.0, 30.0));
-            let jr = ui.interact(r, id.with("jump"), Sense::click());
-            let p = ui.painter();
-            p.add(
-                epaint::Shadow {
-                    offset: [0, 6],
-                    blur: 18,
-                    spread: 0,
-                    color: shade(170),
-                }
-                .as_shape(r, CornerRadius::same(15)),
-            );
-            p.rect(
-                r,
-                CornerRadius::same(15),
-                if jr.hovered() { BG3() } else { BG2() },
-                st(1.0, ACCENT().gamma_multiply(0.5)),
-                egui::StrokeKind::Inside,
-            );
-            let a = pos2(r.left() + 20.0, r.center().y);
-            p.add(Shape::line(vec![a + vec2(-4.0, -2.0), a + vec2(0.0, 2.5), a + vec2(4.0, -2.0)], st(1.5, ACCENT())));
-            p.text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, t("回到最新"), FontId::new(12.5, bold()), TEXT());
-            if jr.clicked() {
-                self.term_scroll = 0;
-                self.term_focus_req = true;
-            }
-        }
-        hud_corners(&painter, card_rect.shrink(5.0), ACCENT().gamma_multiply(0.35));
-    }
-}
-
-/// 线框和方块字符自己画：字体里的线框字宽度不一，画出来对不齐
-fn draw_block_char(p: &egui::Painter, r: Rect, ch: char, c: Color32) -> bool {
-    let (l, rt, u, d) = match ch {
-        '─' | '━' | '═' => (1, 1, 0, 0),
-        '│' | '┃' | '║' => (0, 0, 1, 1),
-        '┌' | '┏' | '╔' | '╭' => (0, 1, 0, 1),
-        '┐' | '┓' | '╗' | '╮' => (1, 0, 0, 1),
-        '└' | '┗' | '╚' | '╰' => (0, 1, 1, 0),
-        '┘' | '┛' | '╝' | '╯' => (1, 0, 1, 0),
-        '├' | '┣' | '╠' => (0, 1, 1, 1),
-        '┤' | '┫' | '╣' => (1, 0, 1, 1),
-        '┬' | '┳' | '╦' => (1, 1, 0, 1),
-        '┴' | '┻' | '╩' => (1, 1, 1, 0),
-        '┼' | '╋' | '╬' => (1, 1, 1, 1),
-        '█' => return fill(p, r, c),
-        '▀' => return fill(p, Rect::from_min_max(r.min, pos2(r.right(), r.center().y)), c),
-        '▄' => return fill(p, Rect::from_min_max(pos2(r.left(), r.center().y), r.max), c),
-        '▌' => return fill(p, Rect::from_min_max(r.min, pos2(r.center().x, r.bottom())), c),
-        '▐' => return fill(p, Rect::from_min_max(pos2(r.center().x, r.top()), r.max), c),
-        '░' => return fill(p, r, c.gamma_multiply(0.25)),
-        '▒' => return fill(p, r, c.gamma_multiply(0.5)),
-        '▓' => return fill(p, r, c.gamma_multiply(0.75)),
-        _ => return false,
-    };
-    let m = pos2(r.center().x.round() + 0.5, r.center().y.round() + 0.5);
-    let s = st(1.0, c);
-    if l == 1 {
-        p.hline(r.left()..=m.x, m.y, s);
-    }
-    if rt == 1 {
-        p.hline(m.x..=r.right(), m.y, s);
-    }
-    if u == 1 {
-        p.vline(m.x, r.top()..=m.y, s);
-    }
-    if d == 1 {
-        p.vline(m.x, m.y..=r.bottom(), s);
-    }
-    true
-}
-
-fn fill(p: &egui::Painter, r: Rect, c: Color32) -> bool {
-    p.rect_filled(r, 0.0, c);
-    true
 }
 
 impl App {
@@ -2863,7 +2487,7 @@ impl App {
             match *a {
                 Act::ToggleTerminal => {
                     self.s.terminal = !self.s.terminal;
-                    self.term_focus_req = self.s.terminal;
+                    self.tv.focus_req = self.s.terminal;
                 }
                 Act::Connect => {
                     if self.autobaud.is_none() {
@@ -2921,6 +2545,14 @@ impl App {
                     self.set_theme(ctx, if light { "light" } else { "dark" });
                 }
                 Act::CheckUpdate => self.check_update(true),
+                Act::ToggleShell => {
+                    let cwd = self.shell_cwd();
+                    self.shells.toggle(ctx, &cwd);
+                }
+                Act::NewShell => {
+                    let cwd = self.shell_cwd();
+                    self.shells.new_shell(ctx, None, &cwd);
+                }
                 _ => rest.push(a),
             }
         }
@@ -2978,7 +2610,7 @@ impl App {
             None => {}
         }
         if acted && self.s.terminal {
-            self.term_focus_req = true; // 点完快捷命令，键盘回到终端
+            self.tv.focus_req = true; // 点完快捷命令，键盘回到终端
         }
         egui::TopBottomPanel::top("header")
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
@@ -3022,12 +2654,21 @@ impl App {
                 let root = self.code.root().map(|r| r.to_path_buf());
                 self.gitv.activate(root.as_deref());
             }
-            Page::Debug => self.term_focus_req = self.s.terminal,
+            Page::Debug => self.tv.focus_req = self.s.terminal,
             Page::Settings => {}
         }
     }
 
     /// 最左侧的活动栏（类似 VS Code）：调试 / 代码 / Git，底部是语言和更新
+    /// 新开 shell 的工作目录：代码页打开的工程，否则用户主目录
+    fn shell_cwd(&self) -> PathBuf {
+        self.code
+            .root()
+            .map(|p| p.to_path_buf())
+            .or_else(|| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from))
+            .unwrap_or_else(|| PathBuf::from("."))
+    }
+
     fn activity_bar(&mut self, ctx: &egui::Context) {
         egui::SidePanel::left("activity")
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin { left: 0, right: 0, top: 8, bottom: 8 }))
@@ -3050,6 +2691,10 @@ impl App {
                 ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
                     // 齿轮：设置、命令面板、主题、语言等不常用入口都收在这里
                     let r = activity_button(ui, Icon::Gear, t("管理"), self.page == Page::Settings, None);
+                    let tip = format!("{}  {}", t("终端"), self.km.label(Act::ToggleShell));
+                    if activity_button(ui, Icon::Terminal, &tip, self.shells.s.open, None).clicked() {
+                        self.pending_acts.push(Act::ToggleShell);
+                    }
                     let id = egui::Id::new("gear-menu");
                     if r.clicked() {
                         ui.memory_mut(|m| m.toggle_popup(id));
@@ -3458,6 +3103,7 @@ impl eframe::App for App {
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.s.code = self.code.s.clone();
         self.s.git = self.gitv.s.clone();
+        self.s.shell = self.shells.s.clone();
         eframe::set_value(storage, eframe::APP_KEY, &self.s);
     }
 
@@ -3482,7 +3128,7 @@ impl eframe::App for App {
             Page::Code => Scope::Code,
             Page::Git => Scope::Git,
         };
-        let term_focused = self.page == Page::Debug && self.s.terminal && ctx.memory(|m| m.has_focus(term_id()));
+        let term_focused = (self.page == Page::Debug && self.s.terminal && ctx.memory(|m| m.has_focus(self.tv.id()))) || self.shells.focused(ctx);
         let acts = if self.prefs.recording.is_some() || self.palette.is_some() {
             vec![]
         } else {
@@ -3501,6 +3147,18 @@ impl eframe::App for App {
             .show_separator_line(true)
             .show(ctx, |ui| self.status_bar(ui));
         self.activity_bar(ctx);
+        self.shells.poll();
+        let cwd = self.shell_cwd();
+        self.shells.ui(ctx, &cwd);
+        for e in std::mem::take(&mut self.shells.events) {
+            match e {
+                ShellEvt::Toast(m) => self.toast(m, WARN()),
+                ShellEvt::Open(p, line) => {
+                    self.set_page(Page::Code);
+                    self.code.open_file(&p, Some((line, None)));
+                }
+            }
+        }
         match self.page {
             Page::Code => {
                 self.code.ui(ctx, &acts);
@@ -3947,6 +3605,8 @@ pub(crate) enum Icon {
     Terminal,
     Replace,
     Split,
+    Maximize,
+    Restore,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -4149,6 +3809,12 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
         Icon::Split => {
             p.rect_stroke(Rect::from_center_size(c0, vec2(14.0 * u, 12.0 * u)), 2.0, s, egui::StrokeKind::Middle);
             p.line_segment([pt(0.0, -6.0), pt(0.0, 6.0)], s);
+        }
+        Icon::Maximize => {
+            p.add(Shape::line(vec![pt(-5.0, 2.0), pt(0.0, -3.0), pt(5.0, 2.0)], s));
+        }
+        Icon::Restore => {
+            p.add(Shape::line(vec![pt(-5.0, -2.0), pt(0.0, 3.0), pt(5.0, -2.0)], s));
         }
     }
 }

@@ -173,6 +173,14 @@ impl Lang {
     }
 
     /// 支持跳转定义 / 宏悬浮的语言
+    /// 行注释前缀（Ctrl+/ 用）
+    pub fn line_comment(self) -> Option<&'static str> {
+        match self {
+            Lang::Asm => Some(";"),
+            _ => self.spec().line.first().copied(),
+        }
+    }
+
     pub fn is_code(self) -> bool {
         !matches!(self, Lang::Plain | Lang::Markdown | Lang::Json | Lang::Ini)
     }
@@ -504,11 +512,15 @@ pub mod pal {
         CONST: (0x56, 0x9c, 0xd6), (0x00, 0x00, 0xff);
         PUNCT: (0x9d, 0xa5, 0xb4), (0x5a, 0x63, 0x70);
         HEAD: (0x2d, 0xe2, 0xe6), (0x08, 0x7f, 0x8c);
+        VAR: (0x9c, 0xdc, 0xfe), (0x00, 0x10, 0x80);
+        GUIDE: (0x40, 0x46, 0x52), (0xd3, 0xd7, 0xde);
+        GUIDE_ON: (0x70, 0x78, 0x86), (0x93, 0x9a, 0xa6);
+        BRACKET: (0x88, 0x90, 0x9c), (0xb4, 0xb9, 0xc2);
     }
 }
 
-#[derive(Clone, Copy, PartialEq)]
-enum Tok {
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Tok {
     Text,
     Kw,
     Ty,
@@ -523,7 +535,7 @@ enum Tok {
     Head,
 }
 
-fn color(t: Tok) -> Color32 {
+pub fn color(t: Tok) -> Color32 {
     match t {
         Tok::Text => pal::TEXT(),
         Tok::Kw => pal::KW(),
@@ -548,7 +560,7 @@ pub fn is_ident(c: char) -> bool {
 }
 
 /// 把整份文本切成 (字节范围, 记号类型)
-fn tokenize(text: &str, lang: Lang) -> Vec<(usize, usize, Tok)> {
+pub fn tokenize(text: &str, lang: Lang) -> Vec<(usize, usize, Tok)> {
     let sp = lang.spec();
     let b = text.as_bytes();
     let mut out: Vec<(usize, usize, Tok)> = Vec::with_capacity(text.len() / 4);

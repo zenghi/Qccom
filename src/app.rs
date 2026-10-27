@@ -3941,6 +3941,12 @@ pub(crate) enum Icon {
     Keyboard,
     Info,
     Plus,
+    Relations,
+    Context,
+    Bookmark,
+    Terminal,
+    Replace,
+    Split,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -4112,6 +4118,37 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
         Icon::Plus => {
             p.line_segment([pt(-5.0, 0.0), pt(5.0, 0.0)], s);
             p.line_segment([pt(0.0, -5.0), pt(0.0, 5.0)], s);
+        }
+        Icon::Relations => {
+            // 一个节点分出两个子节点：调用树
+            p.rect_stroke(Rect::from_center_size(pt(-4.0, -4.5), vec2(5.0 * u, 4.0 * u)), 1.0, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_center_size(pt(3.5, 0.5), vec2(5.0 * u, 4.0 * u)), 1.0, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_center_size(pt(3.5, 5.5), vec2(5.0 * u, 4.0 * u)), 1.0, s, egui::StrokeKind::Middle);
+            p.add(Shape::line(vec![pt(-4.0, -2.5), pt(-4.0, 5.5), pt(1.0, 5.5)], s));
+            p.line_segment([pt(-4.0, 0.5), pt(1.0, 0.5)], s);
+        }
+        Icon::Context => {
+            p.rect_stroke(Rect::from_center_size(c0, vec2(14.0 * u, 12.0 * u)), 2.0, s, egui::StrokeKind::Middle);
+            p.line_segment([pt(-7.0, 1.5), pt(7.0, 1.5)], s);
+            p.line_segment([pt(-4.5, 4.0), pt(2.0, 4.0)], s);
+        }
+        Icon::Bookmark => {
+            p.add(Shape::closed_line(vec![pt(-4.5, -6.5), pt(4.5, -6.5), pt(4.5, 6.5), pt(0.0, 3.0), pt(-4.5, 6.5)], s));
+        }
+        Icon::Terminal => {
+            p.rect_stroke(Rect::from_center_size(c0, vec2(15.0 * u, 12.0 * u)), 2.0, s, egui::StrokeKind::Middle);
+            p.add(Shape::line(vec![pt(-4.5, -2.5), pt(-1.5, 0.0), pt(-4.5, 2.5)], s));
+            p.line_segment([pt(0.5, 3.0), pt(4.5, 3.0)], s);
+        }
+        Icon::Replace => {
+            p.add(Shape::line(vec![pt(-6.0, -1.0), pt(-6.0, -5.0), pt(3.0, -5.0)], s));
+            p.add(Shape::line(vec![pt(1.0, -7.0), pt(3.0, -5.0), pt(1.0, -3.0)], s));
+            p.add(Shape::line(vec![pt(6.0, 1.0), pt(6.0, 5.0), pt(-3.0, 5.0)], s));
+            p.add(Shape::line(vec![pt(-1.0, 3.0), pt(-3.0, 5.0), pt(-1.0, 7.0)], s));
+        }
+        Icon::Split => {
+            p.rect_stroke(Rect::from_center_size(c0, vec2(14.0 * u, 12.0 * u)), 2.0, s, egui::StrokeKind::Middle);
+            p.line_segment([pt(0.0, -6.0), pt(0.0, 6.0)], s);
         }
     }
 }

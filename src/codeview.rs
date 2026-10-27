@@ -8,15 +8,19 @@ use std::sync::mpsc::{self, Receiver};
 use std::sync::Arc;
 use std::time::Instant;
 
-use eframe::egui::{self, pos2, text::CCursor, text_selection::CCursorRange, vec2, Align2, Color32, CornerRadius, FontFamily, FontId, Galley, Key, Modifiers, Rect, RichText, Sense, Shape, Ui};
+use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontFamily, FontId, Key, Modifiers, Rect, RichText, Sense, Shape, Ui};
 use serde::{Deserialize, Serialize};
 
 use crate::app::{draw_icon, hgrad_line, icon_button, Icon};
 use crate::cindex::{self, Hit, Index, Kind, Progress, SearchOpts, Sym};
+use crate::editor::{Buf, Editor, View};
+
+mod insight;
 use crate::git;
 use crate::highlight::{self, is_ident, Lang};
 use crate::i18n::{t, tf};
 use crate::keymap::Act;
+use crate::lsp;
 use crate::theme::*;
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -28,6 +32,11 @@ pub struct CodeSettings {
     pub tabs: Vec<String>,
     pub side_width: f32,
     pub minimap: bool,
+    pub ctx_height: f32,
+    /// 有 clangd 和 compile_commands.json 时用 clangd 跳转定义
+    pub clangd: bool,
+    /// 空 = 自动查找
+    pub clangd_path: String,
 }
 
 impl Default for CodeSettings {
@@ -39,6 +48,9 @@ impl Default for CodeSettings {
             tabs: vec![],
             side_width: 260.0,
             minimap: true,
+            ctx_height: 220.0,
+            clangd: true,
+            clangd_path: String::new(),
         }
     }
 }
@@ -56,27 +68,17 @@ struct Node {
     dir: bool,
 }
 
-#[derive(Default)]
-struct Cache {
-    key: (usize, u64, u32),
-    galley: Option<Arc<Galley>>,
-}
-
 struct Doc {
     path: PathBuf,
     rel: String,
-    text: String,
+    buf: Buf,
+    ed: Editor,
     gbk: bool,
     crlf: bool,
     lang: Lang,
-    cache: Cache,
-    line_starts: Vec<usize>,
-    line_cstarts: Vec<usize>,
-    /// 小地图：每行（缩进, 长度, 类型 0 代码 1 注释 2 预处理）
-    mini: Vec<(u16, u16, u8)>,
     syms: Vec<Sym>,
-    editable: bool,
-    dirty: bool,
+    /// 改过文字后，符号表等一会儿再重新解析（连续打字时不用每个字都解析）
+    syms_stale: Option<f64>,
     /// 待跳转：(行, 选中的字节范围)
     goto: Option<(usize, Option<(usize, usize)>)>,
     cursor: (usize, usize),
@@ -93,111 +95,58 @@ impl Doc {
         let crlf = text.contains("\r\n");
         let text = if crlf { text.replace("\r\n", "\n") } else { text };
         let rel = path.strip_prefix(root).unwrap_or(path).to_string_lossy().replace('\\', "/");
+        let buf = Buf::new(text);
+        let ed = Editor::new(egui::Id::new(("code-ed", path)), &buf);
         let mut d = Doc {
             path: path.to_path_buf(),
             rel,
-            text,
+            buf,
+            ed,
             gbk,
             crlf,
             lang: Lang::from_path(path),
-            cache: Cache::default(),
-            line_starts: vec![],
-            line_cstarts: vec![],
-            mini: vec![],
             syms: vec![],
-            editable: false,
-            dirty: false,
+            syms_stale: None,
             goto: None,
             cursor: (0, 0),
         };
-        d.reindex();
+        d.reparse();
         Ok(d)
     }
 
-    fn reindex(&mut self) {
-        self.line_starts.clear();
-        self.line_cstarts.clear();
-        self.mini.clear();
-        let (mut b, mut c) = (0usize, 0usize);
-        for l in self.text.split('\n') {
-            self.line_starts.push(b);
-            self.line_cstarts.push(c);
-            let tl = l.trim_start();
-            let indent = (l.len() - tl.len()).min(200) as u16;
-            let kind = if tl.starts_with("//") || tl.starts_with("/*") || tl.starts_with('*') || (tl.starts_with('#') && !self.lang.is_code()) {
-                1
-            } else if tl.starts_with('#') {
-                2
-            } else {
-                0
-            };
-            self.mini.push((indent, tl.len().min(400) as u16, kind));
-            b += l.len() + 1;
-            c += l.chars().count() + 1;
-        }
+    fn reparse(&mut self) {
         self.syms.clear();
         if self.lang == Lang::C || self.lang == Lang::Asm {
-            cindex::parse_c(&self.text, 0, &mut self.syms);
+            cindex::parse_c(&self.buf.text, 0, &mut self.syms);
         } else if self.lang.is_code() {
-            cindex::parse_generic(&self.text, 0, &mut self.syms);
+            cindex::parse_generic(&self.buf.text, 0, &mut self.syms);
         }
         self.syms.retain(|s| s.kind != Kind::EnumConst);
+        self.syms_stale = None;
+    }
+
+    fn dirty(&self) -> bool {
+        self.ed.dirty()
     }
 
     fn line_of_byte(&self, b: usize) -> usize {
-        self.line_starts.partition_point(|&s| s <= b).saturating_sub(1)
-    }
-
-    fn byte_to_char(&self, b: usize) -> usize {
-        let l = self.line_of_byte(b);
-        let s = self.line_starts[l];
-        self.line_cstarts[l] + self.text.get(s..b.min(self.text.len())).map_or(0, |x| x.chars().count())
-    }
-
-    fn char_to_byte(&self, c: usize) -> usize {
-        let l = self.line_cstarts.partition_point(|&s| s <= c).saturating_sub(1);
-        let s = self.line_starts[l];
-        let line = self.line_text(l);
-        s + line.char_indices().nth(c - self.line_cstarts[l]).map_or(line.len(), |(i, _)| i)
+        self.buf.line_of(b)
     }
 
     fn line_text(&self, l: usize) -> &str {
-        let s = self.line_starts.get(l).copied().unwrap_or(self.text.len());
-        let e = self.line_starts.get(l + 1).map_or(self.text.len(), |e| e - 1);
-        &self.text[s..e.max(s)]
+        self.buf.line(l)
     }
 
     /// 字节位置所在的标识符
     fn word_at(&self, b: usize) -> Option<(usize, usize, &str)> {
-        let txt = &self.text;
-        if b > txt.len() {
-            return None;
-        }
-        let mut s = b;
-        while s > 0 {
-            let c = txt[..s].chars().next_back()?;
-            if !is_ident(c) {
-                break;
-            }
-            s -= c.len_utf8();
-        }
-        let mut e = b;
-        while e < txt.len() {
-            let c = txt[e..].chars().next()?;
-            if !is_ident(c) {
-                break;
-            }
-            e += c.len_utf8();
-        }
-        let w = &txt[s..e];
-        (!w.is_empty() && !w.chars().next()?.is_ascii_digit()).then_some((s, e, w))
+        self.buf.word_at(b).map(|(s, e)| (s, e, &self.buf.text[s..e]))
     }
 
     fn save(&mut self) -> Result<(), String> {
-        let text = if self.crlf { self.text.replace('\n', "\r\n") } else { self.text.clone() };
+        let text = if self.crlf { self.buf.text.replace('\n', "\r\n") } else { self.buf.text.clone() };
         let bytes = if self.gbk { encoding_rs::GBK.encode(&text).0.into_owned() } else { text.into_bytes() };
         std::fs::write(&self.path, bytes).map_err(|e| e.to_string())?;
-        self.dirty = false;
+        self.ed.mark_clean();
         Ok(())
     }
 }
@@ -270,9 +219,19 @@ pub struct CodeView {
     fwd: Vec<(PathBuf, usize)>,
     pick: Option<(String, Vec<(PathBuf, u32, &'static str, String)>, egui::Pos2)>,
     hover: Option<Hover>,
-    minimap_jump: Option<f32>,
     outline_filter: String,
     pub events: Vec<CodeEvt>,
+    sem: Option<Arc<HashMap<String, Kind>>>,
+    /// Source Insight 式的上下文窗口和调用关系窗口
+    pub context_win: bool,
+    pub relations: bool,
+    ins: insight::Insight,
+    /// clangd（可选）；lsp_for 记录它是为哪个工程、哪个设置启动的，变了就重启
+    lsp: Option<lsp::Lsp>,
+    lsp_for: Option<(PathBuf, bool, String)>,
+    lsp_def: Option<(mpsc::Receiver<serde_json::Value>, String, egui::Pos2, f64)>,
+    /// 设置页显示用：按 clangd_path 缓存的查找结果
+    clangd_found: Option<(String, Option<PathBuf>)>,
 }
 
 impl CodeView {
@@ -308,9 +267,16 @@ impl CodeView {
             fwd: vec![],
             pick: None,
             hover: None,
-            minimap_jump: None,
             outline_filter: String::new(),
             events: vec![],
+            sem: None,
+            context_win: false,
+            relations: false,
+            ins: insight::Insight::default(),
+            lsp: None,
+            lsp_for: None,
+            lsp_def: None,
+            clangd_found: None,
         };
         v.s.font_size = v.s.font_size.clamp(9.0, 28.0);
         v
@@ -364,6 +330,7 @@ impl CodeView {
 
     fn reindex(&mut self) {
         let Some(root) = self.root.clone() else { return };
+        self.lsp_for = None; // 顺便重新检测 clangd / compile_commands.json
         if let Some(p) = &self.index_prog {
             p.cancel.store(true, Ordering::Relaxed);
         }
@@ -497,17 +464,20 @@ impl CodeView {
 
     fn goto_line(&mut self, line: usize) {
         if let Some(d) = self.tabs.get_mut(self.active) {
-            let l = line.min(d.line_starts.len().saturating_sub(1));
-            let s = d.line_starts[l];
+            let l = line.min(d.buf.lines().saturating_sub(1));
+            let s = d.buf.start(l);
             d.goto = Some((l, Some((s, s))));
         }
     }
 
     fn close_tab(&mut self, i: usize) {
         if i < self.tabs.len() {
-            if self.tabs[i].dirty {
+            if self.tabs[i].dirty() {
                 let name = self.tabs[i].rel.clone();
                 self.toast(tf("{} 有未保存的修改，已丢弃", &[&name]), WARN());
+            }
+            if let Some(l) = self.lsp.as_mut() {
+                l.close(&self.tabs[i].path);
             }
             self.tabs.remove(i);
             if self.active >= self.tabs.len() {
@@ -553,7 +523,100 @@ impl CodeView {
         v
     }
 
-    fn goto_definition(&mut self, word: &str, at: egui::Pos2) {
+    /// 跳转定义：clangd 就绪时先问它（知道光标所在的字节位置才能问），否则用内置索引
+    fn goto_definition(&mut self, word: &str, at: egui::Pos2, byte: Option<usize>, now: f64) {
+        if let (Some(lsp), Some(b), Some(d)) = (self.lsp.as_mut(), byte, self.tabs.get(self.active)) {
+            if lsp.ready() && d.lang == Lang::C {
+                let l = d.buf.line_of(b);
+                let col = lsp::utf16_col(d.buf.line(l), b - d.buf.start(l));
+                lsp.sync(&d.path, d.buf.ver, &d.buf.text);
+                self.lsp_def = Some((lsp.definition(&d.path, l, col), word.to_string(), at, now));
+                return;
+            }
+        }
+        self.goto_definition_index(word, at);
+    }
+
+    /// 设置页里 clangd 一项的状态说明
+    pub fn clangd_status(&mut self) -> (String, bool) {
+        if let Some(l) = &self.lsp {
+            return if l.ready() {
+                (tf("正在使用 {}", &[&l.exe.display()]), true)
+            } else if l.dead() {
+                (t("clangd 意外退出，已改用内置索引").into(), false)
+            } else {
+                (t("clangd 启动中…").into(), true)
+            };
+        }
+        if !self.s.clangd {
+            return (t("已关闭，使用内置索引").into(), false);
+        }
+        if self.clangd_found.as_ref().map_or(true, |c| c.0 != self.s.clangd_path) {
+            self.clangd_found = Some((self.s.clangd_path.clone(), lsp::find_clangd(&self.s.clangd_path)));
+        }
+        match self.clangd_found.as_ref().and_then(|c| c.1.as_ref()) {
+            None => (t("没找到 clangd，使用内置索引").into(), false),
+            Some(p) if self.root.is_none() => (tf("找到 {}，打开工程后启用", &[&p.display()]), false),
+            Some(p) => (tf("找到 {}，但工程里没有 compile_commands.json，使用内置索引", &[&p.display()]), false),
+        }
+    }
+
+    fn poll_lsp(&mut self, ctx: &egui::Context) {
+        // 工程或设置变了就（重新）启动 clangd；找不到 clangd 或没有编译数据库就不用它
+        let want = self.root.as_ref().map(|r| (r.clone(), self.s.clangd, self.s.clangd_path.clone()));
+        if want != self.lsp_for {
+            self.lsp = None;
+            self.lsp_def = None;
+            if let Some((root, true, path)) = &want {
+                if let (Some(exe), Some(db)) = (lsp::find_clangd(path), lsp::compile_db(root)) {
+                    self.lsp = lsp::Lsp::start(&exe, root, Some(&db)).ok();
+                }
+            }
+            self.lsp_for = want;
+        }
+        let Some((rx, word, at, since)) = &self.lsp_def else { return };
+        let now = ctx.input(|i| i.time);
+        let res = match rx.try_recv() {
+            Ok(v) => Some(lsp::locations(&v)),
+            Err(mpsc::TryRecvError::Empty) if now - since < 4.0 => {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+                return;
+            }
+            _ => None,
+        };
+        let (word, at) = (word.clone(), *at);
+        self.lsp_def = None;
+        let locs = res.unwrap_or_default();
+        // clangd 的后台索引还没建好时，别的 .c 里的定义它不知道，只会给头文件里的声明；
+        // 这时内置索引如果知道真正的定义，就用内置索引
+        let is_header = |p: &Path| matches!(p.extension().and_then(|e| e.to_str()), Some("h" | "hh" | "hpp" | "hxx"));
+        let only_decl = !locs.is_empty() && locs.iter().all(|l| is_header(&l.0)) && self.definitions(&word).iter().any(|d| !is_header(&d.0));
+        match if only_decl { &[][..] } else { locs.as_slice() } {
+            [] => self.goto_definition_index(&word, at),
+            [(p, l, c)] => {
+                let (p, l, c) = (p.clone(), *l, *c);
+                self.open_file(&p, None);
+                if let Some(d) = self.tabs.get_mut(self.active) {
+                    let l = l.min(d.buf.lines().saturating_sub(1));
+                    let b = d.buf.start(l) + lsp::byte_col(d.buf.line(l), c);
+                    let e = d.buf.word_at(b).map_or(b, |w| w.1);
+                    d.goto = Some((l, Some((b, e))));
+                }
+            }
+            many => {
+                let defs = many
+                    .iter()
+                    .map(|(p, l, _)| {
+                        let sig = std::fs::read_to_string(p).ok().and_then(|t| t.lines().nth(*l).map(|s| s.trim().to_string())).unwrap_or_default();
+                        (p.clone(), *l as u32, "clangd", sig)
+                    })
+                    .collect();
+                self.pick = Some((word, defs, at));
+            }
+        }
+    }
+
+    fn goto_definition_index(&mut self, word: &str, at: egui::Pos2) {
         let defs = self.definitions(word);
         match defs.len() {
             0 => {
@@ -572,10 +635,10 @@ impl CodeView {
     fn open_at_word(&mut self, p: &Path, line: usize, word: &str) {
         self.open_file(p, None);
         if let Some(d) = self.tabs.get_mut(self.active) {
-            let l = line.min(d.line_starts.len().saturating_sub(1));
+            let l = line.min(d.buf.lines().saturating_sub(1));
             let lt = d.line_text(l);
             let col = find_word(lt, word).unwrap_or(0);
-            let s = d.line_starts[l] + col;
+            let s = d.buf.start(l) + col;
             d.goto = Some((l, Some((s, s + if col > 0 || lt.starts_with(word) { word.len() } else { 0 }))));
         }
     }
@@ -615,11 +678,21 @@ impl CodeView {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        self.poll_lsp(ctx);
         if let Some(rx) = &self.index_rx {
             match rx.try_recv() {
                 Ok(idx) => {
                     let n = idx.syms.len();
                     let ms = self.index_t.map_or(0, |t| t.elapsed().as_millis());
+                    // 给编辑器上色用：名字 → 符号种类（同名的取第一个定义）
+                    let mut sem = HashMap::with_capacity(idx.by_name.len());
+                    for (name, ids) in &idx.by_name {
+                        if let Some(&i) = ids.first() {
+                            sem.insert(name.clone(), idx.syms[i as usize].kind);
+                        }
+                    }
+                    self.sem = Some(Arc::new(sem));
+                    self.insight_reset();
                     self.index = Some(Arc::new(idx));
                     self.index_rx = None;
                     self.index_prog = None;
@@ -664,12 +737,37 @@ impl CodeView {
                 self.s.side_width = ui.available_width();
                 self.side_panel(ui);
             });
+        self.poll_insight();
+        if self.relations && !self.tabs.is_empty() {
+            egui::SidePanel::right("code-rel")
+                .frame(egui::Frame::new().fill(BG1()))
+                .default_width(300.0)
+                .width_range(220.0..=560.0)
+                .resizable(true)
+                .show(ctx, |ui| self.relations_ui(ui));
+        }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
             if self.tabs.is_empty() {
                 self.welcome(ui);
             } else {
                 self.tab_bar(ui);
                 self.breadcrumbs(ui);
+                if self.context_win {
+                    // egui 会把面板高度夹到当时可用空间并记住；这里自己记住想要的高度，
+                    // 窗口变大后能恢复，拖动时才放开下限
+                    let limit = (ui.available_height() * 0.6).max(90.0);
+                    let want = self.s.ctx_height.clamp(90.0, limit);
+                    let dragging = ui.input(|i| i.pointer.any_down());
+                    let r = egui::TopBottomPanel::bottom("code-ctx")
+                        .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 0, right: 0, top: 6, bottom: 0 }))
+                        .default_height(want)
+                        .height_range(if dragging { 90.0 } else { want }..=limit)
+                        .resizable(true)
+                        .show_inside(ui, |ui| self.context_ui(ui));
+                    if dragging && (r.response.rect.height() - want).abs() > 0.5 {
+                        self.s.ctx_height = r.response.rect.height();
+                    }
+                }
                 self.editor(ui);
             }
         });
@@ -726,7 +824,7 @@ impl CodeView {
             }
             if has(Act::SaveFile) {
                 if let Some(d) = self.tabs.get_mut(self.active) {
-                    if d.dirty {
+                    if d.dirty() {
                         match d.save() {
                             Ok(()) => self.toast(t("已保存"), OK()),
                             Err(e) => self.toast(e, ERR()),
@@ -743,13 +841,59 @@ impl CodeView {
             if has(Act::GotoDef) {
                 if let Some(w) = self.cursor_word() {
                     let at = ctx.input(|i| i.pointer.hover_pos()).unwrap_or(pos2(400.0, 200.0));
-                    self.goto_definition(&w, at);
+                    let b = self.tabs.get(self.active).map(|d| d.ed.head());
+                    self.goto_definition(&w, at, b, ctx.input(|i| i.time));
                 }
             }
             if has(Act::FindRefs) {
                 if let Some(w) = self.cursor_word() {
                     self.find_references(&w);
                 }
+            }
+        }
+        if has(Act::ToggleContext) {
+            self.context_win = !self.context_win;
+        }
+        if has(Act::ToggleRelations) {
+            self.relations = !self.relations;
+        }
+        if let Some(d) = self.tabs.get_mut(self.active) {
+            let now = ctx.input(|i| i.time);
+            let before = d.buf.ver;
+            let (ed, buf) = (&mut d.ed, &mut d.buf);
+            for a in acts {
+                match a {
+                    Act::ToggleComment => ed.toggle_comment(buf, d.lang, now),
+                    Act::MoveLineUp => ed.move_lines(buf, true, false, now),
+                    Act::MoveLineDown => ed.move_lines(buf, false, false, now),
+                    Act::CopyLineUp => ed.move_lines(buf, true, true, now),
+                    Act::CopyLineDown => ed.move_lines(buf, false, true, now),
+                    Act::DeleteLine => ed.delete_lines(buf, now),
+                    Act::InsertLineBelow => ed.insert_line(buf, false, now),
+                    Act::InsertLineAbove => ed.insert_line(buf, true, now),
+                    Act::SelectLine => ed.select_line(buf),
+                    Act::AddNextOcc => ed.add_next_occurrence(buf),
+                    Act::SelectAllOcc => ed.select_all_occurrences(buf),
+                    Act::CursorAbove => ed.add_cursor_vert(buf, true),
+                    Act::CursorBelow => ed.add_cursor_vert(buf, false),
+                    Act::GotoBracket => ed.goto_bracket(buf),
+                    Act::Fold => ed.fold_cursor(buf, true),
+                    Act::Unfold => ed.fold_cursor(buf, false),
+                    Act::FoldAll => ed.fold_all(true),
+                    Act::UnfoldAll => ed.fold_all(false),
+                    Act::ToggleBookmark => ed.toggle_bookmark(buf),
+                    Act::NextBookmark => {
+                        ed.next_bookmark(buf, false);
+                    }
+                    Act::PrevBookmark => {
+                        ed.next_bookmark(buf, true);
+                    }
+                    _ => continue,
+                }
+                ed.focus_req = true;
+            }
+            if d.buf.ver != before {
+                d.syms_stale = Some(now);
             }
         }
         if has(Act::NavBack) {
@@ -769,25 +913,15 @@ impl CodeView {
         }
     }
 
-    fn te_id(d: &Doc) -> egui::Id {
-        egui::Id::new(("code-te", &d.path))
-    }
-
-    fn selected_text(&self, ctx: &egui::Context) -> Option<String> {
+    fn selected_text(&self, _ctx: &egui::Context) -> Option<String> {
         let d = self.tabs.get(self.active)?;
-        let st = egui::text_edit::TextEditState::load(ctx, Self::te_id(d))?;
-        let r = st.cursor.char_range()?;
-        let (a, b) = (r.primary.index.min(r.secondary.index), r.primary.index.max(r.secondary.index));
-        if a == b {
-            return None;
-        }
-        Some(d.text[d.char_to_byte(a)..d.char_to_byte(b)].to_string())
+        let t = d.ed.selected_text(&d.buf);
+        (!t.is_empty()).then_some(t)
     }
 
     fn cursor_word(&self) -> Option<String> {
         let d = self.tabs.get(self.active)?;
-        let b = d.line_starts.get(d.cursor.0)? + d.line_text(d.cursor.0).char_indices().nth(d.cursor.1).map_or(d.line_text(d.cursor.0).len(), |(i, _)| i);
-        d.word_at(b).map(|(_, _, w)| w.to_string())
+        d.word_at(d.ed.head()).map(|(_, _, w)| w.to_string())
     }
 
     fn update_find(&mut self) {
@@ -796,8 +930,12 @@ impl CodeView {
         if f.q.is_empty() {
             return;
         }
-        let (hay, needle) = if f.case { (d.text.clone(), f.q.clone()) } else { (d.text.to_lowercase(), f.q.to_lowercase()) };
-        if hay.len() != d.text.len() {
+        let (hay, needle) = if f.case {
+            (d.buf.text.clone(), f.q.clone())
+        } else {
+            (d.buf.text.to_lowercase(), f.q.to_lowercase())
+        };
+        if hay.len() != d.buf.text.len() {
             return;
         }
         let mut from = 0;
@@ -809,7 +947,7 @@ impl CodeView {
             }
         }
         // 从光标附近开始
-        let cur_b = d.line_starts.get(d.cursor.0).copied().unwrap_or(0);
+        let cur_b = d.ed.head();
         f.cur = f.hits.iter().position(|&h| h >= cur_b).unwrap_or(0);
     }
 
@@ -1112,7 +1250,7 @@ impl CodeView {
     }
 
     fn outline_panel(&mut self, ui: &mut Ui) {
-        let Some(d) = self.tabs.get(self.active) else {
+        if self.tabs.get(self.active).is_none() {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 ui.label(RichText::new(t("打开一个文件后显示它的函数、宏和类型")).small().color(TEXT3()));
@@ -1127,6 +1265,53 @@ impl CodeView {
             );
         });
         ui.add_space(4.0);
+        // 书签（所有打开的文件），没有书签时不占地方
+        let marks: Vec<(usize, usize, String)> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .flat_map(|(ti, d)| d.ed.bookmarks.iter().map(move |&l| (ti, l, d.buf.line(l.min(d.buf.lines() - 1)).trim().to_string())))
+            .collect();
+        let mut jump = None;
+        if !marks.is_empty() {
+            ui.horizontal(|ui| {
+                ui.add_space(12.0);
+                ui.label(RichText::new(t("书签")).size(11.0).color(TEXT3()).strong());
+                ui.label(RichText::new(marks.len().to_string()).size(10.5).color(TEXT3()));
+            });
+            ui.spacing_mut().item_spacing.y = 0.0;
+            for (ti, l, text) in &marks {
+                let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+                let p = ui.painter();
+                if resp.hovered() {
+                    p.rect_filled(r, 0.0, tint(6));
+                }
+                draw_icon(p, Rect::from_center_size(pos2(r.left() + 20.0, r.center().y), vec2(12.0, 12.0)), Icon::Bookmark, VIOLET());
+                let name = format!("{}:{}", self.tabs[*ti].path.file_name().unwrap_or_default().to_string_lossy(), l + 1);
+                let g = p.layout_no_wrap(name, FontId::proportional(12.0), TEXT2());
+                let nw = g.size().x;
+                p.galley(pos2(r.left() + 34.0, r.center().y - g.size().y / 2.0), g, TEXT2());
+                let room = r.right() - 10.0 - (r.left() + 44.0 + nw);
+                if room > 20.0 {
+                    let g = p.layout(text.clone(), FontId::new(11.5, FontFamily::Monospace), TEXT3(), f32::INFINITY);
+                    let clip = Rect::from_min_max(pos2(r.left() + 44.0 + nw, r.top()), pos2(r.right() - 10.0, r.bottom()));
+                    p.with_clip_rect(clip).galley(pos2(clip.left(), r.center().y - g.size().y / 2.0), g, TEXT3());
+                }
+                if resp.clicked() {
+                    jump = Some((*ti, *l));
+                }
+            }
+            ui.add_space(6.0);
+            let r = ui.allocate_exact_size(vec2(ui.available_width(), 1.0), Sense::hover()).0;
+            ui.painter().hline(r.x_range().shrink(10.0), r.center().y, st(1.0, LINE()));
+            ui.add_space(6.0);
+        }
+        if let Some((ti, l)) = jump {
+            self.active = ti;
+            self.tabs[ti].goto = Some((l, None));
+            return;
+        }
+        let d = &self.tabs[self.active];
         let cur_line = d.cursor.0;
         let f = self.outline_filter.to_lowercase();
         let syms: Vec<(String, Kind, u32)> = d
@@ -1298,7 +1483,7 @@ impl CodeView {
                         p.galley(pos2(r.left() + 28.0, r.center().y - g.size().y / 2.0), g, if on { TEXT() } else { TEXT2() });
                         let xr = Rect::from_center_size(pos2(r.right() - 16.0, r.center().y), vec2(16.0, 16.0));
                         let xh = ui.rect_contains_pointer(xr);
-                        if d.dirty && !xh {
+                        if d.dirty() && !xh {
                             p.circle_filled(xr.center(), 4.0, TEXT2());
                         } else if on || resp.hovered() {
                             if xh {
@@ -1388,14 +1573,18 @@ impl CodeView {
             );
             resp.on_hover_text(tip).clicked() && enabled
         };
-        let editable = d.editable;
         let (nb, nf) = (!self.back.is_empty(), !self.fwd.is_empty());
-        let ed = btn(Icon::Edit, t("允许编辑（Ctrl+S 保存）"), editable, true);
+        let rel_on = self.relations;
+        let ctx_on = self.context_win;
+        let rel = btn(Icon::Relations, t("调用关系"), rel_on, true);
+        let cx = btn(Icon::Context, t("上下文窗口"), ctx_on, true);
         let f = btn(Icon::Forward, t("前进  Alt+→"), false, nf);
         let b = btn(Icon::Back, t("后退  Alt+←"), false, nb);
-        if ed {
-            let d = &mut self.tabs[self.active];
-            d.editable = !d.editable;
+        if rel {
+            self.relations = !self.relations;
+        }
+        if cx {
+            self.context_win = !self.context_win;
         }
         if b {
             self.nav(true);
@@ -1408,312 +1597,98 @@ impl CodeView {
     // ------------------------------------------------------------ 编辑器
 
     fn editor(&mut self, ui: &mut Ui) {
-        let font = FontId::new(self.s.font_size, FontFamily::Monospace);
-        let row_h = ui.fonts(|f| f.row_height(&font));
-        let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT()).size().x / 100.0);
         let full = ui.available_rect_before_wrap();
         let status_h = 24.0;
         let area = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - status_h));
         let status_rect = Rect::from_min_max(pos2(full.left(), area.bottom()), full.max);
         ui.allocate_rect(full, Sense::hover());
-        let mini_w = if self.s.minimap { 84.0 } else { 0.0 };
         let idx = self.index.clone();
-        let ctrl = ui.input(|i| i.modifiers.command);
+        let sem = self.sem.clone();
         let active = self.active;
+        let now = ui.input(|i| i.time);
         let d = &mut self.tabs[active];
-        let n_lines = d.line_starts.len();
-        let digits = n_lines.to_string().len().max(3) as f32;
-        let gutter_w = digits * cw + 26.0;
-        let gutter = Rect::from_min_max(area.min, pos2(area.left() + gutter_w, area.bottom()));
-        let text_rect = Rect::from_min_max(pos2(gutter.right(), area.top()), pos2(area.right() - mini_w, area.bottom()));
-        let te_id = Self::te_id(d);
 
-        // 待跳转：设置光标/选区，并滚动到那一行（放在视图上方三分之一处）
-        let mut scroll_to: Option<f32> = self.minimap_jump.take();
+        // 待跳转：设置光标/选区，并滚到那一行
         if let Some((line, sel)) = d.goto.take() {
-            scroll_to = Some((line as f32 * row_h - text_rect.height() / 3.0).max(0.0));
-            if let Some((a, b)) = sel {
-                let mut stt = egui::text_edit::TextEditState::load(ui.ctx(), te_id).unwrap_or_default();
-                let (ca, cb) = (d.byte_to_char(a), d.byte_to_char(b));
-                stt.cursor.set_char_range(Some(CCursorRange::two(CCursor::new(ca), CCursor::new(cb))));
-                stt.store(ui.ctx(), te_id);
-                ui.ctx().memory_mut(|m| m.request_focus(te_id));
-            }
-            d.cursor = (line, 0);
+            let (a, b) = sel.unwrap_or_else(|| {
+                let s = d.buf.start(line);
+                (s, s)
+            });
+            d.ed.select(a, b);
+            d.ed.focus_req = true;
         }
-
-        let p = ui.painter().clone();
-        p.rect_filled(area, 0.0, BG0());
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(text_rect));
-        let mut sa = egui::ScrollArea::both().id_salt(("code-sa", &d.path)).auto_shrink([false, false]);
-        if let Some(y) = scroll_to {
-            sa = sa.vertical_scroll_offset(y);
+        let (hits, find_len, find_cur) = match &self.find {
+            Some(f) => (f.hits.clone(), f.q.len(), Some(f.cur)),
+            None => (vec![], 0, None),
+        };
+        let view = View {
+            lang: d.lang,
+            font_size: self.s.font_size,
+            minimap: self.s.minimap,
+            find: &hits,
+            find_len,
+            find_cur,
+            sem: sem.as_deref().filter(|_| d.lang == Lang::C || d.lang == Lang::Asm),
+            git: &[],
+            big: d.buf.text.len() > 1_500_000,
+        };
+        let out = d.ed.show(ui, area, &mut d.buf, &view);
+        if out.changed {
+            d.syms_stale = Some(now);
+            self.find = self.find.take().map(|mut f| {
+                f.focus = false;
+                f
+            });
         }
-        let bg_layer = p.add(Shape::Noop);
+        if d.syms_stale.is_some_and(|t| now - t > 0.4) {
+            d.reparse();
+        } else if d.syms_stale.is_some() {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(450));
+        }
+        let h = d.ed.head();
+        let l = d.buf.line_of(h);
+        d.cursor = (l, d.buf.line(l)[..h - d.buf.start(l)].chars().count());
         let lang = d.lang;
-        let big = d.text.len() > 1_500_000;
-        let editable = d.editable;
-        let fsize = (self.s.font_size * 10.0) as u32;
-        let Doc { text, cache, .. } = d;
-        let out = sa.show(&mut child, |ui| {
-            let mut layouter = |ui: &Ui, s: &str, _w: f32| -> Arc<Galley> {
-                let h = if editable { quick_hash(s) } else { 0 };
-                let key = (s.len(), h, fsize);
-                if let Some(g) = cache.galley.as_ref().filter(|_| cache.key == key) {
-                    return g.clone();
-                }
-                let job = if big {
-                    let mut j = egui::text::LayoutJob::simple(s.to_string(), font.clone(), highlight::pal::TEXT(), f32::INFINITY);
-                    j.wrap.max_width = f32::INFINITY;
-                    j
-                } else {
-                    highlight::layout(s, lang, font.clone())
-                };
-                let g = ui.fonts(|f| f.layout_job(job));
-                cache.galley = Some(g.clone());
-                cache.key = key;
-                g
-            };
-            let te = if editable {
-                egui::TextEdit::multiline(text)
-            } else {
-                // 只读：用 &str 作为文本缓冲，能选中、复制，不能改
-                let mut s: &str = text.as_str();
-                return egui::TextEdit::multiline(&mut s)
-                    .id(te_id)
-                    .code_editor()
-                    .frame(false)
-                    .margin(egui::Margin {
-                        left: 8,
-                        right: 40,
-                        top: 4,
-                        bottom: 120,
-                    })
-                    .desired_width(f32::INFINITY)
-                    .layouter(&mut layouter)
-                    .show(ui);
-            };
-            te.id(te_id)
-                .code_editor()
-                .frame(false)
-                .margin(egui::Margin {
-                    left: 8,
-                    right: 40,
-                    top: 4,
-                    bottom: 120,
-                })
-                .desired_width(f32::INFINITY)
-                .lock_focus(true)
-                .layouter(&mut layouter)
-                .show(ui)
-        });
-        let te = out.inner;
-        let d = &mut self.tabs[active];
-        if te.response.changed() {
-            d.dirty = true;
-            d.reindex();
-            self.find = None;
-        }
-        let galley = te.galley.clone();
-        let gpos = te.galley_pos;
-        let clip = out.inner_rect;
-        let offset_y = out.state.offset.y;
-
-        // 光标位置
-        if let Some(cr) = te.cursor_range {
-            let c = cr.primary.ccursor.index;
-            let b = d.char_to_byte(c);
-            let l = d.line_of_byte(b);
-            d.cursor = (l, c - d.line_cstarts[l]);
-        }
-        let focused = te.response.has_focus();
-        // 实际行高以排版结果为准（字体回退、像素取整会让它和 row_height 有细微差别，累积起来行号就对不齐了）
-        let row_h = if galley.rows.len() > 1 { galley.rect.height() / galley.rows.len() as f32 } else { row_h };
-
-        // ---- 背景层：当前行、查找结果、同名单词高亮
-        let mut bg = vec![];
-        let first_vis = ((clip.top() - gpos.y) / row_h).floor().max(0.0) as usize;
-        let last_vis = (((clip.bottom() - gpos.y) / row_h).ceil() as usize).min(n_lines);
-        let row_y = |l: usize| gpos.y + l as f32 * row_h;
-        bg.push(Shape::rect_filled(
-            Rect::from_min_max(pos2(clip.left(), row_y(d.cursor.0)), pos2(clip.right(), row_y(d.cursor.0) + row_h)),
-            0.0,
-            tint(if focused { 7 } else { 4 }),
-        ));
-        let xpos = |d: &Doc, b: usize| gpos.x + galley.pos_from_ccursor(CCursor::new(d.byte_to_char(b))).min.x;
-        let vis_bytes = (d.line_starts.get(first_vis).copied().unwrap_or(0), d.line_starts.get(last_vis).copied().unwrap_or(d.text.len()));
-        if let Some(f) = &self.find {
-            for (k, &h) in f.hits.iter().enumerate() {
-                if h < vis_bytes.0 || h > vis_bytes.1 {
-                    continue;
-                }
-                let l = d.line_of_byte(h);
-                let r = Rect::from_min_max(pos2(xpos(d, h), row_y(l)), pos2(xpos(d, h + f.q.len()), row_y(l) + row_h));
-                let cur = k == f.cur;
-                bg.push(Shape::rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.45 } else { 0.2 })));
-                if cur {
-                    bg.push(Shape::rect_stroke(r, 2.0, st(1.0, WARN()), egui::StrokeKind::Outside));
-                }
-            }
-        }
-        // 光标所在单词的其他出现位置
-        let cur_b = d
-            .line_starts
-            .get(d.cursor.0)
-            .map(|s| s + d.line_text(d.cursor.0).char_indices().nth(d.cursor.1).map_or(d.line_text(d.cursor.0).len(), |(i, _)| i));
-        if let Some((_, _, w)) = cur_b.and_then(|b| d.word_at(b)).filter(|_| self.find.is_none() && !big) {
-            let w = w.to_string();
-            let seg = &d.text[vis_bytes.0..vis_bytes.1.min(d.text.len())];
-            let mut n = 0;
-            let mut from = 0;
-            while let Some(k) = seg[from..].find(&w) {
-                let a = vis_bytes.0 + from + k;
-                from += k + w.len();
-                let ok = !d.text[..a].chars().next_back().is_some_and(is_ident) && !d.text[a + w.len()..].chars().next().is_some_and(is_ident);
-                if ok {
-                    let l = d.line_of_byte(a);
-                    let r = Rect::from_min_max(pos2(xpos(d, a), row_y(l)), pos2(xpos(d, a + w.len()), row_y(l) + row_h));
-                    bg.push(Shape::rect_filled(r, 2.0, ACCENT().gamma_multiply(0.12)));
-                    n += 1;
-                    if n > 300 {
-                        break;
-                    }
-                }
-            }
-        }
-        p.set(bg_layer, Shape::Vec(bg));
-
-        // ---- 行号
-        let gp = ui.painter_at(gutter);
-        gp.rect_filled(gutter, 0.0, BG0());
-        for l in first_vis..last_vis {
-            let y = row_y(l) + row_h / 2.0;
-            let cur = l == d.cursor.0;
-            gp.text(
-                pos2(gutter.right() - 14.0, y),
-                Align2::RIGHT_CENTER,
-                (l + 1).to_string(),
-                FontId::new(self.s.font_size * 0.92, FontFamily::Monospace),
-                if cur { TEXT() } else { TEXT3().gamma_multiply(0.8) },
-            );
-            if let Some(f) = &self.find {
-                // 行号旁的查找标记
-                if f.hits.iter().any(|&h| d.line_of_byte(h) == l) {
-                    gp.rect_filled(
-                        Rect::from_min_size(pos2(gutter.right() - 6.0, y - row_h / 2.0 + 2.0), vec2(2.0, row_h - 4.0)),
-                        1.0,
-                        WARN().gamma_multiply(0.7),
-                    );
-                }
-            }
+        if out.changed && self.find.is_some() {
+            self.update_find();
         }
 
         // ---- 悬浮 / Ctrl+点击
-        let pointer = ui.input(|i| i.pointer.hover_pos());
-        let mut hover_word: Option<(usize, usize, String, Rect)> = None;
-        if let Some(pp) = pointer.filter(|pp| clip.contains(*pp) && te.response.hovered()) {
-            let cur = galley.cursor_from_pos(pp - gpos);
-            let b = d.char_to_byte(cur.ccursor.index);
-            // 只在指针真的落在字上时算（行尾之后的空白不算）
-            let l = d.line_of_byte(b);
-            let line_end_x = xpos(d, d.line_starts[l] + d.line_text(l).len());
-            if pp.x <= line_end_x + 2.0 {
-                if let Some((s, e, w)) = d.word_at(b).or_else(|| b.checked_sub(1).and_then(|b| d.word_at(b))) {
-                    let r = Rect::from_min_max(pos2(xpos(d, s), row_y(l)), pos2(xpos(d, e), row_y(l) + row_h));
-                    if r.expand(1.0).contains(pp) {
-                        hover_word = Some((s, e, w.to_string(), r));
-                    }
-                }
+        let mut want_def: Option<(String, egui::Pos2, Option<usize>)> = None;
+        let d = &self.tabs[active];
+        if let Some((b, at)) = out.ctrl_click {
+            if let Some((_, _, w)) = d.word_at(b) {
+                want_def = Some((w.to_string(), at, Some(b)));
             }
         }
-        let now = ui.input(|i| i.time);
-        let mut want_def: Option<(String, egui::Pos2)> = None;
-        if let Some((s, _e, w, r)) = &hover_word {
-            let defs_known = lang.is_code();
-            if ctrl && defs_known {
-                ui.painter().hline(r.x_range(), r.bottom() - 1.0, st(1.0, ACCENT()));
-                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-                if te.response.clicked() {
-                    want_def = Some((w.clone(), r.left_bottom()));
-                }
-            }
+        if let Some((s, e, r)) = out.hover {
+            let w = d.buf.text[s..e].to_string();
             match &self.hover {
-                Some(h) if h.at == *s && h.word == *w => {}
-                _ => {
-                    self.hover = Some(Hover {
-                        word: w.clone(),
-                        at: *s,
-                        since: now,
-                        rect: *r,
-                    })
-                }
+                Some(h) if h.at == s && h.word == w => {}
+                _ => self.hover = Some(Hover { word: w, at: s, since: now, rect: r }),
             }
         } else {
             self.hover = None;
         }
-        let mut hover_def: Option<(String, egui::Pos2)> = None;
+        let mut hover_def: Option<(String, egui::Pos2, Option<usize>)> = None;
         if let Some(h) = &self.hover {
-            if lang.is_code() && now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down()) {
+            if lang.is_code() && now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down() || i.modifiers.command) {
                 if let Some(go) = hover_card(ui.ctx(), &h.word, h.rect, idx.as_deref(), &self.tabs[active]) {
-                    hover_def = Some((go, h.rect.left_bottom()));
+                    let b = (go == h.word).then_some(h.at);
+                    hover_def = Some((go, h.rect.left_bottom(), b));
                 }
             } else if lang.is_code() {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
             }
         }
 
-        // ---- 小地图
-        if self.s.minimap {
-            let mm = Rect::from_min_max(pos2(area.right() - mini_w, area.top()), area.max);
-            let d = &self.tabs[active];
-            let total_h = n_lines as f32 * row_h + 200.0;
-            let scale = (mm.height() / n_lines.max(1) as f32).min(2.5);
-            let mp = ui.painter_at(mm);
-            mp.rect_filled(mm, 0.0, BG0());
-            mp.vline(mm.left(), mm.y_range(), st(1.0, LINE()));
-            let step = (1.0 / scale).ceil().max(1.0) as usize;
-            let mut y = mm.top() + 4.0;
-            let mut l = 0;
-            while l < n_lines {
-                let (ind, len, kind) = d.mini[l];
-                if len > 0 {
-                    let c = match kind {
-                        1 => highlight::pal::COMMENT().gamma_multiply(0.55),
-                        2 => highlight::pal::PRE().gamma_multiply(0.55),
-                        _ => TEXT3().gamma_multiply(0.75),
-                    };
-                    let x0 = mm.left() + 8.0 + (ind as f32 * 0.9).min(30.0);
-                    let x1 = (x0 + len as f32 * 0.9).min(mm.right() - 6.0);
-                    mp.rect_filled(Rect::from_min_max(pos2(x0, y), pos2(x1, y + scale.max(1.0) * 0.8)), 0.0, c);
-                }
-                y += scale * step as f32;
-                l += step;
-            }
-            if let Some(f) = &self.find {
-                for &h in f.hits.iter().take(2000) {
-                    let yy = mm.top() + 4.0 + d.line_of_byte(h) as f32 * scale;
-                    mp.rect_filled(Rect::from_min_size(pos2(mm.right() - 6.0, yy), vec2(4.0, 2.0)), 0.0, WARN());
-                }
-            }
-            // 视口框
-            let vy0 = mm.top() + 4.0 + offset_y / row_h * scale;
-            let vh = (clip.height() / row_h * scale).max(8.0);
-            let vr = Rect::from_min_size(pos2(mm.left() + 1.0, vy0), vec2(mm.width() - 1.0, vh));
-            let mresp = ui.interact(mm, ui.id().with("minimap"), Sense::click_and_drag());
-            mp.rect_filled(vr, 0.0, tint(if mresp.hovered() || mresp.dragged() { 18 } else { 10 }));
-            if let Some(pp) = mresp.interact_pointer_pos().filter(|_| mresp.clicked() || mresp.dragged()) {
-                let line = ((pp.y - mm.top() - 4.0) / scale).max(0.0);
-                let y = (line * row_h - clip.height() / 2.0).clamp(0.0, (total_h - clip.height()).max(0.0));
-                self.minimap_jump = Some(y);
-                ui.ctx().request_repaint();
-            }
-        }
-
         // ---- 查找浮层
-        self.find_bar(ui, text_rect);
+        let mini_w = if self.s.minimap { 72.0 } else { 0.0 };
+        self.find_bar(ui, Rect::from_min_max(area.min, pos2(area.right() - mini_w - 10.0, area.bottom())));
 
         // ---- 状态行
         let d = &self.tabs[active];
+        let n_lines = d.buf.lines();
         let sp = ui.painter_at(status_rect);
         sp.rect_filled(status_rect, 0.0, BG1());
         sp.hline(status_rect.x_range(), status_rect.top() + 0.5, st(1.0, LINE()));
@@ -1724,8 +1699,18 @@ impl CodeView {
             (t(d.lang.name()).to_string(), TEXT3()),
             (format!("{} {}", n_lines, t("行")), TEXT3()),
         ];
-        if d.editable {
-            items.insert(0, (t("编辑中").to_string(), WARN()));
+        let nsel = d.ed.sels.len();
+        if nsel > 1 {
+            items.insert(1, (tf("{} 个光标", &[&nsel]), ACCENT()));
+        } else {
+            let sel = d.ed.primary_sel();
+            if !sel.empty() {
+                let txt = &d.buf.text[sel.range()];
+                items.insert(1, (tf("已选 {} 字", &[&txt.chars().count()]), TEXT2()));
+            }
+        }
+        if d.dirty() {
+            items.insert(0, (t("未保存").to_string(), WARN()));
         }
         let mut x = status_rect.right() - 12.0;
         for (s, c) in items.iter().rev() {
@@ -1737,7 +1722,13 @@ impl CodeView {
         let idx_text = if let Some(pg) = &self.index_prog {
             (tf("正在建立索引… {} 个文件", &[&pg.files.load(Ordering::Relaxed)]), ACCENT())
         } else if let Some(i) = &self.index {
-            (tf("索引：{} 个符号，{} 个文件", &[&i.syms.len(), &i.files.len()]), TEXT3())
+            let mut s = tf("索引：{} 个符号，{} 个文件", &[&i.syms.len(), &i.files.len()]);
+            match &self.lsp {
+                Some(l) if l.ready() => s += " · clangd",
+                Some(l) if !l.dead() => s += &format!(" · {}", t("clangd 启动中…")),
+                _ => {}
+            }
+            (s, TEXT3())
         } else {
             (String::new(), TEXT3())
         };
@@ -1749,9 +1740,9 @@ impl CodeView {
             idx_text.1,
         );
 
-        if let Some((w, at)) = want_def.or(hover_def) {
+        if let Some((w, at, b)) = want_def.or(hover_def) {
             self.hover = None;
-            self.goto_definition(&w, at);
+            self.goto_definition(&w, at, b, now);
         }
     }
 
@@ -2296,13 +2287,6 @@ fn find_word(line: &str, w: &str) -> Option<usize> {
         from = e;
     }
     None
-}
-
-fn quick_hash(s: &str) -> u64 {
-    use std::hash::{Hash, Hasher};
-    let mut h = std::collections::hash_map::DefaultHasher::new();
-    s.hash(&mut h);
-    h.finish()
 }
 
 /// Windows 的 canonicalize 会加 \\?\ 前缀，显示和传给其他程序都不方便

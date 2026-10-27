@@ -583,3 +583,55 @@ Ctrl+C 复制选中内容时，每行带上时间戳；右键菜单里两种都�
 从所有远程拉取	Fetch from All Remotes	從所有遠端擷取	すべてのリモートからフェッチ	모든 원격에서 가져오기	Von allen Remotes abrufen	Récupérer depuis tous les dépôts distants	Obtener de todos los remotos	Получить со всех удалённых	Buscar de todos os remotos
 搜索提交	Search Commits	搜尋提交	コミットを検索	커밋 검색	Commits durchsuchen	Rechercher des commits	Buscar commits	Поиск коммитов	Pesquisar commits
 界面主题	Theme	介面主題	テーマ	테마	Design	Thème	Tema	Тема	Tema
+调用关系	Call hierarchy	呼叫關係	呼び出し階層	호출 계층	Aufrufhierarchie	Hiérarchie d'appels	Jerarquía de llamadas	Иерархия вызовов	Hierarquia de chamadas
+上下文窗口	Context window	上下文視窗	コンテキストウィンドウ	컨텍스트 창	Kontextfenster	Fenêtre de contexte	Ventana de contexto	Окно контекста	Janela de contexto
+未保存	Unsaved	未儲存	未保存	저장 안 됨	Nicht gespeichert	Non enregistré	Sin guardar	Не сохранено	Não salvo
+{} 个光标	{} cursors	{} 個游標	カーソル {} 個	커서 {}개	{} Cursor	{} curseurs	{} cursores	Курсоров: {}	{} cursores
+已选 {} 字	{} selected	已選 {} 字	{} 文字選択	{}자 선택	{} ausgewählt	{} sélectionnés	{} seleccionados	Выделено: {}	{} selecionados
+上下文	Context	上下文	コンテキスト	컨텍스트	Kontext	Contexte	Contexto	Контекст	Contexto
+打开定义	Open definition	開啟定義	定義を開く	정의 열기	Definition öffnen	Ouvrir la définition	Abrir definición	Открыть определение	Abrir definição
+把光标停在函数、宏、类型上，这里显示它的定义	Place the cursor on a function, macro or type to see its definition here	把游標停在函式、巨集、型別上，這裡顯示它的定義	関数・マクロ・型にカーソルを置くと、ここに定義が表示されます	함수, 매크로, 타입에 커서를 두면 여기에 정의가 표시됩니다	Cursor auf Funktion, Makro oder Typ setzen, um hier die Definition zu sehen	Placez le curseur sur une fonction, une macro ou un type pour voir sa définition ici	Coloca el cursor en una función, macro o tipo para ver aquí su definición	Поставьте курсор на функцию, макрос или тип — здесь появится определение	Coloque o cursor numa função, macro ou tipo para ver a definição aqui
+已固定：不随光标变化	Pinned: ignores cursor moves	已固定：不隨游標變化	固定中：カーソルに追従しません	고정됨: 커서를 따라가지 않음	Angeheftet: folgt nicht dem Cursor	Épinglé : ne suit pas le curseur	Fijado: no sigue al cursor	Закреплено: не следует за курсором	Fixado: não segue o cursor
+固定当前函数	Pin current function	固定目前函式	現在の関数を固定	현재 함수 고정	Aktuelle Funktion anheften	Épingler la fonction	Fijar función actual	Закрепить функцию	Fixar função atual
+调用了	Calls	呼叫了	呼び出し先	호출함	Ruft auf	Appelle	Llama a	Вызывает	Chama
+被调用	Called by	被呼叫	呼び出し元	호출됨	Aufgerufen von	Appelée par	Llamada por	Вызывается из	Chamada por
+把光标放进一个函数里	Put the cursor inside a function	把游標放進一個函式裡	関数の中にカーソルを置いてください	함수 안에 커서를 두세요	Cursor in eine Funktion setzen	Placez le curseur dans une fonction	Coloca el cursor dentro de una función	Поставьте курсор внутрь функции	Coloque o cursor dentro de uma função
+正在搜索…	Searching…	正在搜尋…	検索中…	검색 중…	Suche…	Recherche…	Buscando…	Поиск…	Pesquisando…
+没有调用其他函数	Calls no other functions	沒有呼叫其他函式	他の関数を呼び出していません	다른 함수를 호출하지 않음	Ruft keine anderen Funktionen auf	N'appelle aucune autre fonction	No llama a otras funciones	Не вызывает другие функции	Não chama outras funções
+没有找到调用者	No callers found	沒有找到呼叫者	呼び出し元が見つかりません	호출자를 찾지 못함	Keine Aufrufer gefunden	Aucun appelant trouvé	No se encontraron llamadores	Вызовы не найдены	Nenhum chamador encontrado
+(文件作用域)	(file scope)	(檔案作用域)	(ファイルスコープ)	(파일 범위)	(Dateibereich)	(portée fichier)	(ámbito de archivo)	(область файла)	(escopo do arquivo)
+切换行注释	Toggle line comment	切換行註解	行コメントの切り替え	줄 주석 전환	Zeilenkommentar umschalten	Basculer le commentaire de ligne	Alternar comentario de línea	Переключить комментарий	Alternar comentário de linha
+向上移动行	Move line up	向上移動行	行を上へ移動	줄 위로 이동	Zeile nach oben	Déplacer la ligne vers le haut	Mover línea arriba	Переместить строку вверх	Mover linha para cima
+向下移动行	Move line down	向下移動行	行を下へ移動	줄 아래로 이동	Zeile nach unten	Déplacer la ligne vers le bas	Mover línea abajo	Переместить строку вниз	Mover linha para baixo
+向上复制行	Copy line up	向上複製行	行を上へコピー	줄 위로 복사	Zeile nach oben kopieren	Copier la ligne vers le haut	Copiar línea arriba	Копировать строку вверх	Copiar linha para cima
+向下复制行	Copy line down	向下複製行	行を下へコピー	줄 아래로 복사	Zeile nach unten kopieren	Copier la ligne vers le bas	Copiar línea abajo	Копировать строку вниз	Copiar linha para baixo
+删除行	Delete line	刪除行	行を削除	줄 삭제	Zeile löschen	Supprimer la ligne	Eliminar línea	Удалить строку	Excluir linha
+在下方插入行	Insert line below	在下方插入行	下に行を挿入	아래에 줄 삽입	Zeile darunter einfügen	Insérer une ligne en dessous	Insertar línea debajo	Вставить строку ниже	Inserir linha abaixo
+在上方插入行	Insert line above	在上方插入行	上に行を挿入	위에 줄 삽입	Zeile darüber einfügen	Insérer une ligne au-dessus	Insertar línea encima	Вставить строку выше	Inserir linha acima
+选中当前行	Select line	選取目前行	行を選択	줄 선택	Zeile auswählen	Sélectionner la ligne	Seleccionar línea	Выделить строку	Selecionar linha
+把下一个相同内容加入选择	Add next occurrence to selection	把下一個相同內容加入選取	次の一致を選択に追加	다음 일치 항목을 선택에 추가	Nächstes Vorkommen hinzufügen	Ajouter l'occurrence suivante	Agregar siguiente coincidencia	Добавить следующее вхождение	Adicionar próxima ocorrência
+选中所有相同内容	Select all occurrences	選取所有相同內容	すべての一致を選択	모든 일치 항목 선택	Alle Vorkommen auswählen	Sélectionner toutes les occurrences	Seleccionar todas las coincidencias	Выделить все вхождения	Selecionar todas as ocorrências
+在上方添加光标	Add cursor above	在上方新增游標	上にカーソルを追加	위에 커서 추가	Cursor oberhalb hinzufügen	Ajouter un curseur au-dessus	Agregar cursor arriba	Добавить курсор выше	Adicionar cursor acima
+在下方添加光标	Add cursor below	在下方新增游標	下にカーソルを追加	아래에 커서 추가	Cursor unterhalb hinzufügen	Ajouter un curseur en dessous	Agregar cursor abajo	Добавить курсор ниже	Adicionar cursor abaixo
+跳到匹配的括号	Go to matching bracket	跳到對應的括號	対応する括弧へ移動	짝 괄호로 이동	Zur passenden Klammer	Aller au crochet correspondant	Ir al corchete correspondiente	К парной скобке	Ir para o colchete correspondente
+折叠代码块	Fold region	摺疊程式碼區塊	領域を折りたたむ	영역 접기	Bereich einklappen	Replier la région	Plegar región	Свернуть блок	Recolher região
+展开代码块	Unfold region	展開程式碼區塊	領域を展開	영역 펼치기	Bereich ausklappen	Déplier la région	Desplegar región	Развернуть блок	Expandir região
+全部展开	Unfold all	全部展開	すべて展開	모두 펼치기	Alle ausklappen	Tout déplier	Desplegar todo	Развернуть всё	Expandir tudo
+切换书签	Toggle bookmark	切換書籤	ブックマークの切り替え	책갈피 전환	Lesezeichen umschalten	Basculer le signet	Alternar marcador	Переключить закладку	Alternar marcador
+下一个书签	Next bookmark	下一個書籤	次のブックマーク	다음 책갈피	Nächstes Lesezeichen	Signet suivant	Siguiente marcador	Следующая закладка	Próximo marcador
+上一个书签	Previous bookmark	上一個書籤	前のブックマーク	이전 책갈피	Vorheriges Lesezeichen	Signet précédent	Marcador anterior	Предыдущая закладка	Marcador anterior
+显示 / 隐藏上下文窗口	Toggle context window	顯示 / 隱藏上下文視窗	コンテキストウィンドウの表示切替	컨텍스트 창 표시/숨기기	Kontextfenster ein/aus	Afficher/masquer la fenêtre de contexte	Mostrar/ocultar ventana de contexto	Показать/скрыть окно контекста	Mostrar/ocultar janela de contexto
+显示 / 隐藏调用关系	Toggle call hierarchy	顯示 / 隱藏呼叫關係	呼び出し階層の表示切替	호출 계층 표시/숨기기	Aufrufhierarchie ein/aus	Afficher/masquer la hiérarchie d'appels	Mostrar/ocultar jerarquía de llamadas	Показать/скрыть иерархию вызовов	Mostrar/ocultar hierarquia de chamadas
+书签	Bookmarks	書籤	ブックマーク	책갈피	Lesezeichen	Signets	Marcadores	Закладки	Marcadores
+clangd 启动中…	clangd starting…	clangd 啟動中…	clangd 起動中…	clangd 시작 중…	clangd startet…	Démarrage de clangd…	Iniciando clangd…	Запуск clangd…	Iniciando clangd…
+正在使用 {}	Using {}	正在使用 {}	{} を使用中	{} 사용 중	Verwendet {}	Utilise {}	Usando {}	Используется {}	Usando {}
+clangd 意外退出，已改用内置索引	clangd exited unexpectedly; using the built-in index	clangd 意外結束，已改用內建索引	clangd が予期せず終了しました。内蔵インデックスを使用します	clangd가 예기치 않게 종료되어 내장 색인을 사용합니다	clangd wurde unerwartet beendet; integrierter Index wird verwendet	clangd s'est arrêté ; utilisation de l'index intégré	clangd se cerró inesperadamente; se usa el índice integrado	clangd неожиданно завершился; используется встроенный индекс	O clangd encerrou inesperadamente; usando o índice integrado
+已关闭，使用内置索引	Off; using the built-in index	已關閉，使用內建索引	オフ（内蔵インデックスを使用）	꺼짐, 내장 색인 사용	Aus; integrierter Index	Désactivé ; index intégré	Desactivado; índice integrado	Выключено; встроенный индекс	Desligado; índice integrado
+没找到 clangd，使用内置索引	clangd not found; using the built-in index	沒找到 clangd，使用內建索引	clangd が見つかりません（内蔵インデックスを使用）	clangd를 찾지 못해 내장 색인 사용	clangd nicht gefunden; integrierter Index	clangd introuvable ; index intégré	No se encontró clangd; índice integrado	clangd не найден; встроенный индекс	clangd não encontrado; índice integrado
+找到 {}，打开工程后启用	Found {}; enabled once a project is open	找到 {}，開啟專案後啟用	{} を検出。プロジェクトを開くと有効になります	{} 발견, 프로젝트를 열면 사용	{} gefunden; aktiv, sobald ein Projekt offen ist	{} trouvé ; actif après ouverture d'un projet	Se encontró {}; se activa al abrir un proyecto	Найден {}; включится после открытия проекта	{} encontrado; ativa ao abrir um projeto
+找到 {}，但工程里没有 compile_commands.json，使用内置索引	Found {}, but the project has no compile_commands.json; using the built-in index	找到 {}，但專案裡沒有 compile_commands.json，使用內建索引	{} を検出しましたが compile_commands.json がないため内蔵インデックスを使用します	{} 발견, 하지만 compile_commands.json이 없어 내장 색인 사용	{} gefunden, aber keine compile_commands.json; integrierter Index	{} trouvé, mais pas de compile_commands.json ; index intégré	Se encontró {}, pero no hay compile_commands.json; índice integrado	Найден {}, но нет compile_commands.json; встроенный индекс	{} encontrado, mas sem compile_commands.json; índice integrado
+使用 clangd	Use clangd	使用 clangd	clangd を使う	clangd 사용	clangd verwenden	Utiliser clangd	Usar clangd	Использовать clangd	Usar clangd
+装了 clangd 且工程里有 compile_commands.json 时，跳转定义交给 clangd，更准确；否则用内置索引	When clangd is installed and the project has compile_commands.json, Go to Definition uses clangd for exact results; otherwise the built-in index	裝了 clangd 且專案裡有 compile_commands.json 時，跳轉定義交給 clangd，更準確；否則用內建索引	clangd があり compile_commands.json がある場合、定義へ移動に clangd を使います（より正確）。それ以外は内蔵インデックス	clangd가 설치되어 있고 compile_commands.json이 있으면 정의로 이동에 clangd를 사용합니다. 그렇지 않으면 내장 색인	Mit clangd und compile_commands.json nutzt „Gehe zu Definition“ clangd (genauer); sonst den integrierten Index	Si clangd est installé et que le projet a un compile_commands.json, « Aller à la définition » utilise clangd ; sinon l'index intégré	Con clangd y compile_commands.json, Ir a definición usa clangd (más preciso); si no, el índice integrado	Если установлен clangd и есть compile_commands.json, переход к определению использует clangd; иначе встроенный индекс	Com clangd e compile_commands.json, Ir para definição usa o clangd; senão o índice integrado
+clangd 路径	clangd path	clangd 路徑	clangd のパス	clangd 경로	clangd-Pfad	Chemin de clangd	Ruta de clangd	Путь к clangd	Caminho do clangd
+留空会自动查找（PATH、LLVM 默认安装目录）	Leave empty to search automatically (PATH, default LLVM install folder)	留空會自動尋找（PATH、LLVM 預設安裝目錄）	空欄なら自動検索（PATH、LLVM の既定インストール先）	비워 두면 자동 검색(PATH, LLVM 기본 설치 폴더)	Leer lassen für automatische Suche (PATH, LLVM-Standardordner)	Laisser vide pour une recherche automatique (PATH, dossier LLVM)	Déjalo vacío para buscar automáticamente (PATH, carpeta de LLVM)	Оставьте пустым для автопоиска (PATH, папка LLVM)	Deixe vazio para procurar automaticamente (PATH, pasta do LLVM)
+自动	Auto	自動	自動	자동	Auto	Auto	Auto	Авто	Auto

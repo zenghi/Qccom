@@ -218,6 +218,30 @@ pub enum Act {
     GitRefresh,
     GitFetch,
     GitFind,
+    // 编辑器
+    ToggleComment,
+    MoveLineUp,
+    MoveLineDown,
+    CopyLineUp,
+    CopyLineDown,
+    DeleteLine,
+    InsertLineBelow,
+    InsertLineAbove,
+    SelectLine,
+    AddNextOcc,
+    SelectAllOcc,
+    CursorAbove,
+    CursorBelow,
+    GotoBracket,
+    Fold,
+    Unfold,
+    FoldAll,
+    UnfoldAll,
+    ToggleBookmark,
+    NextBookmark,
+    PrevBookmark,
+    ToggleContext,
+    ToggleRelations,
 }
 
 pub struct ActDef {
@@ -286,6 +310,29 @@ acts! {
     Act::GitRefresh, "git.refresh", "刷新仓库", Git, ["F5"];
     Act::GitFetch, "git.fetch", "从所有远程拉取", Git, [];
     Act::GitFind, "git.find", "搜索提交", Git, ["Ctrl+F"];
+    Act::ToggleComment, "edit.comment", "切换行注释", Code, ["Ctrl+/"];
+    Act::MoveLineUp, "edit.move_up", "向上移动行", Code, ["Alt+↑"];
+    Act::MoveLineDown, "edit.move_down", "向下移动行", Code, ["Alt+↓"];
+    Act::CopyLineUp, "edit.copy_up", "向上复制行", Code, ["Shift+Alt+↑"];
+    Act::CopyLineDown, "edit.copy_down", "向下复制行", Code, ["Shift+Alt+↓"];
+    Act::DeleteLine, "edit.delete_line", "删除行", Code, ["Ctrl+Shift+K"];
+    Act::InsertLineBelow, "edit.line_below", "在下方插入行", Code, ["Ctrl+Enter"];
+    Act::InsertLineAbove, "edit.line_above", "在上方插入行", Code, ["Ctrl+Shift+Enter"];
+    Act::SelectLine, "edit.select_line", "选中当前行", Code, ["Ctrl+L"];
+    Act::AddNextOcc, "edit.next_occ", "把下一个相同内容加入选择", Code, ["Ctrl+D"];
+    Act::SelectAllOcc, "edit.all_occ", "选中所有相同内容", Code, ["Ctrl+Shift+L"];
+    Act::CursorAbove, "edit.cursor_above", "在上方添加光标", Code, ["Ctrl+Alt+↑"];
+    Act::CursorBelow, "edit.cursor_below", "在下方添加光标", Code, ["Ctrl+Alt+↓"];
+    Act::GotoBracket, "edit.goto_bracket", "跳到匹配的括号", Code, ["Ctrl+Shift+\\"];
+    Act::Fold, "edit.fold", "折叠代码块", Code, ["Ctrl+Shift+[", "Ctrl+Shift+{"];
+    Act::Unfold, "edit.unfold", "展开代码块", Code, ["Ctrl+Shift+]", "Ctrl+Shift+}"];
+    Act::FoldAll, "edit.fold_all", "全部折叠", Code, ["Ctrl+K Ctrl+0"];
+    Act::UnfoldAll, "edit.unfold_all", "全部展开", Code, ["Ctrl+K Ctrl+J"];
+    Act::ToggleBookmark, "bookmark.toggle", "切换书签", Code, ["Ctrl+F2"];
+    Act::NextBookmark, "bookmark.next", "下一个书签", Code, ["F2"];
+    Act::PrevBookmark, "bookmark.prev", "上一个书签", Code, ["Shift+F2"];
+    Act::ToggleContext, "code.context", "显示 / 隐藏上下文窗口", Code, ["Ctrl+Shift+Y"];
+    Act::ToggleRelations, "code.relations", "显示 / 隐藏调用关系", Code, ["Ctrl+Shift+R"];
 }
 
 pub fn def(a: Act) -> &'static ActDef {
@@ -364,14 +411,12 @@ impl Keymap {
                     return false;
                 }
                 let combo = Combo::from_event(*key, *modifiers);
-                if typing
-                    && combo.ctrl
-                    && !combo.alt
-                    && matches!(
-                        combo.key,
-                        Key::A | Key::Z | Key::Y | Key::X | Key::C | Key::V | Key::ArrowLeft | Key::ArrowRight | Key::Backspace | Key::Delete | Key::Home | Key::End
-                    )
-                {
+                let edit_key = match combo.key {
+                    Key::A | Key::Y | Key::X | Key::C | Key::V => !combo.shift,
+                    Key::Z | Key::ArrowLeft | Key::ArrowRight | Key::Backspace | Key::Delete | Key::Home | Key::End => true,
+                    _ => false,
+                };
+                if typing && combo.ctrl && !combo.alt && edit_key {
                     return true;
                 }
                 // 序列的第二个键

@@ -134,8 +134,32 @@ Click `</>` in the activity bar, then **Open folder** to open your firmware proj
 - **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with a case-sensitive option. Click a result to jump to it.
 - **Find in file** (`Ctrl+F`).
 - **C / C++ navigation**: hover an identifier to see its definition. Hovering a macro shows the `#define`, the full expansion and the computed value (for example `BRR_VALUE` → `((72 * 1000 * 1000) / 115200)` → `0x271 (625)`). Hovering an enum constant shows its value. `Ctrl+click` or `F12` goes to the definition, `Shift+F12` finds references, and `Alt+←` / `Alt+→` go back and forward.
-- **Editing**: files open read-only so you can't change them by accident. Click the pencil icon to enable editing, then `Ctrl+S` saves.
+- **clangd (optional)**: if [clangd](https://clangd.llvm.org/) is installed (on PATH, or in the default LLVM folder on Windows) and the project has a `compile_commands.json` in its root or `build/`, Go to Definition uses clangd. It tells apart static functions with the same name, local variables and struct members. The status bar shows `· clangd`. Without it QCCOM falls back to its built-in index; nothing to configure. You can turn it off or set the clangd path in Settings → Code Editor.
 - `Ctrl+=` and `Ctrl+-` change the font size. A minimap is on the right.
+
+### Editing
+
+Files are editable; `Ctrl+S` saves, and a dot on the tab marks unsaved changes. The editor works like VS Code:
+
+- **Undo / redo**: `Ctrl+Z` / `Ctrl+Y` (or `Ctrl+Shift+Z`). Continuous typing is one undo step.
+- **Multiple cursors**: `Alt+click` adds a cursor. `Ctrl+D` adds the next occurrence of the word, `Ctrl+Shift+L` selects all of them, and `Ctrl+Alt+↑/↓` adds a cursor on the line above or below. `Esc` goes back to one cursor.
+- **Column selection**: `Alt+Shift+drag` or middle-button drag.
+- **Brackets**: brackets and quotes close automatically, and typing a bracket with text selected wraps it. The matching bracket is outlined; `Ctrl+Shift+\` jumps to it.
+- **Indentation**: Enter keeps the indentation and opens a block after `{`. `Tab` / `Shift+Tab` indent and outdent. Indent guides highlight the current block.
+- **Folding**: click the arrow next to a line number, or `Ctrl+Shift+[` / `Ctrl+Shift+]`. `Ctrl+K Ctrl+0` folds everything and `Ctrl+K Ctrl+J` unfolds everything. Works for `{}`, `#if/#endif` and multi-line comments.
+- **Lines**: `Ctrl+/` toggles comments, `Alt+↑/↓` moves lines, `Shift+Alt+↑/↓` copies them, `Ctrl+Shift+K` deletes them, `Ctrl+L` selects the line, and `Ctrl+Enter` / `Ctrl+Shift+Enter` insert a line below / above.
+- **More**: the word under the cursor is highlighted everywhere; the enclosing function and blocks stay pinned at the top while you scroll; holding `Ctrl` underlines identifiers you can jump to.
+
+### Context window, call hierarchy and bookmarks
+
+These follow Source Insight and help when reading an unfamiliar project.
+
+- **Context window** (`Ctrl+Shift+Y`, or the button on the right of the breadcrumb bar): shows the definition of the function, macro or type under the cursor below the editor, including the comment above it. Click the file name to jump there. Drag its edge to resize it.
+- **Call hierarchy** (`Ctrl+Shift+R`): shows which functions the current function **calls** and which functions it is **called by**, expandable level by level. Click an entry to jump to it. The pin keeps the current function while you move around.
+- **Bookmarks**: `Ctrl+F2` toggles a bookmark on the current line (or click left of the line number). `F2` / `Shift+F2` go to the next / previous one. The Outline panel lists the bookmarks of all open files at the top.
+- **Semantic colors**: functions, macros, types, enum constants and globals each get their own color.
+
+![Context window and call hierarchy](screenshot-insight.png)
 
 ## Git viewer
 
@@ -216,8 +240,29 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Shift+F12 | Find references |
 | Alt+← / Alt+→ | Back / forward |
 | Ctrl+Tab / Ctrl+W | Next tab / close tab |
-| Ctrl+S | Save (when editing is enabled) |
+| Ctrl+S | Save |
 | Ctrl+= / Ctrl+- | Font size |
+| Ctrl+Shift+Y | Context window |
+| Ctrl+Shift+R | Call hierarchy |
+| Ctrl+F2 / F2 / Shift+F2 | Toggle bookmark / next / previous |
+
+**Editor**
+
+| Keys | Action |
+|---|---|
+| Ctrl+Z / Ctrl+Y | Undo / redo |
+| Ctrl+/ | Toggle line comment |
+| Alt+↑ / Alt+↓ | Move line |
+| Shift+Alt+↑ / ↓ | Copy line |
+| Ctrl+Shift+K | Delete line |
+| Ctrl+L | Select line |
+| Ctrl+Enter / Ctrl+Shift+Enter | Insert line below / above |
+| Ctrl+D / Ctrl+Shift+L | Add next occurrence / select all occurrences |
+| Ctrl+Alt+↑ / ↓ | Add cursor above / below |
+| Alt+click / Alt+Shift+drag | Add cursor / column select |
+| Ctrl+Shift+\ | Go to matching bracket |
+| Ctrl+Shift+[ / ] | Fold / unfold |
+| Ctrl+K Ctrl+0 / Ctrl+K Ctrl+J | Fold all / unfold all |
 
 On macOS-style keyboards, Ctrl may be shown as ⌘. QCCOM uses the platform's command key.
 

@@ -272,7 +272,12 @@ impl App {
                         ui.label(RichText::new(t("收到")).small().color(TEXT3()));
                         ui.horizontal(|ui| {
                             changed |= ui
-                                .add(egui::TextEdit::singleline(&mut tr.pat).font(FontId::new(12.5, FontFamily::Monospace)).desired_width(ui.available_width() - 42.0).hint_text(t("文字或正则")))
+                                .add(
+                                    egui::TextEdit::singleline(&mut tr.pat)
+                                        .font(FontId::new(12.5, FontFamily::Monospace))
+                                        .desired_width(ui.available_width() - 42.0)
+                                        .hint_text(t("文字或正则")),
+                                )
                                 .changed();
                             changed |= small_chip(ui, &mut tr.regex, ".*", t("正则表达式"));
                         });

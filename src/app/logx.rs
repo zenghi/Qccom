@@ -551,16 +551,18 @@ impl App {
         let mut changed = false;
         let mono = FontId::new(13.0, FontFamily::Monospace);
         tool_window(ctx, t("帧格式"), "frame", &mut open, 440.0, |ui| {
-            ui.label(RichText::new(t("收到的数据按帧头 + 长度切成一帧一行，并检查校验；校验错的帧标红。适合看二进制协议。")).small().color(TEXT3()));
+            ui.label(
+                RichText::new(t("收到的数据按帧头 + 长度切成一帧一行，并检查校验；校验错的帧标红。适合看二进制协议。"))
+                    .small()
+                    .color(TEXT3()),
+            );
             ui.add_space(4.0);
             let f = &mut self.s.frame;
             changed |= switch_row(ui, &mut f.on, t("按帧格式分帧"), t("关闭时按换行符分行"));
             ui.add_enabled_ui(f.on, |ui| {
                 egui::Grid::new("framegrid").num_columns(2).spacing([12.0, 8.0]).show(ui, |ui| {
                     ui.label(RichText::new(t("帧头")).color(TEXT2()));
-                    changed |= ui
-                        .add(egui::TextEdit::singleline(&mut f.header).font(mono.clone()).desired_width(160.0).hint_text("AA 55"))
-                        .changed();
+                    changed |= ui.add(egui::TextEdit::singleline(&mut f.header).font(mono.clone()).desired_width(160.0).hint_text("AA 55")).changed();
                     ui.end_row();
                     ui.label(RichText::new(t("帧长")).color(TEXT2()));
                     ui.horizontal(|ui| {
@@ -606,7 +608,11 @@ impl App {
                 });
                 // 示意：按当前设置画一帧
                 ui.add_space(6.0);
-                let n = if f.fixed { f.fixed_len as usize } else { (f.len_off as usize + f.len_size as usize + 3).max(parse_hex(&f.header).map_or(0, |h| h.len()) + 3) };
+                let n = if f.fixed {
+                    f.fixed_len as usize
+                } else {
+                    (f.len_off as usize + f.len_size as usize + 3).max(parse_hex(&f.header).map_or(0, |h| h.len()) + 3)
+                };
                 let roles = f.roles(n.min(24));
                 ui.horizontal_wrapped(|ui| {
                     ui.spacing_mut().item_spacing.x = 3.0;
@@ -650,14 +656,24 @@ impl App {
             };
             egui::Grid::new("statsg").num_columns(2).spacing([24.0, 6.0]).show(ui, |ui| {
                 row(ui, t("接收"), format!("{}  ·  {}", human_bytes(self.rx_bytes), tf("{} 行", &[&group_digits(rx_lines)])), ACCENT());
-                row(ui, t("发送"), format!("{}  ·  {}", human_bytes(self.tx_bytes), tf("{} 行", &[&group_digits(tx_lines as u64)])), VIOLET());
+                row(
+                    ui,
+                    t("发送"),
+                    format!("{}  ·  {}", human_bytes(self.tx_bytes), tf("{} 行", &[&group_digits(tx_lines as u64)])),
+                    VIOLET(),
+                );
                 row(ui, t("当前速率"), format!("{}/s", human_bytes(self.rate as u64)), TEXT());
                 row(ui, t("峰值速率"), format!("{}/s", human_bytes(self.stats.peak_rate as u64)), TEXT());
                 if let Some(s) = up.filter(|&s| s > 1.0) {
                     row(ui, t("平均速率"), format!("{}/s", human_bytes((self.rx_bytes as f64 / s) as u64)), TEXT());
                 }
                 row(ui, t("连接时长"), self.uptime(), TEXT());
-                for (lv, name, col) in [(Level::Error, "ERROR", ERR()), (Level::Warn, "WARN", WARN()), (Level::Info, "INFO", INFO()), (Level::Debug, "DEBUG", DEBUG())] {
+                for (lv, name, col) in [
+                    (Level::Error, "ERROR", ERR()),
+                    (Level::Warn, "WARN", WARN()),
+                    (Level::Info, "INFO", INFO()),
+                    (Level::Debug, "DEBUG", DEBUG()),
+                ] {
                     let n = c[lv as usize];
                     let pct = if rx_lines > 0 { n as f64 * 100.0 / rx_lines as f64 } else { 0.0 };
                     row(ui, name, format!("{}  ({pct:.1}%)", group_digits(n)), if n > 0 { col } else { TEXT3() });
@@ -686,7 +702,12 @@ impl App {
 
     /// 日志工具栏「更多」菜单
     pub(super) fn more_menu(&mut self, ui: &mut egui::Ui) {
-        let (k_mark, k_next, k_prev, k_rules) = (self.km.label(Act::LogMarker), self.km.label(Act::LogNextMark), self.km.label(Act::LogPrevMark), self.km.label(Act::LogRules));
+        let (k_mark, k_next, k_prev, k_rules) = (
+            self.km.label(Act::LogMarker),
+            self.km.label(Act::LogNextMark),
+            self.km.label(Act::LogPrevMark),
+            self.km.label(Act::LogRules),
+        );
         ui.set_min_width(240.0);
         if menu_item(ui, t("插入标记"), &k_mark) {
             self.insert_marker();

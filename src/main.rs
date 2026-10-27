@@ -1,11 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod api;
 mod app;
 mod atcmds;
-mod bridge;
 mod binview;
-mod cindex;
+mod ble;
+mod bridge;
 mod checksum;
+mod cindex;
 mod cmds;
 mod codeview;
 mod editor;
@@ -15,8 +17,8 @@ mod highlight;
 mod i18n;
 mod keymap;
 mod logbuf;
-mod modbus;
 mod lsp;
+mod modbus;
 mod net;
 mod pattern;
 mod script;

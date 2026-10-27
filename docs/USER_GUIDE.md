@@ -125,6 +125,31 @@ Pick a tab above the device list. All log, terminal, quick-command and recording
 
 TLS uses the operating system's certificate store on Windows and the Mozilla root store on Linux.
 
+## Bluetooth LE
+
+Open the **BLE** tab and click **Scan**. Nearby devices appear with their name, address, a hint such as *Nordic UART* or the manufacturer, and signal bars with the RSSI. Type in the filter box to narrow the list, or use the filter button to hide devices without a name. Devices not seen for 30 seconds are dimmed.
+
+Select a device and click **Connect** (or double-click it). After connecting, the sidebar lists its services and characteristics:
+
+- **Notify** switch: subscribe to notifications and indications. Notifiable characteristics outside the standard GAP / GATT services are subscribed automatically. Each notification is one log line tagged with the characteristic, e.g. `[NUS TX] temp=24.1`.
+- **Read** button: read the value once. Text is shown as is; short binary values are shown as HEX with the little-endian number, e.g. `[Battery Level R] 57  (87)`.
+- **Write target**: click a writable characteristic (marked **W**) to make it the target; whatever you send from the command bar, quick commands, scripts or auto-replies is written there, split into MTU-sized chunks. The Nordic UART RX characteristic, `FFE1` and `FFF2` are chosen automatically.
+- **Write with response** switch: use Write Request (acknowledged) instead of Write Command.
+
+Requirements: Windows 10 or later with Bluetooth turned on; on Linux, BlueZ with the `bluetooth` service running (the binary links `libdbus-1`, which every desktop distribution ships). If Bluetooth is not available, the tab shows why. To try the tab without hardware, start QCCOM with the environment variable `QCCOM_BLE_DEMO=1`; it simulates a few devices, and `QC-Sensor` echoes what you write and sends a reading every second.
+
+## HTTP API testing
+
+The **API** tab turns the main area into a Postman-style request editor, which is handy for the REST endpoints of ESP32, Linux boards and cloud services. A serial or network connection stays open in the background while you use it.
+
+- Pick the method, type the URL and press **Send** (or `Enter` / `Ctrl+Enter`). The status, time and size appear above the response; JSON is indented and colored (toggle **Format**), and the **Headers** tab lists the response headers. Copy or save the body with the buttons on the right.
+- **Params**, **Headers**, **Body** (JSON, form or text) and **Auth** (Bearer token or Basic) tabs. `Content-Type` and `Authorization` are added for you and listed under the header table.
+- **Variables**: define `base = http://192.168.4.1` once and write `{{base}}/api/status`. Variables work in the URL, params, headers, body and token. The variables window also has the timeout and *follow redirects* settings.
+- **Save** keeps a request in the sidebar list (right-click to rename, duplicate or delete); every request you send is added to **History**.
+- **cURL**: paste a curl command (browser dev tools → *Copy as cURL*) into the URL bar to import it, or use **cURL ▾** to copy the current request as curl or start a new one.
+
+Requests to `localhost`, private and link-local addresses never go through the system proxy.
+
 ## Debugging tools
 
 ![Plot, highlight rules and the reply panel](screenshot-debug-tools.png)

@@ -340,7 +340,13 @@ pub struct Framer {
 
 impl Framer {
     pub fn new(header: Vec<u8>, len: LenSpec, check: crate::checksum::Check, timeout_ms: u32) -> Self {
-        Framer { header, len, check, timeout_ms, pending: vec![] }
+        Framer {
+            header,
+            len,
+            check,
+            timeout_ms,
+            pending: vec![],
+        }
     }
 
     /// 整帧长度；字节还不够判断时返回 None
@@ -360,7 +366,11 @@ impl Framer {
         let mut out = vec![];
         loop {
             let b = &self.pending;
-            let start = if self.header.is_empty() { Some(0) } else { b.windows(self.header.len()).position(|w| w == self.header.as_slice()) };
+            let start = if self.header.is_empty() {
+                Some(0)
+            } else {
+                b.windows(self.header.len()).position(|w| w == self.header.as_slice())
+            };
             let Some(start) = start else {
                 // 没找到帧头：保留可能是帧头开头的最后几个字节，其余算杂数据
                 let keep = self.header.len().saturating_sub(1).min(b.len());
@@ -637,7 +647,17 @@ mod tests {
         use crate::checksum::Check;
         let mut b = LogBuf::new(100);
         // AA 55 | len | payload… | sum8（长度字段 = 负载字节数，整帧 = len + 4）
-        b.framer = Some(Framer::new(vec![0xAA, 0x55], LenSpec::Field { offset: 2, size: 1, be: true, adjust: 4 }, Check::Sum8, 1000));
+        b.framer = Some(Framer::new(
+            vec![0xAA, 0x55],
+            LenSpec::Field {
+                offset: 2,
+                size: 1,
+                be: true,
+                adjust: 4,
+            },
+            Check::Sum8,
+            1000,
+        ));
         let mut f1 = vec![0xAA, 0x55, 0x02, 0x10, 0x20];
         f1.push(Check::Sum8.value(&f1) as u8);
         let mut data = vec![0x00, 0x01];

@@ -276,7 +276,11 @@ impl App {
     fn mb_parse(&mut self) {
         let Some((at, f, count, tid)) = self.mb.pending else { return };
         let tcp = matches!(self.s.transport, Transport::TcpClient | Transport::TcpServer);
-        let r = if tcp { modbus::parse_tcp(tid, f, count, &self.mb.rx) } else { modbus::parse_rtu(self.s.mb.unit, f, count, &self.mb.rx) };
+        let r = if tcp {
+            modbus::parse_tcp(tid, f, count, &self.mb.rx)
+        } else {
+            modbus::parse_rtu(self.s.mb.unit, f, count, &self.mb.rx)
+        };
         match r {
             Ok(None) => {}
             Ok(Some((reply, _))) => {
@@ -318,9 +322,13 @@ impl App {
         let tcp = matches!(self.s.transport, Transport::TcpClient | Transport::TcpServer);
         tool_window(ctx, t("Modbus 主站"), "modbus", &mut open, 470.0, |ui| {
             ui.label(
-                RichText::new(if tcp { t("当前是 TCP 连接：使用 Modbus TCP（MBAP 头）") } else { t("当前是串口：使用 Modbus RTU（CRC-16）") })
-                    .small()
-                    .color(TEXT3()),
+                RichText::new(if tcp {
+                    t("当前是 TCP 连接：使用 Modbus TCP（MBAP 头）")
+                } else {
+                    t("当前是串口：使用 Modbus RTU（CRC-16）")
+                })
+                .small()
+                .color(TEXT3()),
             );
             let c = &mut self.s.mb;
             egui::Grid::new("mbg").num_columns(4).spacing([10.0, 8.0]).show(ui, |ui| {
@@ -358,7 +366,10 @@ impl App {
             }
             ui.add_space(4.0);
             ui.horizontal(|ui| {
-                if ui.add(egui::Button::new(RichText::new(t("发送")).color(ON_ACCENT())).fill(ACCENT()).min_size(vec2(72.0, 28.0))).clicked() {
+                if ui
+                    .add(egui::Button::new(RichText::new(t("发送")).color(ON_ACCENT())).fill(ACCENT()).min_size(vec2(72.0, 28.0)))
+                    .clicked()
+                {
                     send = true;
                 }
                 let poll = self.mb.polling;
@@ -369,7 +380,11 @@ impl App {
                 }
                 ui.add(egui::DragValue::new(&mut c.poll_ms).range(50..=600_000).suffix(" ms").speed(10));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    ui.label(RichText::new(format!("✓ {}   ✗ {}", self.mb.ok, self.mb.err)).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT3()));
+                    ui.label(
+                        RichText::new(format!("✓ {}   ✗ {}", self.mb.ok, self.mb.err))
+                            .font(FontId::new(11.5, FontFamily::Monospace))
+                            .color(TEXT3()),
+                    );
                 });
             });
             if !self.mb.status.is_empty() {
@@ -398,7 +413,11 @@ impl App {
                                 ui.label(RichText::new(v[i].to_string()).font(mono.clone()).color(TEXT3()));
                                 ui.label(RichText::new(if v[i] != 0 { "ON" } else { "OFF" }).font(mono.clone()).color(if v[i] != 0 { OK() } else { TEXT3() }));
                             } else {
-                                let raw = if wide && i + 1 < v.len() { format!("{:04X} {:04X}", v[i], v[i + 1]) } else { format!("{:04X}", v[i]) };
+                                let raw = if wide && i + 1 < v.len() {
+                                    format!("{:04X} {:04X}", v[i], v[i + 1])
+                                } else {
+                                    format!("{:04X}", v[i])
+                                };
                                 ui.label(RichText::new(raw).font(mono.clone()).color(TEXT3()));
                                 let val = match fmt {
                                     MbFmt::U16 => v[i].to_string(),
@@ -415,7 +434,11 @@ impl App {
                                     }
                                     _ => "—".into(),
                                 };
-                                if ui.add(egui::Label::new(RichText::new(&val).font(mono.clone()).color(TEXT())).sense(Sense::click())).on_hover_text(t("点击复制")).clicked() {
+                                if ui
+                                    .add(egui::Label::new(RichText::new(&val).font(mono.clone()).color(TEXT())).sense(Sense::click()))
+                                    .on_hover_text(t("点击复制"))
+                                    .clicked()
+                                {
                                     ui.ctx().copy_text(val);
                                 }
                             }
@@ -598,7 +621,11 @@ impl App {
                     .desired_width(f32::INFINITY)
                     .hint_text(if self.calc.hex { "01 03 00 00 00 0A" } else { "123456789" }),
             );
-            let data = if self.calc.hex { parse_hex(&self.calc.input) } else { Ok(self.s.encoding.encode(&self.calc.input)) };
+            let data = if self.calc.hex {
+                parse_hex(&self.calc.input)
+            } else {
+                Ok(self.s.encoding.encode(&self.calc.input))
+            };
             match data {
                 Err(e) => {
                     ui.label(RichText::new(e).color(ERR()));
@@ -612,7 +639,11 @@ impl App {
                             let v = c.value(&d);
                             let w = c.len() * 2;
                             let s = format!("0x{v:0w$X}");
-                            if ui.add(egui::Label::new(RichText::new(&s).font(mono.clone()).color(TEXT())).sense(Sense::click())).on_hover_text(t("点击复制")).clicked() {
+                            if ui
+                                .add(egui::Label::new(RichText::new(&s).font(mono.clone()).color(TEXT())).sense(Sense::click()))
+                                .on_hover_text(t("点击复制"))
+                                .clicked()
+                            {
                                 ui.ctx().copy_text(s);
                             }
                             let wire: String = c.bytes(&d).iter().map(|b| format!("{b:02X} ")).collect();

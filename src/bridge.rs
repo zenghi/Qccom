@@ -29,10 +29,7 @@ impl Bridge {
         l.set_nonblocking(true).map_err(|e| e.to_string())?;
         let (to_net, from_app) = mpsc::channel::<Vec<u8>>();
         let (evt_tx, rx) = mpsc::channel();
-        thread::Builder::new()
-            .name("bridge".into())
-            .spawn(move || run(l, from_app, evt_tx, ctx))
-            .map_err(|e| e.to_string())?;
+        thread::Builder::new().name("bridge".into()).spawn(move || run(l, from_app, evt_tx, ctx)).map_err(|e| e.to_string())?;
         Ok(Bridge { port, to_net, rx, clients: 0 })
     }
 

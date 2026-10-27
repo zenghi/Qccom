@@ -14,7 +14,6 @@ use eframe::egui::{self, epaint, pos2, text::LayoutJob, vec2, Align, Align2, Col
 use serde::{Deserialize, Serialize};
 
 use crate::atcmds;
-use dbgtools::check_combo;
 use crate::cmds::{default_groups, CmdAction, CmdGroup, CmdPanel, QuickCmd};
 use crate::codeview::{CodeEvt, CodeSettings, CodeView};
 use crate::gitview::{GitEvt, GitSettings, GitView};
@@ -27,6 +26,7 @@ use crate::shell::{ShellEvt, ShellSettings, Shells};
 use crate::termview::TermView;
 use crate::theme::*;
 use crate::update::{self, Release, UpdEvt};
+use dbgtools::check_combo;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewMode {
@@ -140,6 +140,9 @@ pub struct Settings {
     /// 右侧面板的标签：0 命令 1 应答 2 脚本
     pub dock_tab: u8,
     pub plot: plot::PlotCfg,
+    /// 侧边栏选了「API」标签（HTTP 接口调试），这时主区域换成请求编辑器
+    pub api_mode: bool,
+    pub api: crate::api::ApiSettings,
     pub mb: dbgtools::MbCfg,
     /// HEX 发送时自动追加的校验
     pub send_check: crate::checksum::Check,
@@ -209,6 +212,8 @@ impl Default for Settings {
             scripts: vec![],
             dock_tab: 0,
             plot: Default::default(),
+            api_mode: false,
+            api: Default::default(),
             mb: Default::default(),
             send_check: Default::default(),
             multiline: false,
@@ -244,6 +249,8 @@ enum Upd {
 }
 const SETTINGS_REV: u32 = 2;
 
+mod apiview;
+mod blex;
 mod dbgtools;
 mod dock;
 mod logx;
@@ -328,6 +335,10 @@ pub struct App {
     toast: Option<(String, Color32, Instant)>,
     logo: egui::TextureHandle,
     cmd_ui: CmdPanel,
+    api: apiview::ApiUi,
+    /// 蓝牙后台线程，第一次切到 BLE 标签时才启动
+    ble: Option<crate::ble::Hub>,
+    ble_filter: String,
     /// 整组依次发送的队列：(组, 剩余数据, 下一条的时间)
     seq: Option<(usize, VecDeque<Vec<u8>>, Instant)>,
     last_rx_at: Option<Instant>,
@@ -496,6 +507,9 @@ impl App {
                 egui::TextureOptions::LINEAR,
             ),
             cmd_ui: CmdPanel::default(),
+            api: Default::default(),
+            ble: None,
+            ble_filter: String::new(),
             seq: None,
             last_rx_at: None,
             last_tx_at: None,
@@ -585,6 +599,10 @@ impl App {
             self.peers = None;
             if !quiet {
                 self.buf.sys(tf("正在连接 {} …", &[&self.s.net.label(self.s.transport)]));
+            }
+            if self.s.transport == Transport::Ble {
+                self.conn = self.ble_connect();
+                return;
             }
             match net::open(self.conn_gen, self.s.transport, self.s.net.clone(), self.evt_tx.clone(), self.ctx.clone()) {
                 Ok(c) => self.conn = Some(c),
@@ -728,7 +746,11 @@ impl App {
         let data = if multi && !self.s.hex_send {
             // 整段一起发：行与行之间用所选的换行符
             let le = self.line_ending();
-            let sep = if le == LineEnding::None { "\n".to_string() } else { String::from_utf8_lossy(le.bytes()).into_owned() };
+            let sep = if le == LineEnding::None {
+                "\n".to_string()
+            } else {
+                String::from_utf8_lossy(le.bytes()).into_owned()
+            };
             let joined = text.lines().collect::<Vec<_>>().join(&sep);
             self.encode_input(&joined)
         } else {
@@ -1003,7 +1025,11 @@ impl App {
                     if let Some(d) = q.pop_front() {
                         self.send_bytes(d);
                     }
-                    let ms = if gi == usize::MAX { self.s.line_gap_ms } else { self.s.groups.get(gi).map_or(200, |g| g.interval_ms) };
+                    let ms = if gi == usize::MAX {
+                        self.s.line_gap_ms
+                    } else {
+                        self.s.groups.get(gi).map_or(200, |g| g.interval_ms)
+                    };
                     let iv = Duration::from_millis(ms as u64);
                     if !q.is_empty() {
                         self.seq = Some((gi, q, Instant::now() + iv));
@@ -1019,7 +1045,12 @@ impl App {
         // 新收完的行：应答规则、脚本、波形图
         let want = !self.dock.trig_rt.iter().all(Option::is_none) || self.dock.script.is_some() || self.s.plot.on;
         if want {
-            let texts: Vec<String> = committed.iter().filter_map(|id| self.buf.get(*id)).filter(|l| matches!(l.dir, Dir::Rx | Dir::Rx2)).map(|l| l.plain.clone()).collect();
+            let texts: Vec<String> = committed
+                .iter()
+                .filter_map(|id| self.buf.get(*id))
+                .filter(|l| matches!(l.dir, Dir::Rx | Dir::Rx2))
+                .map(|l| l.plain.clone())
+                .collect();
             for tx in texts {
                 self.on_line(&tx);
                 self.plot_line(&tx);
@@ -1441,7 +1472,9 @@ impl App {
         brand(ui, &logo, |ui| self.profile_button(ui));
         ui.add_space(14.0);
 
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        // 限宽：哪个控件多出几像素也不会把侧边栏撑宽（切换标签时宽度保持一致）
+        let w = ui.available_width();
+        egui::ScrollArea::vertical().auto_shrink([false, false]).max_width(w).show(ui, |ui| {
             egui::Frame::new()
                 .inner_margin(egui::Margin {
                     left: 0,
@@ -1454,24 +1487,52 @@ impl App {
                     let busy = self.conn.is_some() || self.autobaud.is_some();
 
                     // ---- 连接方式
-                    let mut kind = if self.s.transport == Transport::TcpServer { Transport::TcpClient } else { self.s.transport };
-                    ui.add_enabled_ui(!busy, |ui| {
-                        tab_strip(
-                            ui,
-                            &mut kind,
-                            &[(Transport::Serial, t("串口")), (Transport::TcpClient, "TCP"), (Transport::Udp, "UDP"), (Transport::Mqtt, "MQTT")],
-                            30.0,
-                        );
-                    });
-                    if kind != Transport::TcpClient || self.s.transport != Transport::TcpServer {
-                        if kind != self.s.transport {
-                            self.reconnect = None;
-                            self.last_error = None;
+                    // API 不是连接方式：切过去时串口 / 网络连接留在后台照常收日志
+                    let cur = if self.s.api_mode {
+                        None
+                    } else {
+                        Some(if self.s.transport == Transport::TcpServer { Transport::TcpClient } else { self.s.transport })
+                    };
+                    let mut kind = cur;
+                    tab_strip(
+                        ui,
+                        &mut kind,
+                        &[
+                            (Some(Transport::Serial), t("串口")),
+                            (Some(Transport::TcpClient), "TCP"),
+                            (Some(Transport::Udp), "UDP"),
+                            (Some(Transport::Mqtt), "MQTT"),
+                            (Some(Transport::Ble), "BLE"),
+                            (None, "API"),
+                        ],
+                        30.0,
+                    );
+                    if kind != cur {
+                        match kind {
+                            None => self.s.api_mode = true,
+                            Some(k) => {
+                                let back = self.s.api_mode && (k == self.s.transport || (k == Transport::TcpClient && self.s.transport == Transport::TcpServer));
+                                self.s.api_mode = false;
+                                if !back {
+                                    if busy {
+                                        self.toast(t("先断开当前连接再切换"), WARN());
+                                    } else {
+                                        self.reconnect = None;
+                                        self.last_error = None;
+                                        self.s.transport = k;
+                                    }
+                                }
+                            }
                         }
-                        self.s.transport = kind;
                     }
                     ui.add_space(12.0);
-                    if self.s.transport != Transport::Serial {
+                    if self.s.api_mode {
+                        self.api_sidebar(ui);
+                        return;
+                    }
+                    if self.s.transport == Transport::Ble {
+                        self.ble_sidebar(ui);
+                    } else if self.s.transport != Transport::Serial {
                         self.net_form(ui, busy);
                         ui.add_space(10.0);
                         self.connect_button(ui);
@@ -1502,7 +1563,8 @@ impl App {
                         eyebrow(ui, t("波特率"), "");
                         ui.add_enabled_ui(!busy, |ui| {
                             ui.horizontal(|ui| {
-                                let w = ui.available_width() - 80.0;
+                                // 右边留给下拉箭头和「自动」按钮，别让这一行把侧边栏撑宽
+                                let w = ui.available_width() - 94.0;
                                 let r = ui.add(
                                     egui::TextEdit::singleline(&mut self.baud_text)
                                         .desired_width(w - 34.0)
@@ -1815,7 +1877,7 @@ impl App {
                     }
                 }
             }
-            Transport::Serial => {}
+            Transport::Serial | Transport::Ble => {}
         }
     }
 
@@ -1852,7 +1914,8 @@ impl App {
         let w = ui.available_width();
         let (rect, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
         let net = self.s.transport != Transport::Serial;
-        let enabled = self.autobaud.is_none() && (net || !self.s.port.is_empty() || self.conn.is_some());
+        let ble_ok = self.s.transport != Transport::Ble || !self.s.net.ble.id.is_empty();
+        let enabled = self.autobaud.is_none() && ble_ok && (net || !self.s.port.is_empty() || self.conn.is_some());
         let connecting = net && self.conn.is_some() && self.connected.is_none();
         let hov = resp.hovered() && enabled;
         let p = ui.painter();
@@ -1946,11 +2009,14 @@ impl App {
 
     fn link_card(&mut self, ui: &mut egui::Ui) {
         card(ui, |ui| {
+            // 每列最宽 100，列多时平分，别撑宽侧边栏
+            let cols = if self.peers.is_some() { 3.0 } else { 2.0 };
+            let sw = ((ui.available_width() - 8.0 * (cols - 1.0)) / cols).min(100.0);
             ui.horizontal(|ui| {
-                stat(ui, "RX", &human_bytes(self.rx_bytes), ACCENT());
-                stat(ui, "TX", &human_bytes(self.tx_bytes), VIOLET());
+                stat(ui, sw, "RX", &human_bytes(self.rx_bytes), ACCENT());
+                stat(ui, sw, "TX", &human_bytes(self.tx_bytes), VIOLET());
                 if let Some(n) = self.peers {
-                    stat(ui, t("客户端"), &n.to_string(), OK());
+                    stat(ui, sw, t("客户端"), &n.to_string(), OK());
                 }
             });
             ui.add_space(6.0);
@@ -2066,7 +2132,11 @@ impl App {
         // 至少留一个级别标签的位置，窄窗口时搜索框让位
         let avail = ui.available_width();
         let all_pills = avail >= 160.0 + 70.0 + 5.0 * 70.0;
-        let search_w = if all_pills { (avail - 70.0 - 5.0 * 70.0).min(260.0) } else { (avail - 70.0 - 110.0).clamp(70.0, 260.0) };
+        let search_w = if all_pills {
+            (avail - 70.0 - 5.0 * 70.0).min(260.0)
+        } else {
+            (avail - 70.0 - 110.0).clamp(70.0, 260.0)
+        };
         egui::Frame::new()
             .fill(BG2())
             .stroke(st(
@@ -2121,7 +2191,18 @@ impl App {
                     if on {
                         ui.painter().rect_filled(r, 4.0, ACCENT().gamma_multiply(0.15));
                     }
-                    draw_icon(ui.painter(), r.shrink(2.0), Icon::Lines, if on { ACCENT() } else if resp.hovered() { TEXT() } else { TEXT3() });
+                    draw_icon(
+                        ui.painter(),
+                        r.shrink(2.0),
+                        Icon::Lines,
+                        if on {
+                            ACCENT()
+                        } else if resp.hovered() {
+                            TEXT()
+                        } else {
+                            TEXT3()
+                        },
+                    );
                     if resp.on_hover_text(format!("{}\n{}", t("只看匹配"), t("只显示包含搜索词的行"))).clicked() {
                         self.filter_only = !self.filter_only;
                         self.view_dirty = true;
@@ -2179,7 +2260,6 @@ impl App {
             }
         }
         ui.spacing_mut().item_spacing.x = 8.0;
-
     }
 
     fn header_right(&mut self, ui: &mut egui::Ui) {
@@ -2332,7 +2412,11 @@ impl App {
                     }
                     let id = egui::Id::new("send");
                     // AT 指令提示：输入 AT 开头时弹出候选，↑↓ 选择、Tab 补全
-                    let at = if focused && !self.s.hex_send && !self.s.multiline { atcmds::matches(&self.send_text, 7) } else { vec![] };
+                    let at = if focused && !self.s.hex_send && !self.s.multiline {
+                        atcmds::matches(&self.send_text, 7)
+                    } else {
+                        vec![]
+                    };
                     if at.is_empty() {
                         self.at_sel = 0;
                     } else {
@@ -2379,7 +2463,14 @@ impl App {
                         }
                         r
                     } else {
-                        ui.add(egui::TextEdit::singleline(&mut self.send_text).id(id).frame(false).hint_text(RichText::new(hint).color(TEXT3())).desired_width(w).font(font))
+                        ui.add(
+                            egui::TextEdit::singleline(&mut self.send_text)
+                                .id(id)
+                                .frame(false)
+                                .hint_text(RichText::new(hint).color(TEXT3()))
+                                .desired_width(w)
+                                .font(font),
+                        )
                     };
                     if completed {
                         if let Some(mut state) = egui::TextEdit::load_state(ui.ctx(), id) {
@@ -2586,14 +2677,15 @@ impl App {
 
     /// 状态栏里的回放、脚本、网络共享、监听口指示（点一下就能操作）
     fn status_extras(&mut self, ui: &mut egui::Ui) {
-        let chip = |ui: &mut egui::Ui, text: String, col: Color32, tip: &str| {
-            ui.add(egui::Label::new(RichText::new(text).size(11.5).color(col)).sense(Sense::click()))
-                .on_hover_text(tip)
-        };
+        let chip = |ui: &mut egui::Ui, text: String, col: Color32, tip: &str| ui.add(egui::Label::new(RichText::new(text).size(11.5).color(col)).sense(Sense::click())).on_hover_text(tip);
         if let Some(r) = &self.replay {
             let (name, pct, speed, paused) = (r.name.clone(), r.progress(), r.speed, r.paused);
             ui.add_space(6.0);
-            let text = if paused { format!("▶ {} · {}", t("已暂停"), truncate(&name, 24)) } else { format!("▶ {} {:.0}%", truncate(&name, 24), pct * 100.0) };
+            let text = if paused {
+                format!("▶ {} · {}", t("已暂停"), truncate(&name, 24))
+            } else {
+                format!("▶ {} {:.0}%", truncate(&name, 24), pct * 100.0)
+            };
             if chip(ui, text, if paused { WARN() } else { ACCENT() }, t("回放中：点击暂停 / 继续")).clicked() {
                 if let Some(r) = self.replay.as_mut() {
                     r.paused = !r.paused;
@@ -3183,6 +3275,17 @@ impl App {
             .exact_width(276.0)
             .resizable(false)
             .show_animated(ctx, self.s.sidebar, |ui| self.sidebar(ui));
+        if self.s.api_mode {
+            egui::CentralPanel::default()
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                    left: 16,
+                    right: 16,
+                    top: 14,
+                    bottom: 10,
+                }))
+                .show(ctx, |ui| self.api_page(ui));
+            return;
+        }
         let act = egui::SidePanel::right("cmds")
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 14,
@@ -3822,6 +3925,7 @@ impl eframe::App for App {
         self.log_windows(ctx);
         self.tool_windows(ctx);
         self.alias_window(ctx);
+        self.api_windows(ctx);
         self.palette_ui(ctx);
 
         // 提示气泡
@@ -4059,9 +4163,9 @@ fn empty_port_card(ui: &mut egui::Ui) {
     ui.ctx().request_repaint_after(Duration::from_millis(500));
 }
 
-fn stat(ui: &mut egui::Ui, k: &str, v: &str, c: Color32) {
+fn stat(ui: &mut egui::Ui, w: f32, k: &str, v: &str, c: Color32) {
     ui.vertical(|ui| {
-        ui.set_width(100.0);
+        ui.set_width(w);
         ui.label(RichText::new(k).font(FontId::new(10.0, bold())).color(TEXT3()).extra_letter_spacing(1.2));
         ui.label(RichText::new(v).font(FontId::new(15.0, mono_bold())).color(c));
     });
@@ -4689,7 +4793,7 @@ pub(crate) fn tab_strip<T: PartialEq + Copy>(ui: &mut egui::Ui, v: &mut T, opts:
             r.center() - vec2(0.0, if on { 1.0 } else { 0.0 }),
             Align2::CENTER_CENTER,
             *name,
-            FontId::new(12.5, if on { bold() } else { FontFamily::Proportional }),
+            FontId::new(if seg < 44.0 { 11.5 } else { 12.5 }, if on { bold() } else { FontFamily::Proportional }),
             c,
         );
         if resp.clicked() && enabled {

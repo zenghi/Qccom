@@ -85,11 +85,7 @@ pub fn matches(input: &str, n: usize) -> Vec<(&'static str, &'static str)> {
         return vec![];
     }
     let zh = matches!(crate::i18n::current(), 0 | 2);
-    let mut v: Vec<(&str, &str)> = AT
-        .iter()
-        .filter(|(c, ..)| c.starts_with(&q) && *c != q)
-        .map(|(c, en, cn)| (*c, if zh { *cn } else { *en }))
-        .collect();
+    let mut v: Vec<(&str, &str)> = AT.iter().filter(|(c, ..)| c.starts_with(&q) && *c != q).map(|(c, en, cn)| (*c, if zh { *cn } else { *en })).collect();
     v.sort_by_key(|(c, _)| c.len());
     v.truncate(n);
     v
@@ -100,9 +96,7 @@ pub fn describe(input: &str) -> Option<&'static str> {
     let q = input.trim().to_ascii_uppercase();
     let zh = matches!(crate::i18n::current(), 0 | 2);
     let key = q.split(['=', '?']).next().unwrap_or("");
-    AT.iter()
-        .find(|(c, ..)| *c == q || c.trim_end_matches(['=', '?']) == key)
-        .map(|(_, en, cn)| if zh { *cn } else { *en })
+    AT.iter().find(|(c, ..)| *c == q || c.trim_end_matches(['=', '?']) == key).map(|(_, en, cn)| if zh { *cn } else { *en })
 }
 
 #[cfg(test)]

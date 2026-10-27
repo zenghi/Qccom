@@ -1,8 +1,8 @@
 [package]
 name = "qccom"
-version = "1.0.0"
+version = "1.1.0"
 edition = "2021"
-description = "Lightweight serial / TCP / UDP / MQTT debug tool with a VT100 terminal, C code viewer and Git browser"
+description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
 license = "Apache-2.0"
 repository = "https://github.com/zenghi/QCCOM"
@@ -25,6 +25,11 @@ sys-locale = "0.3"
 sha2 = { version = "0.10", default-features = false }
 portable-pty = "0.9"
 regex-lite = "0.1"
+# BLE: btleplug is async, it runs on a single-threaded tokio runtime in its own thread
+btleplug = "0.13"
+tokio = { version = "1", default-features = false, features = ["rt", "time", "macros", "sync"] }
+futures = { version = "0.3", default-features = false, features = ["std"] }
+uuid = "1"
 rhai = { version = "1.23", default-features = false, features = ["std", "no_module", "no_custom_syntax"] }
 
 # HTTPS (self-update) and MQTT over TLS: Windows uses the system SChannel, which adds almost nothing to the size;

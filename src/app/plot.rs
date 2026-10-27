@@ -196,7 +196,12 @@ impl App {
                 legend_chip(ui, &label, self.plot.series.get_mut(&name).unwrap());
             }
             if !rest.is_empty() {
-                let r = ui.add(egui::Button::new(RichText::new(format!("+{}", rest.len())).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT2())).fill(Color32::TRANSPARENT).stroke(st(1.0, LINE())).min_size(vec2(0.0, 22.0)));
+                let r = ui.add(
+                    egui::Button::new(RichText::new(format!("+{}", rest.len())).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT2()))
+                        .fill(Color32::TRANSPARENT)
+                        .stroke(st(1.0, LINE()))
+                        .min_size(vec2(0.0, 22.0)),
+                );
                 let pop = egui::Id::new("plot_more");
                 if r.clicked() {
                     ui.memory_mut(|m| m.toggle_popup(pop));
@@ -218,17 +223,27 @@ impl App {
                     clear = true;
                 }
                 let frozen = self.plot.frozen.is_some();
-                if icon_button(ui, if frozen { Icon::Play } else { Icon::Pause }, if frozen { t("继续滚动") } else { t("冻结画面（数据照收）") }, frozen).clicked() {
+                if icon_button(
+                    ui,
+                    if frozen { Icon::Play } else { Icon::Pause },
+                    if frozen { t("继续滚动") } else { t("冻结画面（数据照收）") },
+                    frozen,
+                )
+                .clicked()
+                {
                     self.plot.frozen = if frozen { None } else { Some(self.plot.t0.elapsed().as_secs_f64()) };
                 }
                 if icon_button(ui, Icon::Edit, t("自定义提取规则"), self.plot.editing).clicked() {
                     self.plot.editing = !self.plot.editing;
                 }
-                egui::ComboBox::from_id_salt("plotwin").width(58.0).selected_text(format!("{}s", self.s.plot.window_s)).show_ui(ui, |ui| {
-                    for w in [5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0] {
-                        ui.selectable_value(&mut self.s.plot.window_s, w, format!("{w}s"));
-                    }
-                });
+                egui::ComboBox::from_id_salt("plotwin")
+                    .width(58.0)
+                    .selected_text(format!("{}s", self.s.plot.window_s))
+                    .show_ui(ui, |ui| {
+                        for w in [5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0] {
+                            ui.selectable_value(&mut self.s.plot.window_s, w, format!("{w}s"));
+                        }
+                    });
             });
         });
         if self.plot.editing {
@@ -320,7 +335,11 @@ impl App {
             let mut lines = vec![format!("{:.2}s", tt - now)];
             for (name, s) in self.plot.series.iter().filter(|(_, s)| s.shown()) {
                 let i = s.pts.partition_point(|p| p.0 < tt);
-                let near = [i.checked_sub(1), Some(i)].into_iter().flatten().filter_map(|k| s.pts.get(k)).min_by(|a, b| (a.0 - tt).abs().total_cmp(&(b.0 - tt).abs()));
+                let near = [i.checked_sub(1), Some(i)]
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|k| s.pts.get(k))
+                    .min_by(|a, b| (a.0 - tt).abs().total_cmp(&(b.0 - tt).abs()));
                 if let Some(&(pt, v)) = near {
                     clip.circle_stroke(to_screen(pt, v), 4.0, st(1.5, s.color));
                     lines.push(format!("{name} = {}", fmt_num(v)));
@@ -348,7 +367,11 @@ fn legend_chip(ui: &mut egui::Ui, label: &str, s: &mut Series) {
             .stroke(st(1.0, if on { s.color.gamma_multiply(0.4) } else { LINE() }))
             .min_size(vec2(0.0, 22.0)),
     );
-    let tip = if !s.varies && !s.hidden && !s.pinned { t("数值一直没变，默认不画；点击显示") } else { t("点击显示 / 隐藏") };
+    let tip = if !s.varies && !s.hidden && !s.pinned {
+        t("数值一直没变，默认不画；点击显示")
+    } else {
+        t("点击显示 / 隐藏")
+    };
     if r.on_hover_text(tip).clicked() {
         if on {
             s.hidden = true;

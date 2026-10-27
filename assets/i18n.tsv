@@ -800,3 +800,249 @@ Vim 键位	Vim keys	Vim 鍵位	Vim キー操作	Vim 키	Vim-Tasten	Touches Vim	T
 范围	Scope	範圍	スコープ	범위	Bindung	Portée	Ámbito	Область видимости	Escopo
 虚拟地址	Virt addr	虛擬位址	仮想アドレス	가상 주소	Virt. Adresse	Adresse virtuelle	Dirección virtual	Вирт. адрес	Endereço virtual
 输出段	Output section	輸出段	出力セクション	출력 섹션	Ausgabesektion	Section de sortie	Sección de salida	Выходная секция	Seção de saída
+时间差	Time delta	時間差	時間差	시간 차	Zeitabstand	Écart de temps	Diferencia de tiempo	Интервал	Diferença de tempo
+每行前显示和上一行相隔的时间，看时序很方便	Show the time since the previous line, handy for timing	每行前顯示和上一行相隔的時間，看時序很方便	各行の前に前の行からの経過時間を表示（タイミング確認に便利）	각 줄 앞에 이전 줄과의 시간 간격 표시(타이밍 확인에 편리)	Zeit seit der vorherigen Zeile anzeigen – praktisch für Timing	Afficher le temps écoulé depuis la ligne précédente	Muestra el tiempo desde la línea anterior, útil para tiempos	Показывать время с предыдущей строки — удобно для таймингов	Mostra o tempo desde a linha anterior, útil para temporização
+协议分帧	Protocol framing	協定分幀	プロトコルのフレーム分割	프로토콜 프레이밍	Protokoll-Framing	Découpage en trames	Separar tramas	Разбивка на кадры	Separar quadros
+已开启	On	已開啟	オン	켜짐	An	Activé	Activado	Вкл.	Ligado
+设置…	Set up…	設定…	設定…	설정…	Einrichten…	Configurer…	Configurar…	Настроить…	Configurar…
+按帧头 + 长度 + 校验切分二进制数据，校验错误标红	Split binary data by header + length + checksum; bad checksums turn red	按幀頭 + 長度 + 校驗切分二進位資料，校驗錯誤標紅	ヘッダー + 長さ + チェックサムでバイナリを分割、エラーは赤表示	헤더 + 길이 + 체크섬으로 바이너리 분할, 오류는 빨간색	Binärdaten nach Kopf + Länge + Prüfsumme teilen; Fehler rot	Découper selon en-tête + longueur + contrôle ; erreurs en rouge	Divide por cabecera + longitud + suma; errores en rojo	Делить по заголовку + длине + контрольной сумме; ошибки красным	Divide por cabeçalho + tamanho + checksum; erros em vermelho
+更多：标记、帧格式、统计、回放、Modbus、发送文件…	More: markers, frame format, stats, replay, Modbus, send file…	更多：標記、幀格式、統計、回放、Modbus、傳送檔案…	その他：マーカー、フレーム形式、統計、再生、Modbus、ファイル送信…	더 보기: 마커, 프레임 형식, 통계, 재생, Modbus, 파일 전송…	Mehr: Marker, Frame-Format, Statistik, Wiedergabe, Modbus, Datei senden…	Plus : repères, format de trame, stats, relecture, Modbus, envoi de fichier…	Más: marcas, formato de trama, estadísticas, reproducción, Modbus, enviar archivo…	Ещё: метки, формат кадра, статистика, воспроизведение, Modbus, отправка файла…	Mais: marcas, formato de quadro, estatísticas, reprodução, Modbus, enviar arquivo…
+过滤与高亮规则	Filter & highlight rules	篩選與醒目提示規則	フィルターとハイライトのルール	필터 및 강조 규칙	Filter- & Hervorhebungsregeln	Règles de filtre et surlignage	Reglas de filtro y resaltado	Правила фильтра и подсветки	Regras de filtro e destaque
+波形图：把日志里的数字画成曲线	Plot: draw numbers from the log as curves	波形圖：把日誌裡的數字畫成曲線	グラフ：ログ内の数値を曲線で表示	그래프: 로그의 숫자를 곡선으로 표시	Diagramm: Zahlen aus dem Log als Kurven	Graphique : tracer les nombres du journal	Gráfica: dibuja los números del registro	График: числа из журнала в виде кривых	Gráfico: desenha os números do log como curvas
+多行输入：Enter 换行，Ctrl+Enter 发送	Multi-line: Enter for new line, Ctrl+Enter to send	多行輸入：Enter 換行，Ctrl+Enter 傳送	複数行：Enter で改行、Ctrl+Enter で送信	여러 줄: Enter 줄바꿈, Ctrl+Enter 전송	Mehrzeilig: Enter = neue Zeile, Strg+Enter = senden	Multiligne : Entrée = nouvelle ligne, Ctrl+Entrée = envoyer	Multilínea: Enter nueva línea, Ctrl+Enter enviar	Многострочно: Enter — новая строка, Ctrl+Enter — отправить	Multilinha: Enter nova linha, Ctrl+Enter envia
+逐行	Per line	逐行	1 行ずつ	줄마다	Zeilenweise	Ligne par ligne	Por línea	По строкам	Por linha
+每行单独发一包，间隔可在设置里调整	Send each line as its own packet; set the gap in Settings	每行單獨傳一包，間隔可在設定裡調整	各行を別パケットで送信（間隔は設定で変更）	각 줄을 별도 패킷으로 전송(간격은 설정에서)	Jede Zeile als eigenes Paket; Abstand in den Einstellungen	Chaque ligne en paquet séparé ; intervalle dans les réglages	Cada línea en un paquete; intervalo en Ajustes	Каждая строка отдельным пакетом; интервал в настройках	Cada linha em um pacote; intervalo nas Configurações
+↑↓ 选择    Tab 补全	↑↓ select    Tab complete	↑↓ 選擇    Tab 補全	↑↓ 選択    Tab 補完	↑↓ 선택    Tab 완성	↑↓ wählen    Tab vervollständigen	↑↓ choisir    Tab compléter	↑↓ elegir    Tab completar	↑↓ выбор    Tab дополнить	↑↓ escolher    Tab completar
+点击查看统计	Click for statistics	點擊查看統計	クリックで統計	클릭하여 통계 보기	Klicken für Statistik	Cliquer pour les statistiques	Clic para estadísticas	Нажмите для статистики	Clique para estatísticas
+回放中：点击暂停 / 继续	Replaying: click to pause / resume	回放中：點擊暫停 / 繼續	再生中：クリックで一時停止 / 再開	재생 중: 클릭하여 일시정지 / 계속	Wiedergabe: klicken zum Pausieren / Fortsetzen	Relecture : cliquer pour pause / reprise	Reproduciendo: clic para pausar / seguir	Воспроизведение: нажмите для паузы / продолжения	Reproduzindo: clique para pausar / continuar
+最快	Max	最快	最速	최고 속도	Max	Max	Máx	Макс	Máx
+点击切换回放速度	Click to change replay speed	點擊切換回放速度	クリックで再生速度を切替	클릭하여 재생 속도 변경	Klicken für andere Geschwindigkeit	Cliquer pour changer la vitesse	Clic para cambiar la velocidad	Нажмите, чтобы сменить скорость	Clique para mudar a velocidade
+停止回放	Stop replay	停止回放	再生を停止	재생 중지	Wiedergabe stoppen	Arrêter la relecture	Detener reproducción	Остановить воспроизведение	Parar reprodução
+回放已停止	Replay stopped	回放已停止	再生を停止しました	재생이 중지됨	Wiedergabe gestoppt	Relecture arrêtée	Reproducción detenida	Воспроизведение остановлено	Reprodução parada
+脚本运行中：点击停止	Script running: click to stop	腳本執行中：點擊停止	スクリプト実行中：クリックで停止	스크립트 실행 중: 클릭하여 중지	Skript läuft: klicken zum Stoppen	Script en cours : cliquer pour arrêter	Script en ejecución: clic para detener	Скрипт выполняется: нажмите, чтобы остановить	Script em execução: clique para parar
+串口已共享到网络：点击停止	Serial port shared on the network: click to stop	序列埠已共享到網路：點擊停止	シリアルをネットワーク共有中：クリックで停止	시리얼 포트 네트워크 공유 중: 클릭하여 중지	Port im Netz freigegeben: klicken zum Stoppen	Port partagé sur le réseau : cliquer pour arrêter	Puerto compartido en red: clic para detener	Порт открыт в сети: нажмите, чтобы остановить	Porta compartilhada na rede: clique para parar
+监听口 B 已打开，收到的数据以 B › 标出	Port B is open; its data is marked B ›	監聽埠 B 已開啟，收到的資料以 B › 標出	ポート B 監視中：受信データは B › で表示	포트 B 열림: 수신 데이터는 B › 로 표시	Port B offen; seine Daten sind mit B › markiert	Port B ouvert ; ses données sont marquées B ›	Puerto B abierto; sus datos se marcan B ›	Порт B открыт; его данные помечены B ›	Porta B aberta; os dados são marcados B ›
+复制为 HEX	Copy as HEX	複製為 HEX	HEX でコピー	HEX로 복사	Als HEX kopieren	Copier en HEX	Copiar como HEX	Копировать как HEX	Copiar como HEX
+移除书签	Remove bookmark	移除書籤	ブックマークを削除	북마크 제거	Lesezeichen entfernen	Retirer le signet	Quitar marcador	Убрать закладку	Remover marcador
+添加书签	Add bookmark	新增書籤	ブックマークを追加	북마크 추가	Lesezeichen setzen	Ajouter un signet	Añadir marcador	Добавить закладку	Adicionar marcador
+用此行新建应答规则	New auto-reply rule from this line	用此行新建應答規則	この行から自動応答ルールを作成	이 줄로 자동 응답 규칙 만들기	Auto-Antwort-Regel aus dieser Zeile	Nouvelle règle de réponse depuis cette ligne	Nueva regla de respuesta desde esta línea	Новое правило автоответа из этой строки	Nova regra de resposta a partir desta linha
+✗ 监听口 B 断开：{}	✗ Port B disconnected: {}	✗ 監聽埠 B 中斷：{}	✗ ポート B 切断：{}	✗ 포트 B 연결 끊김: {}	✗ Port B getrennt: {}	✗ Port B déconnecté : {}	✗ Puerto B desconectado: {}	✗ Порт B отключён: {}	✗ Porta B desconectada: {}
+录制换到新文件：{}	Recording continues in a new file: {}	錄製換到新檔案：{}	録画を新しいファイルに切替：{}	새 파일로 녹화 계속: {}	Aufzeichnung in neuer Datei: {}	Enregistrement dans un nouveau fichier : {}	Grabación en un archivo nuevo: {}	Запись продолжена в новом файле: {}	Gravação em novo arquivo: {}
+录制分卷	Split recordings	錄製分卷	録画の分割	녹화 분할	Aufzeichnung teilen	Découper l'enregistrement	Dividir grabación	Разбивать запись	Dividir gravação
+录制文件超过大小或时长就换一个新文件（0 = 不限）	Start a new file after this size or duration (0 = no limit)	錄製檔案超過大小或時長就換一個新檔案（0 = 不限）	サイズまたは時間を超えたら新しいファイルへ（0 = 無制限）	크기나 시간을 넘으면 새 파일로(0 = 제한 없음)	Neue Datei nach dieser Größe oder Dauer (0 = unbegrenzt)	Nouveau fichier après cette taille ou durée (0 = illimité)	Nuevo archivo tras este tamaño o duración (0 = sin límite)	Новый файл после этого размера или времени (0 = без ограничения)	Novo arquivo após este tamanho ou duração (0 = sem limite)
+多行发送间隔	Multi-line send gap	多行傳送間隔	複数行送信の間隔	여러 줄 전송 간격	Abstand beim zeilenweisen Senden	Intervalle multiligne	Intervalo multilínea	Интервал многострочной отправки	Intervalo multilinha
+命令栏多行「逐行」发送时，每行之间等待的时间	Wait between lines when the command bar sends line by line	命令列多行「逐行」傳送時，每行之間等待的時間	コマンドバーで 1 行ずつ送るときの行間の待ち時間	명령줄에서 줄마다 보낼 때 줄 사이 대기 시간	Wartezeit zwischen Zeilen beim zeilenweisen Senden	Attente entre les lignes en envoi ligne par ligne	Espera entre líneas al enviar por línea	Пауза между строками при построчной отправке	Espera entre linhas ao enviar por linha
+共享到网络	Share on network	共享到網路	ネットワーク共有	네트워크 공유	Im Netz freigeben	Partager sur le réseau	Compartir en red	Открыть в сети	Compartilhar na rede
+串口连接后可在链路卡片里打开：本机开一个 TCP 端口，连上来的客户端和串口双向透传	Turn on from the link card when connected: opens a local TCP port and bridges clients to the serial port both ways	序列埠連線後可在鏈路卡片裡開啟：本機開一個 TCP 埠，連上來的用戶端和序列埠雙向透傳	接続中にリンクカードから有効化：ローカル TCP ポートを開き、クライアントとシリアルを双方向中継	연결 후 링크 카드에서 켜기: 로컬 TCP 포트를 열어 클라이언트와 시리얼을 양방향 중계	Bei Verbindung in der Link-Karte einschalten: öffnet einen lokalen TCP-Port und verbindet Clients mit dem Port	À activer depuis la carte de liaison : ouvre un port TCP local relié au port série	Actívalo en la tarjeta de enlace: abre un puerto TCP local y une clientes con el puerto serie	Включается в карточке канала: открывает локальный TCP-порт и связывает клиентов с последовательным портом	Ative no cartão de link: abre uma porta TCP local e liga clientes à porta serial
+端口 	Port 	埠 	ポート 	포트 	Port 	Port 	Puerto 	Порт 	Porta 
+没有更多书签了	No more bookmarks	沒有更多書籤了	これ以上ブックマークはありません	더 이상 북마크가 없습니다	Keine weiteren Lesezeichen	Plus de signets	No hay más marcadores	Больше закладок нет	Não há mais marcadores
+所有文件	All files	所有檔案	すべてのファイル	모든 파일	Alle Dateien	Tous les fichiers	Todos los archivos	Все файлы	Todos os arquivos
+「只显示」规则之间是“或”；「隐藏」优先。规则只影响显示，不影响录制。	“Show only” rules are OR-ed; “Hide” wins. Rules affect the view only, not recordings.	「只顯示」規則之間是“或”；「隱藏」優先。規則只影響顯示，不影響錄製。	「のみ表示」は OR、「非表示」が優先。表示だけに影響し録画には影響しません。	‘만 표시’ 규칙은 OR, ‘숨기기’가 우선. 표시에만 적용되고 녹화에는 영향 없음.	„Nur zeigen“-Regeln sind ODER-verknüpft; „Ausblenden“ hat Vorrang. Nur Anzeige, keine Aufzeichnung.	Les règles « Afficher seulement » sont en OU ; « Masquer » l'emporte. Affichage uniquement.	Las reglas «Solo mostrar» se combinan con O; «Ocultar» tiene prioridad. Solo afectan a la vista.	Правила «Только показать» объединяются по ИЛИ; «Скрыть» важнее. Влияют только на отображение.	Regras «Só mostrar» são OU; «Ocultar» tem prioridade. Afetam só a exibição.
+文字或正则	Text or regex	文字或正規表示式	テキストまたは正規表現	텍스트 또는 정규식	Text oder Regex	Texte ou regex	Texto o regex	Текст или regex	Texto ou regex
+换颜色	Change color	換顏色	色を変更	색 바꾸기	Farbe ändern	Changer de couleur	Cambiar color	Сменить цвет	Mudar cor
+＋ 添加规则	＋ Add rule	＋ 新增規則	＋ ルールを追加	＋ 규칙 추가	＋ Regel hinzufügen	＋ Ajouter une règle	＋ Añadir regla	＋ Добавить правило	＋ Adicionar regra
+帧格式	Frame format	幀格式	フレーム形式	프레임 형식	Frame-Format	Format de trame	Formato de trama	Формат кадра	Formato de quadro
+收到的数据按帧头 + 长度切成一帧一行，并检查校验；校验错的帧标红。适合看二进制协议。	Incoming data is split into one frame per line by header + length and checked; bad frames turn red. Good for binary protocols.	收到的資料按幀頭 + 長度切成一幀一行，並檢查校驗；校驗錯的幀標紅。適合看二進位協定。	受信データをヘッダー + 長さで 1 フレーム 1 行に分割しチェック。エラーは赤。バイナリ向け。	수신 데이터를 헤더 + 길이로 한 줄에 한 프레임씩 나누고 검사, 오류는 빨간색. 바이너리 프로토콜용.	Daten werden per Kopf + Länge in einen Frame pro Zeile geteilt und geprüft; Fehler rot. Für Binärprotokolle.	Les données sont découpées en une trame par ligne et vérifiées ; erreurs en rouge. Pour protocoles binaires.	Los datos se dividen en una trama por línea y se verifican; errores en rojo. Para protocolos binarios.	Данные делятся на кадры по заголовку и длине и проверяются; ошибки красным. Для двоичных протоколов.	Os dados viram um quadro por linha e são verificados; erros em vermelho. Para protocolos binários.
+按帧格式分帧	Split by frame format	按幀格式分幀	フレーム形式で分割	프레임 형식으로 분할	Nach Frame-Format teilen	Découper par format de trame	Dividir por formato de trama	Делить по формату кадра	Dividir pelo formato de quadro
+关闭时按换行符分行	When off, lines split at newlines	關閉時按換行符分行	オフのときは改行で分割	끄면 줄바꿈으로 분할	Aus: Teilung an Zeilenumbrüchen	Désactivé : découpage aux sauts de ligne	Desactivado: divide por saltos de línea	Выкл.: деление по переводам строк	Desligado: divide nas quebras de linha
+帧头	Header	幀頭	ヘッダー	헤더	Kopf	En-tête	Cabecera	Заголовок	Cabeçalho
+帧长	Frame length	幀長	フレーム長	프레임 길이	Frame-Länge	Longueur de trame	Longitud de trama	Длина кадра	Tamanho do quadro
+看长度字段	From length field	看長度欄位	長さフィールド	길이 필드 사용	Aus Längenfeld	Champ de longueur	Campo de longitud	Из поля длины	Do campo de tamanho
+固定长度	Fixed	固定長度	固定長	고정 길이	Fest	Fixe	Fija	Фиксированная	Fixo
+每帧字节数	Bytes per frame	每幀位元組數	1 フレームのバイト数	프레임당 바이트	Bytes pro Frame	Octets par trame	Bytes por trama	Байт на кадр	Bytes por quadro
+长度字段	Length field	長度欄位	長さフィールド	길이 필드	Längenfeld	Champ de longueur	Campo de longitud	Поле длины	Campo de tamanho
+偏移	Offset	偏移	オフセット	오프셋	Offset	Décalage	Desplazamiento	Смещение	Deslocamento
+字节数	Bytes	位元組數	バイト数	바이트 수	Bytes	Octets	Bytes	Байт	Bytes
+大端	Big-endian	大端	ビッグエンディアン	빅 엔디언	Big-Endian	Gros-boutiste	Big-endian	Big-endian	Big-endian
+小端	Little-endian	小端	リトルエンディアン	리틀 엔디언	Little-Endian	Petit-boutiste	Little-endian	Little-endian	Little-endian
+整帧长度	Whole frame length	整幀長度	フレーム全体の長さ	전체 프레임 길이	Gesamte Frame-Länge	Longueur totale	Longitud total	Длина кадра целиком	Tamanho total
+长度字段的值 +	Length value +	長度欄位的值 +	長さの値 +	길이 값 +	Längenwert +	Valeur de longueur +	Valor de longitud +	Значение длины +	Valor do tamanho +
+半帧超时	Partial frame timeout	半幀逾時	未完成フレームのタイムアウト	부분 프레임 시간 초과	Timeout für Teil-Frames	Délai trame partielle	Tiempo límite de trama parcial	Тайм-аут неполного кадра	Tempo limite de quadro parcial
+长度	Length	長度	長さ	길이	Länge	Longueur	Longitud	Длина	Tamanho
+统计	Statistics	統計	統計	통계	Statistik	Statistiques	Estadísticas	Статистика	Estatísticas
+接收	Received	接收	受信	수신	Empfangen	Reçu	Recibido	Принято	Recebido
+当前速率	Current rate	目前速率	現在の速度	현재 속도	Aktuelle Rate	Débit actuel	Tasa actual	Текущая скорость	Taxa atual
+峰值速率	Peak rate	峰值速率	ピーク速度	최고 속도	Spitzenrate	Débit max	Tasa máxima	Пиковая скорость	Taxa de pico
+平均速率	Average rate	平均速率	平均速度	평균 속도	Durchschnitt	Débit moyen	Tasa media	Средняя скорость	Taxa média
+连接时长	Connected for	連線時長	接続時間	연결 시간	Verbunden seit	Durée de connexion	Tiempo conectado	Время соединения	Tempo conectado
+最近一分钟错误	Errors in the last minute	最近一分鐘錯誤	直近 1 分間のエラー	최근 1분 오류	Fehler der letzten Minute	Erreurs de la dernière minute	Errores del último minuto	Ошибки за последнюю минуту	Erros no último minuto
+插入标记	Insert marker	插入標記	マーカーを挿入	마커 삽입	Marker einfügen	Insérer un repère	Insertar marca	Вставить метку	Inserir marca
+过滤与高亮规则…	Filter & highlight rules…	篩選與醒目提示規則…	フィルターとハイライトのルール…	필터 및 강조 규칙…	Filter- & Hervorhebungsregeln…	Règles de filtre et surlignage…	Reglas de filtro y resaltado…	Правила фильтра и подсветки…	Regras de filtro e destaque…
+帧格式…	Frame format…	幀格式…	フレーム形式…	프레임 형식…	Frame-Format…	Format de trame…	Formato de trama…	Формат кадра…	Formato de quadro…
+统计…	Statistics…	統計…	統計…	통계…	Statistik…	Statistiques…	Estadísticas…	Статистика…	Estatísticas…
+打开日志文件…	Open log file…	開啟日誌檔…	ログファイルを開く…	로그 파일 열기…	Logdatei öffnen…	Ouvrir un journal…	Abrir registro…	Открыть журнал…	Abrir log…
+回放日志文件…	Replay log file…	回放日誌檔…	ログファイルを再生…	로그 파일 재생…	Logdatei abspielen…	Rejouer un journal…	Reproducir registro…	Воспроизвести журнал…	Reproduzir log…
+只显示	Show only	只顯示	のみ表示	만 표시	Nur zeigen	Afficher seulement	Solo mostrar	Только показать	Só mostrar
+隐藏	Hide	隱藏	非表示	숨기기	Ausblenden	Masquer	Ocultar	Скрыть	Ocultar
+高亮	Highlight	醒目提示	ハイライト	강조	Hervorheben	Surligner	Resaltar	Подсветить	Destacar
+标记 {}	Marker {}	標記 {}	マーカー {}	마커 {}	Marker {}	Repère {}	Marca {}	Метка {}	Marca {}
+无法打开：{}	Cannot open: {}	無法開啟：{}	開けません：{}	열 수 없음: {}	Kann nicht öffnen: {}	Impossible d'ouvrir : {}	No se puede abrir: {}	Не удалось открыть: {}	Não foi possível abrir: {}
+开始回放 {}（{} 行）	Replaying {} ({} lines)	開始回放 {}（{} 行）	{} を再生開始（{} 行）	{} 재생 시작({}줄)	Wiedergabe {} ({} Zeilen)	Relecture de {} ({} lignes)	Reproduciendo {} ({} líneas)	Воспроизведение {} ({} строк)	Reproduzindo {} ({} linhas)
+打开日志文件 {}（{} 行）	Opened log file {} ({} lines)	開啟日誌檔 {}（{} 行）	ログファイル {} を開きました（{} 行）	로그 파일 {} 열림({}줄)	Logdatei {} geöffnet ({} Zeilen)	Journal {} ouvert ({} lignes)	Registro {} abierto ({} líneas)	Открыт журнал {} ({} строк)	Log {} aberto ({} linhas)
+回放结束：{}	Replay finished: {}	回放結束：{}	再生終了：{}	재생 완료: {}	Wiedergabe beendet: {}	Relecture terminée : {}	Reproducción terminada: {}	Воспроизведение завершено: {}	Reprodução concluída: {}
+帧头格式不对：{}	Invalid header: {}	幀頭格式不對：{}	ヘッダーが不正：{}	헤더 형식 오류: {}	Ungültiger Kopf: {}	En-tête invalide : {}	Cabecera no válida: {}	Неверный заголовок: {}	Cabeçalho inválido: {}
+把“{}”加为规则	Add “{}” as a rule	把“{}”加為規則	「{}」をルールに追加	“{}”을 규칙으로 추가	„{}“ als Regel hinzufügen	Ajouter « {} » comme règle	Añadir «{}» como regla	Добавить «{}» как правило	Adicionar «{}» como regra
+新脚本	New script	新腳本	新しいスクリプト	새 스크립트	Neues Skript	Nouveau script	Nuevo script	Новый скрипт	Novo script
+未连接：脚本发送的数据不会发出去	Not connected: data the script sends won't go out	未連線：腳本傳送的資料不會送出	未接続：スクリプトの送信データは送られません	연결 안 됨: 스크립트가 보내는 데이터는 전송되지 않음	Nicht verbunden: Skript-Daten werden nicht gesendet	Non connecté : les envois du script ne partiront pas	Sin conexión: lo que envíe el script no saldrá	Нет соединения: данные скрипта не отправятся	Desconectado: os dados do script não serão enviados
+应答	Replies	應答	自動応答	응답	Antworten	Réponses	Respuestas	Ответы	Respostas
+脚本	Scripts	腳本	スクリプト	스크립트	Skripte	Scripts	Scripts	Скрипты	Scripts
+命令	Commands	命令	コマンド	명령	Befehle	Commandes	Comandos	Команды	Comandos
+收到匹配的行时自动回复、提醒或运行脚本。	When a matching line arrives, reply, notify or run a script automatically.	收到匹配的行時自動回覆、提醒或執行腳本。	一致する行を受信したら自動で応答・通知・スクリプト実行。	일치하는 줄을 받으면 자동으로 응답, 알림 또는 스크립트 실행.	Bei passender Zeile automatisch antworten, melden oder Skript starten.	À la réception d'une ligne correspondante : répondre, notifier ou lancer un script.	Al recibir una línea coincidente: responder, avisar o ejecutar un script.	При совпадении строки — ответить, уведомить или запустить скрипт.	Ao receber uma linha correspondente: responder, avisar ou rodar um script.
+（未设置）	(not set)	（未設定）	（未設定）	(설정 안 됨)	(nicht gesetzt)	(non défini)	(sin definir)	(не задано)	(não definido)
+命中次数	Hits	命中次數	ヒット数	일치 횟수	Treffer	Correspondances	Coincidencias	Совпадения	Ocorrências
+提醒	Notify	提醒	通知	알림	Melden	Notifier	Avisar	Уведомить	Avisar
+暂停	Pause	暫停	一時停止	일시정지	Pause	Pause	Pausa	Пауза	Pausar
+收到	When	收到	受信	수신	Wenn	Quand	Cuando	Когда	Quando
+回复	Reply	回覆	応答	응답	Antwort	Réponse	Respuesta	Ответ	Resposta
+留空 = 不回复	Empty = no reply	留空 = 不回覆	空欄 = 応答しない	비우면 응답 안 함	Leer = keine Antwort	Vide = pas de réponse	Vacío = sin respuesta	Пусто = без ответа	Vazio = sem resposta
+延时	Delay	延遲	遅延	지연	Verzögerung	Délai	Retardo	Задержка	Atraso
+暂停日志	Pause log	暫停日誌	ログを一時停止	로그 일시정지	Log pausieren	Mettre le journal en pause	Pausar registro	Приостановить журнал	Pausar log
+运行脚本	Run script	執行腳本	スクリプトを実行	스크립트 실행	Skript ausführen	Lancer un script	Ejecutar script	Запустить скрипт	Rodar script
+完成	Done	完成	完了	완료	Fertig	Terminé	Hecho	Готово	Concluído
+＋ 添加应答规则	＋ Add reply rule	＋ 新增應答規則	＋ 応答ルールを追加	＋ 응답 규칙 추가	＋ Antwortregel hinzufügen	＋ Ajouter une règle de réponse	＋ Añadir regla de respuesta	＋ Добавить правило ответа	＋ Adicionar regra de resposta
+＋ 新建脚本	＋ New script	＋ 新建腳本	＋ 新しいスクリプト	＋ 새 스크립트	＋ Neues Skript	＋ Nouveau script	＋ Nuevo script	＋ Новый скрипт	＋ Novo script
+右键：重命名 / 删除	Right-click: rename / delete	右鍵：重新命名 / 刪除	右クリック：名前変更 / 削除	오른쪽 클릭: 이름 바꾸기 / 삭제	Rechtsklick: umbenennen / löschen	Clic droit : renommer / supprimer	Clic derecho: renombrar / eliminar	ПКМ: переименовать / удалить	Botão direito: renomear / excluir
+■ 停止	■ Stop	■ 停止	■ 停止	■ 중지	■ Stopp	■ Arrêter	■ Detener	■ Стоп	■ Parar
+▶ 运行	▶ Run	▶ 執行	▶ 実行	▶ 실행	▶ Ausführen	▶ Lancer	▶ Ejecutar	▶ Запуск	▶ Rodar
+可用函数	Functions	可用函式	使える関数	사용 가능한 함수	Funktionen	Fonctions	Funciones	Функции	Funções
+发送并加换行	Send with line ending	傳送並加換行	改行付きで送信	줄바꿈 붙여 전송	Mit Zeilenende senden	Envoyer avec fin de ligne	Enviar con fin de línea	Отправить с концом строки	Enviar com fim de linha
+发送文字 / 字节	Send text / bytes	傳送文字 / 位元組	テキスト / バイトを送信	텍스트 / 바이트 전송	Text / Bytes senden	Envoyer texte / octets	Enviar texto / bytes	Отправить текст / байты	Enviar texto / bytes
+等待包含文字的一行，返回 true / false	Wait for a line containing text; returns true / false	等待包含文字的一行，回傳 true / false	テキストを含む行を待つ（true / false）	텍스트를 포함한 줄을 기다림, true / false 반환	Auf Zeile mit Text warten; true / false	Attendre une ligne contenant le texte ; true / false	Espera una línea con el texto; true / false	Ждать строку с текстом; true / false	Espera uma linha com o texto; true / false
+等待匹配正则的一行，返回括号里的内容	Wait for a line matching a regex; returns the captured group	等待匹配正規表示式的一行，回傳括號裡的內容	正規表現に一致する行を待ち、括弧内を返す	정규식과 일치하는 줄을 기다려 괄호 안 내용 반환	Auf Regex-Zeile warten; liefert die Gruppe	Attendre une ligne regex ; renvoie le groupe	Espera una línea regex; devuelve el grupo	Ждать строку по regex; вернуть группу	Espera linha com regex; retorna o grupo
+读下一行，超时返回空	Read the next line; empty on timeout	讀下一行，逾時回傳空	次の行を読む（タイムアウトで空）	다음 줄 읽기, 시간 초과 시 빈 값	Nächste Zeile lesen; leer bei Timeout	Lire la ligne suivante ; vide si délai	Lee la siguiente línea; vacío si vence	Прочитать строку; пусто по тайм-ауту	Lê a próxima linha; vazio no tempo limite
+等待 / 当前毫秒	Wait / current ms	等待 / 目前毫秒	待機 / 現在のミリ秒	대기 / 현재 ms	Warten / aktuelle ms	Attendre / ms actuelles	Esperar / ms actuales	Ждать / текущие мс	Esperar / ms atuais
+在日志里显示	Show in the log	在日誌裡顯示	ログに表示	로그에 표시	Im Log anzeigen	Afficher dans le journal	Mostrar en el registro	Показать в журнале	Mostrar no log
+设置信号线	Set signal lines	設定訊號線	信号線を設定	신호선 설정	Signalleitungen setzen	Régler les lignes de signal	Ajustar líneas de señal	Задать сигнальные линии	Ajustar linhas de sinal
+应答规则命中：{}	Reply rule matched: {}	應答規則命中：{}	応答ルールに一致：{}	응답 규칙 일치: {}	Antwortregel getroffen: {}	Règle de réponse déclenchée : {}	Regla de respuesta activada: {}	Сработало правило: {}	Regra de resposta acionada: {}
+脚本「{}」运行结束	Script “{}” finished	腳本「{}」執行結束	スクリプト「{}」終了	스크립트 “{}” 완료	Skript „{}“ beendet	Script « {} » terminé	Script «{}» terminado	Скрипт «{}» завершён	Script «{}» concluído
+脚本「{}」已停止	Script “{}” stopped	腳本「{}」已停止	スクリプト「{}」を停止	스크립트 “{}” 중지됨	Skript „{}“ gestoppt	Script « {} » arrêté	Script «{}» detenido	Скрипт «{}» остановлен	Script «{}» parado
+✗ 脚本「{}」出错：{}	✗ Script “{}” failed: {}	✗ 腳本「{}」出錯：{}	✗ スクリプト「{}」でエラー：{}	✗ 스크립트 “{}” 오류: {}	✗ Skript „{}“ fehlgeschlagen: {}	✗ Échec du script « {} » : {}	✗ Error en el script «{}»: {}	✗ Ошибка скрипта «{}»: {}	✗ Erro no script «{}»: {}
+脚本出错：{}	Script error: {}	腳本出錯：{}	スクリプトエラー：{}	스크립트 오류: {}	Skriptfehler: {}	Erreur de script : {}	Error de script: {}	Ошибка скрипта: {}	Erro de script: {}
+运行脚本「{}」	Running script “{}”	執行腳本「{}」	スクリプト「{}」を実行	스크립트 “{}” 실행	Skript „{}“ läuft	Exécution du script « {} »	Ejecutando script «{}»	Запуск скрипта «{}»	Rodando script «{}»
+运行中 {}s	Running {}s	執行中 {}s	実行中 {}s	실행 중 {}s	Läuft {}s	En cours {}s	En ejecución {}s	Выполняется {}s	Rodando {}s
+关闭波形图	Close plot	關閉波形圖	グラフを閉じる	그래프 닫기	Diagramm schließen	Fermer le graphique	Cerrar gráfica	Закрыть график	Fechar gráfico
+波形图	Plot	波形圖	グラフ	그래프	Diagramm	Graphique	Gráfica	График	Gráfico
+Modbus 主站…	Modbus master…	Modbus 主站…	Modbus マスター…	Modbus 마스터…	Modbus-Master…	Maître Modbus…	Maestro Modbus…	Ведущий Modbus…	Mestre Modbus…
+发送文件…	Send file…	傳送檔案…	ファイル送信…	파일 전송…	Datei senden…	Envoyer un fichier…	Enviar archivo…	Отправить файл…	Enviar arquivo…
+校验计算器…	Checksum calculator…	校驗計算機…	チェックサム計算…	체크섬 계산기…	Prüfsummenrechner…	Calcul de somme de contrôle…	Calculadora de checksum…	Калькулятор контрольных сумм…	Calculadora de checksum…
+新窗口	New window	新視窗	新しいウィンドウ	새 창	Neues Fenster	Nouvelle fenêtre	Nueva ventana	Новое окно	Nova janela
+已打开新窗口：可以同时连接另一个端口	New window opened: connect another port there	已開啟新視窗：可同時連線另一個埠	新しいウィンドウを開きました：別のポートに接続できます	새 창 열림: 다른 포트에 연결할 수 있음	Neues Fenster: dort einen weiteren Port verbinden	Nouvelle fenêtre : connectez-y un autre port	Nueva ventana: conecta allí otro puerto	Новое окно: подключите там другой порт	Nova janela: conecte outra porta nela
+超时，没有应答	Timed out, no reply	逾時，沒有應答	タイムアウト：応答なし	시간 초과, 응답 없음	Zeitüberschreitung, keine Antwort	Délai dépassé, pas de réponse	Tiempo agotado, sin respuesta	Тайм-аут, нет ответа	Tempo esgotado, sem resposta
+✗ 连接断开，文件发送中止	✗ Disconnected, file transfer aborted	✗ 連線中斷，檔案傳送中止	✗ 切断されたため送信を中止	✗ 연결 끊김, 파일 전송 중단	✗ Getrennt, Übertragung abgebrochen	✗ Déconnecté, transfert annulé	✗ Desconectado, envío cancelado	✗ Соединение потеряно, передача прервана	✗ Desconectado, envio cancelado
+请填写要写入的值	Enter the values to write	請填寫要寫入的值	書き込む値を入力してください	쓸 값을 입력하세요	Zu schreibende Werte eingeben	Saisissez les valeurs à écrire	Introduce los valores a escribir	Введите значения для записи	Informe os valores a escrever
+Modbus 主站	Modbus master	Modbus 主站	Modbus マスター	Modbus 마스터	Modbus-Master	Maître Modbus	Maestro Modbus	Ведущий Modbus	Mestre Modbus
+当前是 TCP 连接：使用 Modbus TCP（MBAP 头）	TCP connection: using Modbus TCP (MBAP header)	目前是 TCP 連線：使用 Modbus TCP（MBAP 頭）	TCP 接続中：Modbus TCP（MBAP ヘッダー）を使用	TCP 연결: Modbus TCP(MBAP 헤더) 사용	TCP-Verbindung: Modbus TCP (MBAP-Kopf)	Connexion TCP : Modbus TCP (en-tête MBAP)	Conexión TCP: Modbus TCP (cabecera MBAP)	TCP-соединение: Modbus TCP (заголовок MBAP)	Conexão TCP: Modbus TCP (cabeçalho MBAP)
+当前是串口：使用 Modbus RTU（CRC-16）	Serial connection: using Modbus RTU (CRC-16)	目前是序列埠：使用 Modbus RTU（CRC-16）	シリアル接続中：Modbus RTU（CRC-16）を使用	시리얼 연결: Modbus RTU(CRC-16) 사용	Serielle Verbindung: Modbus RTU (CRC-16)	Liaison série : Modbus RTU (CRC-16)	Puerto serie: Modbus RTU (CRC-16)	Последовательный порт: Modbus RTU (CRC-16)	Serial: Modbus RTU (CRC-16)
+从站	Slave	從站	スレーブ	슬레이브	Slave	Esclave	Esclavo	Ведомый	Escravo
+功能	Function	功能	ファンクション	기능	Funktion	Fonction	Función	Функция	Função
+起始地址	Start address	起始位址	開始アドレス	시작 주소	Startadresse	Adresse de début	Dirección inicial	Начальный адрес	Endereço inicial
+数量	Count	數量	個数	개수	Anzahl	Nombre	Cantidad	Количество	Quantidade
+写入值	Values to write	寫入值	書き込み値	쓸 값	Schreibwerte	Valeurs à écrire	Valores a escribir	Значения для записи	Valores a escrever
+超时	Timeout	逾時	タイムアウト	시간 초과	Timeout	Délai	Tiempo límite	Тайм-аут	Tempo limite
+字交换 CDAB	Word swap CDAB	字交換 CDAB	ワードスワップ CDAB	워드 스왑 CDAB	Wort-Tausch CDAB	Inversion de mots CDAB	Intercambio de palabras CDAB	Перестановка слов CDAB	Troca de palavras CDAB
+32 位值的低 16 位在前（部分设备这样存）	Low 16 bits of 32-bit values come first (some devices store them this way)	32 位元值的低 16 位元在前（部分裝置這樣存）	32 ビット値の下位 16 ビットが先（一部の機器）	32비트 값의 하위 16비트가 먼저(일부 장치)	Untere 16 Bit von 32-Bit-Werten zuerst (manche Geräte)	16 bits bas en premier pour les valeurs 32 bits (certains appareils)	16 bits bajos primero en valores de 32 bits (algunos equipos)	Младшие 16 бит 32-битных значений первыми (у некоторых устройств)	16 bits baixos primeiro em valores de 32 bits (alguns aparelhos)
+轮询	Poll	輪詢	ポーリング	폴링	Abfragen	Interroger	Sondear	Опрос	Consultar
+按间隔重复发送这个请求	Repeat this request at an interval	按間隔重複傳送這個請求	このリクエストを一定間隔で繰り返す	이 요청을 일정 간격으로 반복	Diese Anfrage regelmäßig wiederholen	Répéter cette requête à intervalle	Repetir esta petición a intervalos	Повторять запрос с интервалом	Repetir esta requisição em intervalos
+原始值	Raw	原始值	生の値	원시 값	Rohwert	Brut	Bruto	Сырое	Bruto
+数值	Value	數值	値	값	Wert	Valeur	Valor	Значение	Valor
+文件发送完成	File sent	檔案傳送完成	ファイル送信完了	파일 전송 완료	Datei gesendet	Fichier envoyé	Archivo enviado	Файл отправлен	Arquivo enviado
+发送文件	Send file	傳送檔案	ファイル送信	파일 전송	Datei senden	Envoyer un fichier	Enviar archivo	Отправить файл	Enviar arquivo
+未选择文件	No file selected	未選擇檔案	ファイル未選択	선택한 파일 없음	Keine Datei gewählt	Aucun fichier choisi	Ningún archivo	Файл не выбран	Nenhum arquivo
+协议	Protocol	協定	プロトコル	프로토콜	Protokoll	Protocole	Protocolo	Протокол	Protocolo
+原始数据	Raw data	原始資料	生データ	원시 데이터	Rohdaten	Données brutes	Datos brutos	Сырые данные	Dados brutos
+每包	Per packet	每包	パケットごと	패킷당	Pro Paket	Par paquet	Por paquete	На пакет	Por pacote
+先在设备上开始接收（如 U-Boot 的 loady / loadx），再点发送；也可以先点发送，60 秒内设备开始都行。	Start receiving on the device first (e.g. U-Boot loady / loadx), then click Send; or click Send first, the device has 60 s to start.	先在裝置上開始接收（如 U-Boot 的 loady / loadx），再點傳送；也可以先點傳送，60 秒內裝置開始都行。	先に機器で受信を開始（U-Boot の loady / loadx など）してから送信。先に送信しても 60 秒以内なら OK。	먼저 장치에서 수신을 시작(U-Boot loady / loadx 등)한 뒤 전송. 먼저 전송해도 60초 안에 시작하면 됨.	Zuerst am Gerät empfangen starten (z. B. U-Boot loady / loadx), dann Senden; oder zuerst Senden, das Gerät hat 60 s.	Lancez d'abord la réception sur l'appareil (ex. U-Boot loady / loadx), puis Envoyer ; ou l'inverse, l'appareil a 60 s.	Inicia la recepción en el equipo (p. ej. U-Boot loady / loadx) y luego Enviar; o al revés, hay 60 s.	Сначала запустите приём на устройстве (например, U-Boot loady / loadx), затем «Отправить»; или наоборот — есть 60 с.	Inicie a recepção no aparelho (ex.: U-Boot loady / loadx) e depois Enviar; ou o contrário, há 60 s.
+等待接收方…	Waiting for receiver…	等待接收方…	受信側を待っています…	수신 측 대기 중…	Warte auf Empfänger…	En attente du récepteur…	Esperando al receptor…	Ожидание приёмника…	Aguardando receptor…
+先连接设备	Connect a device first	先連線裝置	先に機器を接続してください	먼저 장치를 연결하세요	Zuerst ein Gerät verbinden	Connectez d'abord un appareil	Conecta primero un equipo	Сначала подключите устройство	Conecte um aparelho primeiro
+文件发送已取消	File transfer cancelled	檔案傳送已取消	ファイル送信を取り消しました	파일 전송 취소됨	Übertragung abgebrochen	Transfert annulé	Envío cancelado	Передача отменена	Envio cancelado
+校验计算器	Checksum calculator	校驗計算機	チェックサム計算	체크섬 계산기	Prüfsummenrechner	Calcul de somme de contrôle	Calculadora de checksum	Калькулятор контрольных сумм	Calculadora de checksum
+按十六进制字节计算	Treat input as hex bytes	按十六進位位元組計算	16 進バイトとして計算	16진수 바이트로 계산	Als Hex-Bytes rechnen	Traiter comme octets hexa	Tratar como bytes hex	Считать как hex-байты	Tratar como bytes hex
+输入十六进制字节	Enter hex bytes	輸入十六進位位元組	16 進バイトを入力	16진수 바이트 입력	Hex-Bytes eingeben	Saisir des octets hexa	Introduce bytes hex	Введите hex-байты	Digite bytes hex
+输入文字（按当前编码）	Enter text (current encoding)	輸入文字（按目前編碼）	テキストを入力（現在のエンコーディング）	텍스트 입력(현재 인코딩)	Text eingeben (aktuelle Kodierung)	Saisir du texte (encodage actuel)	Introduce texto (codificación actual)	Введите текст (текущая кодировка)	Digite texto (codificação atual)
+线路上的字节顺序	Byte order on the wire	線路上的位元組順序	送信時のバイト順	전송 시 바이트 순서	Byte-Reihenfolge auf der Leitung	Ordre des octets sur la ligne	Orden de bytes en la línea	Порядок байтов в линии	Ordem dos bytes na linha
+读线圈	Read coils	讀線圈	コイル読み出し	코일 읽기	Spulen lesen	Lire bobines	Leer bobinas	Чтение катушек	Ler bobinas
+读离散输入	Read discrete inputs	讀離散輸入	ディスクリート入力読み出し	이산 입력 읽기	Diskrete Eingänge lesen	Lire entrées discrètes	Leer entradas discretas	Чтение дискретных входов	Ler entradas discretas
+读保持寄存器	Read holding registers	讀保持暫存器	保持レジスタ読み出し	홀딩 레지스터 읽기	Holding-Register lesen	Lire registres de maintien	Leer registros de retención	Чтение регистров хранения	Ler registradores holding
+读输入寄存器	Read input registers	讀輸入暫存器	入力レジスタ読み出し	입력 레지스터 읽기	Eingangsregister lesen	Lire registres d'entrée	Leer registros de entrada	Чтение входных регистров	Ler registradores de entrada
+写单个线圈	Write single coil	寫單個線圈	単一コイル書き込み	단일 코일 쓰기	Einzelne Spule schreiben	Écrire une bobine	Escribir una bobina	Запись одной катушки	Escrever uma bobina
+写单个寄存器	Write single register	寫單個暫存器	単一レジスタ書き込み	단일 레지스터 쓰기	Einzelnes Register schreiben	Écrire un registre	Escribir un registro	Запись одного регистра	Escrever um registrador
+写多个线圈	Write multiple coils	寫多個線圈	複数コイル書き込み	여러 코일 쓰기	Mehrere Spulen schreiben	Écrire plusieurs bobines	Escribir varias bobinas	Запись нескольких катушек	Escrever várias bobinas
+写多个寄存器	Write multiple registers	寫多個暫存器	複数レジスタ書き込み	여러 레지스터 쓰기	Mehrere Register schreiben	Écrire plusieurs registres	Escribir varios registros	Запись нескольких регистров	Escrever vários registradores
+无校验	No check	無校驗	チェックなし	체크섬 없음	Keine Prüfsumme	Sans contrôle	Sin checksum	Без контроля	Sem checksum
+HEX 发送时自动在末尾加上校验	Append a checksum when sending HEX	HEX 傳送時自動在末尾加上校驗	HEX 送信時に末尾へチェックサムを付加	HEX 전송 시 끝에 체크섬 추가	Beim HEX-Senden Prüfsumme anhängen	Ajouter un contrôle à la fin en HEX	Añadir checksum al enviar HEX	Добавлять контрольную сумму при отправке HEX	Acrescentar checksum ao enviar HEX
+无法打开新窗口：{}	Cannot open a new window: {}	無法開啟新視窗：{}	新しいウィンドウを開けません：{}	새 창을 열 수 없음: {}	Neues Fenster nicht möglich: {}	Impossible d'ouvrir une fenêtre : {}	No se puede abrir otra ventana: {}	Не удалось открыть окно: {}	Não foi possível abrir janela: {}
+✓ 文件发送完成：{}，用时 {}	✓ File sent: {}, took {}	✓ 檔案傳送完成：{}，用時 {}	✓ 送信完了：{}、所要 {}	✓ 파일 전송 완료: {}, 소요 {}	✓ Datei gesendet: {}, Dauer {}	✓ Fichier envoyé : {}, en {}	✓ Archivo enviado: {}, en {}	✓ Файл отправлен: {}, за {}	✓ Arquivo enviado: {}, em {}
+不是数字：{}	Not a number: {}	不是數字：{}	数値ではありません：{}	숫자가 아님: {}	Keine Zahl: {}	Pas un nombre : {}	No es un número: {}	Не число: {}	Não é número: {}
+读取成功，{} ms	Read OK, {} ms	讀取成功，{} ms	読み出し成功、{} ms	읽기 성공, {} ms	Gelesen, {} ms	Lecture OK, {} ms	Lectura correcta, {} ms	Прочитано, {} мс	Leitura OK, {} ms
+写入成功，{} ms	Write OK, {} ms	寫入成功，{} ms	書き込み成功、{} ms	쓰기 성공, {} ms	Geschrieben, {} ms	Écriture OK, {} ms	Escritura correcta, {} ms	Записано, {} мс	Escrita OK, {} ms
+异常 {}：{}	Exception {}: {}	異常 {}：{}	例外 {}：{}	예외 {}: {}	Ausnahme {}: {}	Exception {} : {}	Excepción {}: {}	Исключение {}: {}	Exceção {}: {}
+应答错误：{}	Bad reply: {}	應答錯誤：{}	応答エラー：{}	응답 오류: {}	Fehlerhafte Antwort: {}	Réponse invalide : {}	Respuesta errónea: {}	Неверный ответ: {}	Resposta inválida: {}
+✓ 文件发送完成，用时 {}	✓ File sent, took {}	✓ 檔案傳送完成，用時 {}	✓ 送信完了、所要 {}	✓ 파일 전송 완료, 소요 {}	✓ Datei gesendet, Dauer {}	✓ Fichier envoyé en {}	✓ Archivo enviado en {}	✓ Файл отправлен за {}	✓ Arquivo enviado em {}
+✗ 文件发送失败：{}	✗ File transfer failed: {}	✗ 檔案傳送失敗：{}	✗ 送信失敗：{}	✗ 파일 전송 실패: {}	✗ Übertragung fehlgeschlagen: {}	✗ Échec du transfert : {}	✗ Fallo en el envío: {}	✗ Ошибка передачи: {}	✗ Falha no envio: {}
+文件发送失败：{}	File transfer failed: {}	檔案傳送失敗：{}	送信失敗：{}	파일 전송 실패: {}	Übertragung fehlgeschlagen: {}	Échec du transfert : {}	Fallo en el envío: {}	Ошибка передачи: {}	Falha no envio: {}
+无法读取文件：{}	Cannot read file: {}	無法讀取檔案：{}	ファイルを読めません：{}	파일을 읽을 수 없음: {}	Datei nicht lesbar: {}	Lecture impossible : {}	No se puede leer: {}	Не удалось прочитать файл: {}	Não foi possível ler: {}
+发送文件 {}（{}）	Sending {} ({})	傳送檔案 {}（{}）	ファイル送信 {}（{}）	파일 전송 {}({})	Sende {} ({})	Envoi de {} ({})	Enviando {} ({})	Отправка {} ({})	Enviando {} ({})
+{} 发送 {}（{}），等待接收方开始…	{}: sending {} ({}), waiting for the receiver…	{} 傳送 {}（{}），等待接收方開始…	{} で {}（{}）を送信、受信側の開始待ち…	{}로 {}({}) 전송, 수신 측 시작 대기…	{}: sende {} ({}), warte auf Empfänger…	{} : envoi de {} ({}), attente du récepteur…	{}: enviando {} ({}), esperando al receptor…	{}: отправка {} ({}), ожидание приёмника…	{}: enviando {} ({}), aguardando receptor…
+{} 字节	{} bytes	{} 位元組	{} バイト	{} 바이트	{} Bytes	{} octets	{} bytes	{} байт	{} bytes
+波形	Plot	波形	グラフ	그래프	Diagramm	Graphique	Gráfica	График	Gráfico
+等待数据：自动识别 temp=25.3、x:1,y:2 或逗号分隔的数字	Waiting for data: detects temp=25.3, x:1,y:2 or comma-separated numbers	等待資料：自動識別 temp=25.3、x:1,y:2 或逗號分隔的數字	データ待ち：temp=25.3、x:1,y:2、カンマ区切りの数値を自動認識	데이터 대기: temp=25.3, x:1,y:2 또는 쉼표 구분 숫자 자동 인식	Warte auf Daten: erkennt temp=25.3, x:1,y:2 oder kommagetrennte Zahlen	En attente : reconnaît temp=25.3, x:1,y:2 ou des nombres séparés par des virgules	Esperando datos: detecta temp=25.3, x:1,y:2 o números separados por comas	Ожидание данных: распознаёт temp=25.3, x:1,y:2 или числа через запятую	Aguardando dados: detecta temp=25.3, x:1,y:2 ou números separados por vírgula
+点击显示 / 隐藏	Click to show / hide	點擊顯示 / 隱藏	クリックで表示 / 非表示	클릭하여 표시 / 숨기기	Klicken zum Ein-/Ausblenden	Cliquer pour afficher / masquer	Clic para mostrar / ocultar	Нажмите, чтобы показать / скрыть	Clique para mostrar / ocultar
+清空曲线	Clear curves	清空曲線	曲線をクリア	곡선 지우기	Kurven leeren	Effacer les courbes	Borrar curvas	Очистить кривые	Limpar curvas
+继续滚动	Resume scrolling	繼續捲動	スクロール再開	스크롤 계속	Weiter scrollen	Reprendre le défilement	Reanudar desplazamiento	Продолжить прокрутку	Retomar rolagem
+冻结画面（数据照收）	Freeze view (data keeps coming)	凍結畫面（資料照收）	表示を固定（データ受信は継続）	화면 고정(데이터는 계속 수신)	Ansicht einfrieren (Daten laufen weiter)	Figer l'affichage (les données continuent)	Congelar vista (los datos siguen llegando)	Заморозить (данные продолжают поступать)	Congelar visão (dados continuam chegando)
+自定义提取规则	Custom extraction	自訂擷取規則	抽出ルールをカスタマイズ	추출 규칙 사용자 지정	Eigene Extraktion	Extraction personnalisée	Extracción personalizada	Своё правило извлечения	Extração personalizada
+正则	Regex	正規表示式	正規表現	정규식	Regex	Regex	Regex	Regex	Regex
+留空 = 自动识别；每个括号一条曲线	Empty = auto-detect; one curve per capture group	留空 = 自動識別；每個括號一條曲線	空欄 = 自動認識、括弧ごとに 1 本の曲線	비우면 자동 인식, 괄호마다 곡선 하나	Leer = automatisch; eine Kurve pro Gruppe	Vide = auto ; une courbe par groupe	Vacío = automático; una curva por grupo	Пусто = авто; одна кривая на группу	Vazio = automático; uma curva por grupo
+DTR 脉冲复位	DTR pulse reset	DTR 脈衝重設	DTR パルスでリセット	DTR 펄스 리셋	DTR-Puls-Reset	Reset par impulsion DTR	Reinicio por pulso DTR	Сброс импульсом DTR	Reset por pulso DTR
+RTS 脉冲复位	RTS pulse reset	RTS 脈衝重設	RTS パルスでリセット	RTS 펄스 리셋	RTS-Puls-Reset	Reset par impulsion RTS	Reinicio por pulso RTS	Сброс импульсом RTS	Reset por pulso RTS
+ESP32 复位运行	ESP32 reset & run	ESP32 重設執行	ESP32 リセットして実行	ESP32 리셋 후 실행	ESP32 Reset & Start	ESP32 reset et exécution	ESP32 reiniciar y ejecutar	ESP32 сброс и запуск	ESP32 reset e executar
+ESP32 进下载模式	ESP32 bootloader mode	ESP32 進下載模式	ESP32 ダウンロードモード	ESP32 다운로드 모드	ESP32 Bootloader-Modus	ESP32 mode téléchargement	ESP32 modo descarga	ESP32 режим загрузчика	ESP32 modo de download
+已发送 Break（250 ms）	Break sent (250 ms)	已傳送 Break（250 ms）	Break を送信（250 ms）	Break 전송(250 ms)	Break gesendet (250 ms)	Break envoyé (250 ms)	Break enviado (250 ms)	Break отправлен (250 мс)	Break enviado (250 ms)
+点击切换 DTR	Click to toggle DTR	點擊切換 DTR	クリックで DTR 切替	클릭하여 DTR 전환	Klicken: DTR umschalten	Cliquer pour basculer DTR	Clic para cambiar DTR	Нажмите для переключения DTR	Clique para alternar DTR
+点击切换 RTS	Click to toggle RTS	點擊切換 RTS	クリックで RTS 切替	클릭하여 RTS 전환	Klicken: RTS umschalten	Cliquer pour basculer RTS	Clic para cambiar RTS	Нажмите для переключения RTS	Clique para alternar RTS
+发送 Break 信号（250 ms）	Send a Break signal (250 ms)	傳送 Break 訊號（250 ms）	Break 信号を送信（250 ms）	Break 신호 전송(250 ms)	Break-Signal senden (250 ms)	Envoyer un Break (250 ms)	Enviar señal Break (250 ms)	Отправить Break (250 мс)	Enviar sinal Break (250 ms)
+开一个 TCP 服务器：连上来的客户端和串口双向透传	Open a TCP server: connected clients are bridged to the serial port both ways	開一個 TCP 伺服器：連上來的用戶端和序列埠雙向透傳	TCP サーバーを開き、接続したクライアントとシリアルを双方向中継	TCP 서버를 열어 접속한 클라이언트와 시리얼을 양방향 중계	TCP-Server öffnen: Clients werden mit dem Port verbunden	Ouvrir un serveur TCP relié au port série	Abre un servidor TCP unido al puerto serie	Открыть TCP-сервер, связанный с портом	Abrir servidor TCP ligado à porta serial
+清除别名	Clear alias	清除別名	別名をクリア	별칭 지우기	Alias entfernen	Effacer l'alias	Borrar alias	Убрать псевдоним	Limpar apelido
+取消监听口 B	Unset as port B	取消監聽埠 B	ポート B を解除	포트 B 해제	Nicht mehr Port B	Retirer comme port B	Quitar como puerto B	Убрать как порт B	Remover como porta B
+设为监听口 B	Use as port B	設為監聽埠 B	ポート B に設定	포트 B로 사용	Als Port B nutzen	Utiliser comme port B	Usar como puerto B	Сделать портом B	Usar como porta B
+同时打开两个串口，比如监听一条链路的收发两根线	Open two ports at once, e.g. to sniff both TX and RX of a link	同時開啟兩個序列埠，例如監聽一條鏈路的收發兩根線	2 つのポートを同時に開く（例：リンクの送受信を両方監視）	두 포트를 동시에 열기(예: 링크의 송수신 모두 감시)	Zwei Ports gleichzeitig öffnen, z. B. TX und RX mithören	Ouvrir deux ports à la fois, p. ex. écouter TX et RX	Abre dos puertos a la vez, p. ej. para espiar TX y RX	Открыть два порта сразу, например слушать TX и RX	Abrir duas portas, ex.: monitorar TX e RX
+复制端口名	Copy port name	複製埠名稱	ポート名をコピー	포트 이름 복사	Portnamen kopieren	Copier le nom du port	Copiar nombre del puerto	Копировать имя порта	Copiar nome da porta
+端口别名	Port alias	埠別名	ポートの別名	포트 별칭	Port-Alias	Alias du port	Alias del puerto	Псевдоним порта	Apelido da porta
+如：主控板、GPS 模块	e.g. Main board, GPS module	如：主控板、GPS 模組	例：メインボード、GPS モジュール	예: 메인 보드, GPS 모듈	z. B. Hauptplatine, GPS-Modul	ex. carte principale, module GPS	p. ej. placa principal, módulo GPS	напр. основная плата, модуль GPS	ex.: placa principal, módulo GPS
+确定	OK	確定	OK	확인	OK	OK	Aceptar	ОК	OK
+配置方案：连接参数、快捷命令、规则、脚本一起保存和切换	Profiles: save and switch connection settings, commands, rules and scripts together	設定方案：連線參數、快捷命令、規則、腳本一起儲存和切換	プロファイル：接続設定・コマンド・ルール・スクリプトをまとめて保存 / 切替	프로필: 연결 설정, 명령, 규칙, 스크립트를 함께 저장 / 전환	Profile: Verbindung, Befehle, Regeln und Skripte gemeinsam speichern / wechseln	Profils : enregistrer et changer connexion, commandes, règles et scripts	Perfiles: guarda y cambia conexión, comandos, reglas y scripts juntos	Профили: сохранять и переключать подключение, команды, правила и скрипты вместе	Perfis: salve e troque conexão, comandos, regras e scripts juntos
+还没有保存的配置方案	No saved profiles yet	還沒有儲存的設定方案	保存済みのプロファイルはありません	저장된 프로필 없음	Noch keine Profile	Aucun profil enregistré	Aún no hay perfiles	Сохранённых профилей нет	Nenhum perfil salvo
+方案名称	Profile name	方案名稱	プロファイル名	프로필 이름	Profilname	Nom du profil	Nombre del perfil	Имя профиля	Nome do perfil
+保存当前为新方案…	Save current as new profile…	儲存目前為新方案…	現在の設定を新しいプロファイルに保存…	현재 설정을 새 프로필로 저장…	Aktuelles als neues Profil speichern…	Enregistrer comme nouveau profil…	Guardar como nuevo perfil…	Сохранить как новый профиль…	Salvar como novo perfil…
+已发送：{}	Sent: {}	已傳送：{}	送信しました：{}	전송함: {}	Gesendet: {}	Envoyé : {}	Enviado: {}	Отправлено: {}	Enviado: {}
+监听口 B：{}（显示为 B ›）	Port B: {} (shown as B ›)	監聽埠 B：{}（顯示為 B ›）	ポート B：{}（B › で表示）	포트 B: {}(B › 로 표시)	Port B: {} (als B › angezeigt)	Port B : {} (affiché B ›)	Puerto B: {} (se muestra B ›)	Порт B: {} (отображается как B ›)	Porta B: {} (mostrada como B ›)
+✗ 打开监听口 B {} 失败：{}	✗ Failed to open port B {}: {}	✗ 開啟監聽埠 B {} 失敗：{}	✗ ポート B {} を開けません：{}	✗ 포트 B {} 열기 실패: {}	✗ Port B {} nicht geöffnet: {}	✗ Échec d'ouverture du port B {} : {}	✗ No se pudo abrir el puerto B {}: {}	✗ Не удалось открыть порт B {}: {}	✗ Falha ao abrir porta B {}: {}
+监听口 B 打开失败：{}	Port B failed to open: {}	監聽埠 B 開啟失敗：{}	ポート B を開けません：{}	포트 B 열기 실패: {}	Port B nicht geöffnet: {}	Échec du port B : {}	Fallo al abrir el puerto B: {}	Порт B не открыт: {}	Falha ao abrir porta B: {}
+已停止共享（端口 {}）	Sharing stopped (port {})	已停止共享（埠 {}）	共有を停止（ポート {}）	공유 중지(포트 {})	Freigabe beendet (Port {})	Partage arrêté (port {})	Compartir detenido (puerto {})	Общий доступ остановлен (порт {})	Compartilhamento parado (porta {})
+串口已共享到网络：{}:{}	Serial port shared on the network: {}:{}	序列埠已共享到網路：{}:{}	シリアルをネットワーク共有：{}:{}	시리얼 포트 네트워크 공유: {}:{}	Port im Netz freigegeben: {}:{}	Port partagé sur le réseau : {}:{}	Puerto compartido en red: {}:{}	Порт открыт в сети: {}:{}	Porta compartilhada na rede: {}:{}
+无法监听端口 {}：{}	Cannot listen on port {}: {}	無法監聽埠 {}：{}	ポート {} で待ち受けできません：{}	포트 {} 수신 대기 불가: {}	Port {} nicht verfügbar: {}	Écoute impossible sur le port {} : {}	No se puede escuchar en el puerto {}: {}	Не удалось слушать порт {}: {}	Não foi possível escutar a porta {}: {}
+网络客户端已连接（共 {} 个）	Network client connected ({} total)	網路用戶端已連線（共 {} 個）	ネットワーククライアント接続（計 {}）	네트워크 클라이언트 연결(총 {}개)	Netz-Client verbunden ({} gesamt)	Client réseau connecté ({} au total)	Cliente de red conectado ({} en total)	Клиент подключён (всего {})	Cliente de rede conectado ({} no total)
+网络客户端已断开（剩 {} 个）	Network client left ({} remaining)	網路用戶端已中斷（剩 {} 個）	ネットワーククライアント切断（残り {}）	네트워크 클라이언트 끊김(남은 {}개)	Netz-Client getrennt ({} übrig)	Client réseau parti ({} restants)	Cliente de red desconectado (quedan {})	Клиент отключился (осталось {})	Cliente de rede saiu (restam {})
+✗ 共享出错：{}	✗ Sharing error: {}	✗ 共享出錯：{}	✗ 共有エラー：{}	✗ 공유 오류: {}	✗ Freigabefehler: {}	✗ Erreur de partage : {}	✗ Error al compartir: {}	✗ Ошибка общего доступа: {}	✗ Erro de compartilhamento: {}
+{} 个客户端	{} clients	{} 個用戶端	クライアント {}	클라이언트 {}개	{} Clients	{} clients	{} clientes	клиентов: {}	{} clientes
+已保存配置方案「{}」	Profile “{}” saved	已儲存設定方案「{}」	プロファイル「{}」を保存	프로필 “{}” 저장됨	Profil „{}“ gespeichert	Profil « {} » enregistré	Perfil «{}» guardado	Профиль «{}» сохранён	Perfil «{}» salvo
+无法读取配置方案：{}	Cannot read profile: {}	無法讀取設定方案：{}	プロファイルを読めません：{}	프로필을 읽을 수 없음: {}	Profil nicht lesbar: {}	Lecture du profil impossible : {}	No se puede leer el perfil: {}	Не удалось прочитать профиль: {}	Não foi possível ler o perfil: {}
+已切换到配置方案「{}」	Switched to profile “{}”	已切換到設定方案「{}」	プロファイル「{}」に切替	프로필 “{}”(으)로 전환	Zu Profil „{}“ gewechselt	Profil « {} » activé	Cambiado al perfil «{}»	Переключено на профиль «{}»	Trocado para o perfil «{}»
+覆盖「{}」	Overwrite “{}”	覆寫「{}」	「{}」を上書き	“{}” 덮어쓰기	„{}“ überschreiben	Écraser « {} »	Sobrescribir «{}»	Перезаписать «{}»	Sobrescrever «{}»
+删除「{}」	Delete “{}”	刪除「{}」	「{}」を削除	“{}” 삭제	„{}“ löschen	Supprimer « {} »	Eliminar «{}»	Удалить «{}»	Excluir «{}»
+插入分隔标记	Insert marker line	插入分隔標記	区切りマーカーを挿入	구분 마커 삽입	Trennmarker einfügen	Insérer un repère	Insertar marca separadora	Вставить метку-разделитель	Inserir marca separadora
+添加 / 移除书签	Toggle log bookmark	新增 / 移除書籤	ブックマークの追加 / 削除	북마크 추가 / 제거	Lesezeichen setzen / entfernen	Ajouter / retirer un signet	Añadir / quitar marcador	Добавить / убрать закладку	Adicionar / remover marcador
+数据统计	Data statistics	資料統計	データ統計	데이터 통계	Datenstatistik	Statistiques des données	Estadísticas de datos	Статистика данных	Estatísticas de dados
+打开日志文件	Open log file	開啟日誌檔	ログファイルを開く	로그 파일 열기	Logdatei öffnen	Ouvrir un journal	Abrir registro	Открыть журнал	Abrir log
+显示 / 隐藏波形图	Show / hide plot	顯示 / 隱藏波形圖	グラフの表示 / 非表示	그래프 표시 / 숨기기	Diagramm ein-/ausblenden	Afficher / masquer le graphique	Mostrar / ocultar gráfica	Показать / скрыть график	Mostrar / ocultar gráfico
+发送文件（XMODEM / YMODEM）	Send file (XMODEM / YMODEM)	傳送檔案（XMODEM / YMODEM）	ファイル送信（XMODEM / YMODEM）	파일 전송(XMODEM / YMODEM)	Datei senden (XMODEM / YMODEM)	Envoyer un fichier (XMODEM / YMODEM)	Enviar archivo (XMODEM / YMODEM)	Отправить файл (XMODEM / YMODEM)	Enviar arquivo (XMODEM / YMODEM)
+新建窗口	New window	新增視窗	新しいウィンドウ	새 창	Neues Fenster	Nouvelle fenêtre	Nueva ventana	Новое окно	Nova janela
+  校验错误	  bad checksum	  校驗錯誤	  チェックサム不一致	  체크섬 오류	  Prüfsummenfehler	  erreur de contrôle	  checksum erróneo	  ошибка контрольной суммы	  checksum inválido
+ 分钟	 min	 分鐘	 分	 분	 Min.	 min	 min	 мин	 min
+复制全部日志	Copy entire log	複製全部日誌	ログをすべてコピー	전체 로그 복사	Ganzes Log kopieren	Copier tout le journal	Copiar todo el registro	Копировать весь журнал	Copiar todo o log
+按级别筛选	Filter by level	按級別篩選	レベルで絞り込み	레벨로 필터	Nach Level filtern	Filtrer par niveau	Filtrar por nivel	Фильтр по уровню	Filtrar por nível
+数值一直没变，默认不画；点击显示	This value never changed, so it is not drawn; click to show	數值一直沒變，預設不畫；點擊顯示	値が変化しないため非表示；クリックで表示	값이 변하지 않아 그리지 않음, 클릭하여 표시	Wert hat sich nie geändert, daher nicht gezeichnet; klicken zum Anzeigen	Valeur jamais modifiée, non tracée ; cliquer pour afficher	El valor nunca cambió, no se dibuja; clic para mostrar	Значение не менялось, поэтому не рисуется; нажмите, чтобы показать	O valor nunca mudou, não é desenhado; clique para mostrar
+已暂停	Paused	已暫停	一時停止中	일시정지됨	Pausiert	En pause	En pausa	Пауза	Pausado
+寄存器	Register	暫存器	レジスタ	레지스터	Register	Registre	Registro	Регистр	Registrador
+校验和	Checksum	校驗和	チェックサム	체크섬	Prüfsumme	Somme de contrôle	Checksum	Контрольная сумма	Checksum
+收到的数据正按帧格式切分：点击修改或关闭	Incoming data is being split by frame format: click to change or turn off	收到的資料正按幀格式切分：點擊修改或關閉	受信データをフレーム形式で分割中：クリックで変更 / オフ	수신 데이터를 프레임 형식으로 분할 중: 클릭하여 변경 또는 끄기	Daten werden nach Frame-Format geteilt: klicken zum Ändern oder Ausschalten	Données découpées par format de trame : cliquer pour modifier ou désactiver	Los datos se dividen por formato de trama: clic para cambiar o desactivar	Данные делятся по формату кадра: нажмите, чтобы изменить или выключить	Dados divididos pelo formato de quadro: clique para alterar ou desligar

@@ -172,6 +172,17 @@ mod tests {
             include_str!("binview/parse.rs"),
             include_str!("vim.rs"),
             include_str!("editor.rs"),
+            include_str!("app/logx.rs"),
+            include_str!("app/dock.rs"),
+            include_str!("app/dbgtools.rs"),
+            include_str!("app/plot.rs"),
+            include_str!("app/serialx.rs"),
+            include_str!("checksum.rs"),
+            include_str!("modbus.rs"),
+            include_str!("xfer.rs"),
+            include_str!("bridge.rs"),
+            include_str!("script.rs"),
+            include_str!("logbuf.rs"),
         ];
         let mut missing = vec![];
         for src in sources {

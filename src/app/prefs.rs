@@ -116,8 +116,8 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
         Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "命令面板"],
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号"],
-        Cat::Log => &["时间戳", "行号", "发送回显", "ANSI 颜色", "级别着色", "复制时带时间戳", "保留行数", "空闲分帧"],
-        Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS"],
+        Cat::Log => &["时间戳", "行号", "发送回显", "ANSI 颜色", "级别着色", "复制时带时间戳", "保留行数", "空闲分帧", "时间差", "录制分卷", "多行发送间隔"],
+        Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS", "共享到网络"],
         Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径", "代码片段", "Vim 键位", "自动保存", "行内 Blame"],
         Cat::Keys => &["快捷键"],
         Cat::About => &["关于", "版本", "许可证"],
@@ -361,6 +361,18 @@ impl App {
                 }
             },
         );
+        row(ui, q, t("时间差"), t("每行前显示和上一行相隔的时间，看时序很方便"), |ui| {
+            if switch(ui, &mut self.s.show_delta).changed() {
+                self.view_dirty = true;
+            }
+        });
+        row(ui, q, t("录制分卷"), t("录制文件超过大小或时长就换一个新文件（0 = 不限）"), |ui| {
+            ui.add(egui::DragValue::new(&mut self.s.rec_split_min).range(0..=1440).suffix(t(" 分钟")));
+            ui.add(egui::DragValue::new(&mut self.s.rec_split_mb).range(0..=4096).suffix(" MB"));
+        });
+        row(ui, q, t("多行发送间隔"), t("命令栏多行「逐行」发送时，每行之间等待的时间"), |ui| {
+            ui.add(egui::DragValue::new(&mut self.s.line_gap_ms).range(0..=60_000).suffix(" ms"));
+        });
     }
 
     fn prefs_conn(&mut self, ui: &mut egui::Ui, q: &str) {
@@ -369,6 +381,9 @@ impl App {
         });
         row(ui, q, t("自动选中新设备"), t("插入新串口时自动切换过去"), |ui| {
             switch(ui, &mut self.s.follow_new_port);
+        });
+        row(ui, q, t("共享到网络"), t("串口连接后可在链路卡片里打开：本机开一个 TCP 端口，连上来的客户端和串口双向透传"), |ui| {
+            ui.add(egui::DragValue::new(&mut self.s.bridge_port).range(1..=65535).prefix(t("端口 ")));
         });
         row(ui, q, "DTR", t("部分开发板（如 ESP32）用 DTR/RTS 控制复位和下载模式"), |ui| {
             if switch(ui, &mut self.s.dtr).changed() {

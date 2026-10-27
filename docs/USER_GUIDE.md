@@ -68,7 +68,9 @@ A port that the scanner cannot see, such as a virtual `/dev/pts/3`, can be passe
 - **Pause** (`Ctrl+P`) freezes the view while data keeps arriving in the background, so nothing is lost.
 - **Scrolling** up stops auto scroll. A **Back to latest** button appears to resume it.
 - **Selecting.** Drag to select any text, double-click for a word, triple-click for a whole line. Click the line-number gutter to select whole lines (Shift+click for a range). Dragging past the top or bottom edge scrolls. `Ctrl+C` copies without timestamps by default; turn on *Include timestamps when copying* in Settings → Log, or right-click and pick **Copy with timestamps**.
-- **Save** (`Ctrl+S`) writes the current log to a file. **Copy** puts it on the clipboard. **Record** appends every new line to a file as it arrives, which is ideal for overnight captures.
+- **Save** (`Ctrl+S`) writes the current log to a file. **Record** appends every new line to a file as it arrives, which is ideal for overnight captures; Settings → Log can start a new file every N minutes or N MB. *Copy entire log* is in the **⋯** menu.
+- **Time delta** (sidebar → Display) shows the time since the previous line in front of each line; gaps of a second or more turn yellow.
+- **Bookmarks and markers.** `Ctrl+M` inserts a marker line (`Marker 1` with the time), right-click a line to bookmark it (`Ctrl+F2`), and `F2` / `Shift+F2` jump between them.
 - **Clear** with `Ctrl+L`.
 
 ## Sending data
@@ -79,6 +81,9 @@ Type in the command bar at the bottom (`Ctrl+K` focuses it) and press **Enter**.
 - **Line ending:** none, LF, CR or CRLF.
 - **HEX:** `AA 55 01`, `0xAA,0x55`, and `AA5501` are all accepted.
 - **Repeat** sends the same data every N ms until you turn it off.
+- **Checksum:** with HEX on, the combo next to it appends a SUM8, XOR, CRC-8, CRC-16 (Modbus / CCITT / XMODEM) or CRC-32 to every frame.
+- **Multi-line (¶):** Enter adds a line and `Ctrl+Enter` sends. Send the block at once, or turn on **Per line** to send each line as its own packet with a gap (Settings → Log).
+- **AT assistant:** type `AT` and a list of matching commands appears (3GPP, ESP-AT, cellular modules, Bluetooth modules) with a one-line description. `↑` / `↓` choose and `Tab` completes.
 
 Sent text is encoded with the encoding selected in the sidebar.
 
@@ -119,6 +124,55 @@ Pick a tab above the device list. All log, terminal, quick-command and recording
 | **MQTT** | broker host and port, TLS, client ID, user name, password, keep-alive, clean session | MQTT 3.1.1. Add any number of subscriptions (wildcards `+` and `#` are fine). Choose a publish topic, QoS 0 / 1 / 2 and retain, then type in the command bar to publish. Incoming messages are shown with their topic. |
 
 TLS uses the operating system's certificate store on Windows and the Mozilla root store on Linux.
+
+## Debugging tools
+
+![Plot, highlight rules and the reply panel](screenshot-debug-tools.png)
+
+The rarely used tools live in the **⋯** menu at the top right of the log and in the command palette, so the main window stays clean.
+
+**Plot** (chart icon, `Ctrl+Shift+W`). Numbers in the log are drawn as live curves above it. `temp=25.3`, `vbat: 3.71`, `x:1,y:2` and lines of comma-separated numbers are detected automatically; a value that never changes (a version number, an address) is listed but not drawn, so it doesn't flatten the scale. Click a legend chip to show or hide a curve, scroll to zoom the time window, hover to read values, pause the view while data keeps coming, or write your own regex (each group is a curve). Drag the divider to resize.
+
+**Filter & highlight rules** (filter icon, `Ctrl+Shift+H`). Each rule is text or a regex with an action: *Highlight* in a color, *Show only* (rules are OR-ed) or *Hide* (wins over everything). Rules only change what you see; recordings keep every line. Right-click a line → *New auto-reply rule from this line* is the quickest way to start one.
+
+**Protocol framing** (sidebar → Display → Protocol framing). For binary protocols: give the header (`AA 55`), a fixed length or a length field (offset, size, endianness, adjustment) and a checksum. Each frame becomes one line in HEX with the header, length and checksum colored, and bad checksums turn red. The status bar shows when framing is on.
+
+**Auto-reply** (right panel → *Replies*). When a line matches, reply with text or HEX after a delay, show a notification, pause the log, or run a script. The hit count is shown on each rule. Replies are never sent while replaying a log.
+
+**Scripts** (right panel → *Scripts*). Small [Rhai](https://rhai.rs) scripts for test sequences:
+
+```rust
+for i in 0..3 {
+    sendln("AT");
+    if wait("OK", 1000) { log(`#${i + 1}: OK`); } else { log(`#${i + 1}: no reply`); }
+    sleep(500);
+}
+```
+
+Functions: `send(text)`, `sendln(text)`, `send_hex("AA 55")`, `wait(text, ms)`, `wait_re(regex, ms)` (returns the first group), `read_line(ms)`, `sleep(ms)`, `now()`, `log(text)`, `clear()`, `dtr(bool)`, `rts(bool)`. `Ctrl+Enter` in the editor runs the script; the status bar shows it while it runs, click to stop.
+
+**Modbus master** (⋯ menu). Read coils / discrete inputs / holding / input registers and write single or multiple coils and registers. RTU with CRC on serial ports, Modbus TCP on TCP connections. Results are shown as UINT16, INT16, HEX, 32-bit integers or floats (with optional word swap); poll at an interval to watch values change.
+
+**Send file** (⋯ menu). XMODEM (128 / 1K) and YMODEM, for U-Boot's `loadx` / `loady` and most bootloaders. Start the receiver first, or click Send first: the sender waits 60 seconds for it.
+
+**Checksum calculator** (⋯ menu). Every supported checksum for some HEX bytes or text, with the byte order used on the wire.
+
+**Log files.** *Open log file* loads a saved or recorded log for reading and searching. *Replay log file* plays it back with the original timing at 0.5× to 10× or as fast as possible, so plots, rules and auto-replies can be tested without the device. Logs can also be dragged into the window, or opened with `qccom --open file.log` / `qccom --replay file.log`.
+
+**Statistics** (⋯ menu, or click the line count in the status bar). Bytes and lines received and sent, current / peak / average rate, connection time, lines per level and an error histogram for the last minute.
+
+**Serial port extras**, shown in the link card while a serial port is connected:
+
+- DTR and RTS toggles and the CTS / DSR / RI / CD input lines, updated live.
+- **Reset**: a DTR or RTS pulse, or the ESP32 sequences that reset into the app or into the bootloader. Pick the default with the arrow; right-click for the others.
+- **Break** sends a 250 ms break.
+- **Share on network** opens a TCP port; every client that connects is bridged to the serial port both ways, so a colleague or another tool can use the device remotely.
+
+Right-click a port card to give it an alias (for example *Main board*) or to set it as **port B**. Port B is opened together with the main port and its data is shown in amber with a `B ›` prefix, which is handy for sniffing both directions of a link with two adapters.
+
+**Profiles** (the button next to the logo) save the connection settings, quick commands, rules, replies and scripts under a name and switch between them in one click.
+
+**More windows.** *New window* (`Ctrl+Shift+N`) starts another QCCOM window with its own settings, so you can watch two devices side by side.
 
 ## Code viewer
 
@@ -225,6 +279,7 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+K Ctrl+S | Keyboard shortcuts |
 | Ctrl+K Ctrl+T | Toggle dark / light theme |
 | Ctrl+Shift+D / E / G | Debug / Code / Git page |
+| Ctrl+Shift+N | New window |
 
 **Debug page**
 
@@ -244,6 +299,13 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+C | Copy the selection |
 | Esc | Clear the selection |
 | Ctrl+\` | Switch between Log and Terminal |
+| Ctrl+M | Insert a marker |
+| Ctrl+F2 / F2 / Shift+F2 | Bookmark the line / next / previous |
+| Ctrl+Shift+W | Show / hide the plot |
+| Ctrl+Shift+H | Filter & highlight rules |
+| Ctrl+O | Open a log file |
+| Tab | Complete an AT command |
+| Ctrl+Enter | Send (multi-line input) |
 
 **Code viewer**
 

@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "0.9.0"
+version = "1.0.0"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -25,6 +25,7 @@ sys-locale = "0.3"
 sha2 = { version = "0.10", default-features = false }
 portable-pty = "0.9"
 regex-lite = "0.1"
+rhai = { version = "1.23", default-features = false, features = ["std", "no_module", "no_custom_syntax"] }
 
 # HTTPS (self-update) and MQTT over TLS: Windows uses the system SChannel, which adds almost nothing to the size;
 # Linux uses pure-Rust rustls so it does not depend on the distribution's OpenSSL version

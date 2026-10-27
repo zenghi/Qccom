@@ -1,8 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod app;
+mod atcmds;
+mod bridge;
 mod binview;
 mod cindex;
+mod checksum;
 mod cmds;
 mod codeview;
 mod editor;
@@ -12,9 +15,11 @@ mod highlight;
 mod i18n;
 mod keymap;
 mod logbuf;
+mod modbus;
 mod lsp;
 mod net;
 mod pattern;
+mod script;
 mod serial;
 mod shell;
 mod snippets;
@@ -24,6 +29,7 @@ mod theme;
 mod tools;
 mod update;
 mod vim;
+mod xfer;
 
 static DATA_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
 
@@ -40,15 +46,48 @@ pub fn portable_dir() -> Option<std::path::PathBuf> {
     d.is_dir().then_some(d)
 }
 
+static INSTANCE: std::sync::OnceLock<(u16, Option<std::net::TcpListener>)> = std::sync::OnceLock::new();
+
+/// 第几个窗口（从 1 开始）。每个窗口占住一个本机端口来确定编号，窗口关掉编号自动释放；
+/// 第 2 个起的窗口各用一份设置，互不覆盖。
+pub fn instance() -> u16 {
+    INSTANCE
+        .get_or_init(|| {
+            for n in 1..=9u16 {
+                if let Ok(l) = std::net::TcpListener::bind(("127.0.0.1", 29170 + n)) {
+                    return (n, Some(l));
+                }
+            }
+            (10, None)
+        })
+        .0
+}
+
+fn persistence_path() -> Option<std::path::PathBuf> {
+    let n = instance();
+    if n == 1 {
+        return portable_dir().map(|d| d.join("app.ron"));
+    }
+    let dir = data_dir();
+    let p = dir.join(format!("app-{n}.ron"));
+    if !p.exists() {
+        let _ = std::fs::create_dir_all(&dir);
+        let _ = std::fs::copy(dir.join("app.ron"), &p);
+    }
+    Some(p)
+}
+
 fn main() -> eframe::Result {
+    let n = instance();
+    let title = if n == 1 { "QCCOM".to_string() } else { format!("QCCOM ({n})") };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("QCCOM")
+            .with_title(title)
             .with_inner_size([1300.0, 803.0]) // 1300 × 0.618，首次启动时再按屏幕大小调整
             .with_min_inner_size([900.0, 520.0])
             .with_icon(icon()),
         vsync: true,
-        persistence_path: portable_dir().map(|d| d.join("app.ron")),
+        persistence_path: persistence_path(),
         ..Default::default()
     };
     migrate_storage();

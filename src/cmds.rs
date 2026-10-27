@@ -117,15 +117,6 @@ impl CmdPanel {
         *cur = (*cur).min(groups.len() - 1);
 
         // 标题
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(t("快捷命令")).font(FontId::new(14.0, bold())).color(TEXT()));
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.label(RichText::new("Alt+1…9").font(FontId::new(10.5, FontFamily::Monospace)).color(TEXT3()))
-                    .on_hover_text(t("Alt+数字键：发送当前分组的第 1–9 条命令"));
-            });
-        });
-        ui.add_space(10.0);
-
         // 分组标签
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing = vec2(4.0, 4.0);

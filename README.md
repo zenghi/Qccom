@@ -33,15 +33,21 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Full terminal mode.** VT100 / xterm emulation for U-Boot and Linux shells. vi, top, less and menuconfig all render correctly, with scrollback, mouse selection and copy / paste.
 - **Network transports.** TCP client, TCP server (multiple clients), UDP and MQTT 3.1.1 (TLS, user / password, QoS 0–2, retain, multiple subscriptions). Every log, terminal and quick-command feature works the same over the network.
 - **Quick commands.** Groups of one-click commands (text or HEX) with per-command line endings, `Alt+1…9` hotkeys and "send the whole group" sequencing.
+- **Debugging tools.** Live plots of numbers in the log, filter / highlight rules, binary protocol framing with checksum checks, auto-replies, [Rhai](https://rhai.rs) test scripts, a Modbus RTU / TCP master, XMODEM / YMODEM file transfer, CRC on send, an AT command assistant, multi-line sending, log replay with the original timing, statistics, markers and bookmarks.
+- **Serial extras.** DTR / RTS / Break and live CTS / DSR / RI / CD, one-click reset (including the ESP32 bootloader sequence), sharing a port over TCP, a second sniffing port, port aliases, profiles and multiple windows.
 - **Code viewer.** Open your firmware folder next to the log: file tree, tabs, syntax highlighting for 12 language families, quick open, workspace-wide search, and for C / C++ go to definition, find references and macro expansion with the computed value.
 - **A real code editor.** Multiple cursors, column selection, folding, bracket matching, sticky scroll, line commands, and Source Insight-style context window, call hierarchy, bookmarks and semantic colors. Uses clangd automatically when it is installed and the project has a `compile_commands.json`.
 - **Built-in terminal, find / replace, split view.** A terminal panel (PowerShell, cmd, Git Bash, bash…) with clickable `file:line`, regex find and replace in a file or across the project with preview, split editor, Git change bars and inline blame, auto-reload, crash recovery and portable mode.
 - **Firmware tools.** Map / ELF / HEX / BIN viewers with memory-usage bars and a byte inspector, text and binary file compare, a bit calculator with field extraction, number hovers, code snippets, a TODO panel, Kconfig / device tree / linker-script highlighting and optional Vim keys.
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
-- **Recording and export.** Save or copy the log, or record every new line to a file for long unattended captures.
+- **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
 - **Self-update** from your own server, with SHA-256 verification. See [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
 - **Dark and light themes** (or follow the system), a searchable **command palette** (`Ctrl+Shift+P`), a settings page, and **fully customizable keyboard shortcuts** including two-step sequences.
 - **10 UI languages**, picked automatically from the system locale: English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, Français, Español, Русский, Português.
+
+| Debugging tools | Firmware tools |
+|---|---|
+| ![Plot, rules and auto-reply](docs/screenshot-debug-tools.png) | ![Map viewer and bit calculator](docs/screenshot-embedded.png) |
 
 | Code viewer | Git history |
 |---|---|
@@ -106,6 +112,10 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/logbuf.rs` | Line splitting, decoding, ANSI parsing, log-level detection |
 | `src/term.rs` | VT100 / xterm terminal emulator |
 | `src/cmds.rs` | Quick-command panel |
+| `src/app/logx.rs`, `src/app/plot.rs` | Log rules, replay, statistics, protocol framing UI; live plot |
+| `src/app/dock.rs`, `src/script.rs` | Auto-reply and script panels; Rhai script runner |
+| `src/app/dbgtools.rs`, `src/modbus.rs`, `src/xfer.rs`, `src/checksum.rs` | Modbus master, XMODEM / YMODEM, checksum calculator |
+| `src/app/serialx.rs`, `src/bridge.rs`, `src/atcmds.rs` | Signal lines, reset, port B, aliases, profiles; serial-to-TCP bridge; AT command list |
 | `src/codeview.rs`, `src/cindex.rs`, `src/highlight.rs` | Code viewer, C symbol index, syntax highlighter |
 | `src/editor.rs`, `src/codeview/insight.rs`, `src/lsp.rs` | Text editor widget, context window / call hierarchy, optional clangd client |
 | `src/shell.rs`, `src/termview.rs`, `src/pattern.rs` | Terminal panel (pseudo-terminals), shared terminal widget, find / replace patterns |

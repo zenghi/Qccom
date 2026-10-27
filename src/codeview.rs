@@ -4003,7 +4003,10 @@ fn log_index(_n: usize, _ms: u128) {
 // ---------------------------------------------------------------- 崩溃恢复
 
 fn recovery_dir() -> PathBuf {
-    crate::data_dir().join("recovery")
+    match crate::instance() {
+        1 => crate::data_dir().join("recovery"),
+        n => crate::data_dir().join(format!("recovery-{n}")),
+    }
 }
 
 fn backup_file(path: &Path) -> PathBuf {

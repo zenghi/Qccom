@@ -1,0 +1,29 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Release packaging
+/dist/
+/bin/
+*.zip
+
+# Self-update leftovers (see src/update.rs)
+*.old
+*.update.tmp
+.qccom-write-test
+
+# Recorded logs and local test data
+*.log
+/sim/
+
+# Editors / IDEs
+.vscode/
+.idea/
+*.iml
+*.swp
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

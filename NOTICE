@@ -1,0 +1,41 @@
+QCCOM
+Copyright 2026 zenghi <https://github.com/zenghi>
+
+Original project: https://github.com/zenghi/QCCOM
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+-------------------------------------------------------------------------------
+ATTRIBUTION REQUIREMENT
+
+Under Section 4(d) of the Apache License 2.0, if you redistribute QCCOM or
+any work derived from it (in source or binary form, modified or not), you MUST
+include this NOTICE file with your distribution, and keep the attribution
+below in at least one of: a NOTICE text file, your source code / documentation,
+or the "About" screen of your program.
+
+    Based on QCCOM by zenghi - https://github.com/zenghi/QCCOM
+
+Please also do not remove the author and repository information shown inside
+the application.
+
+署名要求（中文说明）：
+根据 Apache License 2.0 第 4(d) 条，任何人再分发 QCCOM 或基于它修改、衍生的作品
+（无论源码还是二进制、是否修改），都必须附带本 NOTICE 文件，并在 NOTICE 文件、
+源码/文档或软件“关于”界面中至少一处保留以下署名：
+
+    基于 zenghi 的 QCCOM 开发 - https://github.com/zenghi/QCCOM
+
+请勿删除程序内显示的作者与仓库信息。
+-------------------------------------------------------------------------------
+
+THIRD-PARTY COMPONENTS
+
+This product bundles the following fonts, each licensed under the
+SIL Open Font License, Version 1.1 (full texts in assets/licenses/):
+
+  * Inter           - Copyright (c) 2016 The Inter Project Authors
+  * JetBrains Mono  - Copyright 2020 The JetBrains Mono Project Authors
+
+Rust crates used by this product are listed in Cargo.toml / Cargo.lock and
+are distributed under their own licenses (mostly MIT or Apache-2.0).

@@ -34,6 +34,7 @@ mod toolbox;
 mod tools;
 mod update;
 mod vim;
+mod ws;
 mod xfer;
 
 static DATA_DIR: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();

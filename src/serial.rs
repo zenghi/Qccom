@@ -47,7 +47,7 @@ impl PortConfig {
         format!("{}{}{}", self.data_bits, p, self.stop_bits)
     }
 
-    fn builder(&self, name: &str) -> serialport::SerialPortBuilder {
+    pub fn builder(&self, name: &str) -> serialport::SerialPortBuilder {
         serialport::new(name, self.baud)
             .data_bits(match self.data_bits {
                 5 => DataBits::Five,

@@ -1,5 +1,6 @@
 //! 活动栏「工具箱」页：左边是工具列表，右边是选中的工具。
-//! TFTP / HTTP 文件服务器、局域网设备发现、数据转换、波特率计算、CAN（SLCAN）、USB HID。
+//! 最上面是通信调试（TCP / UDP / MQTT / BLE / WebSocket / HTTP API / Modbus 从站），选中后右边就是和串口一样的
+//! 日志、终端、快捷命令；下面是文件服务、网络、计算、显示、总线这些小工具（新工具在 toolbox2.rs）。
 
 use std::sync::{Arc, Mutex};
 
@@ -10,13 +11,58 @@ use super::*;
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default, Debug)]
 pub enum Tool {
     #[default]
+    Tcp,
+    Udp,
+    Mqtt,
+    Ble,
+    Ws,
+    Api,
+    MbSlave,
     Tftp,
     Http,
+    Syslog,
     Discover,
+    Ping,
+    Subnet,
+    Broker,
     Convert,
     Baud,
+    Checksum,
+    Timestamp,
+    Regex,
+    Font,
+    Color,
+    Ascii,
     Can,
     Hid,
+}
+
+/// 工具列表的分组
+pub(super) fn groups() -> [(&'static str, &'static [Tool]); 6] {
+    [
+        (t("通信调试"), &[Tool::Tcp, Tool::Udp, Tool::Mqtt, Tool::Ble, Tool::Ws, Tool::Api, Tool::MbSlave]),
+        (t("服务器"), &[Tool::Tftp, Tool::Http, Tool::Syslog, Tool::Broker]),
+        (t("网络"), &[Tool::Discover, Tool::Ping, Tool::Subnet]),
+        (t("计算"), &[Tool::Convert, Tool::Baud, Tool::Checksum, Tool::Timestamp, Tool::Regex]),
+        (t("显示"), &[Tool::Font, Tool::Color, Tool::Ascii]),
+        (t("总线"), &[Tool::Can, Tool::Hid]),
+    ]
+}
+
+/// 网络连接类工具对应的会话槽位
+pub(super) fn comm_slot(tool: Tool) -> Option<usize> {
+    match tool {
+        Tool::Tcp => Some(1),
+        Tool::Udp => Some(2),
+        Tool::Mqtt => Some(3),
+        Tool::Ble => Some(4),
+        Tool::Ws => Some(5),
+        _ => None,
+    }
+}
+
+pub(super) fn tool_of_slot(k: usize) -> Option<Tool> {
+    [None, Some(Tool::Tcp), Some(Tool::Udp), Some(Tool::Mqtt), Some(Tool::Ble), Some(Tool::Ws)].get(k).copied().flatten()
 }
 
 /// 记在设置里的部分
@@ -45,6 +91,10 @@ pub struct ToolboxCfg {
     pub can_period: u32,
     pub hid_data: String,
     pub hid_feature_len: u16,
+    /// 收藏的工具，排在列表最上面
+    pub favs: Vec<Tool>,
+    /// v1.4 新工具的设置
+    pub x: super::toolbox2::Cfg2,
 }
 
 impl Default for ToolboxCfg {
@@ -73,6 +123,8 @@ impl Default for ToolboxCfg {
             can_period: 100,
             hid_data: "00 01 02 03".into(),
             hid_feature_len: 64,
+            favs: vec![],
+            x: Default::default(),
         }
     }
 }
@@ -92,6 +144,9 @@ pub struct ToolboxUi {
     hid_dev: Option<hid::Dev>,
     hid_st: hid::Shared,
     hid_all: bool,
+    /// 工具列表的搜索
+    filter: String,
+    pub(super) x: super::toolbox2::Ui2,
 }
 
 impl Default for ToolboxUi {
@@ -110,11 +165,13 @@ impl Default for ToolboxUi {
             hid_dev: None,
             hid_st: Arc::new(Mutex::new(Default::default())),
             hid_all: false,
+            filter: String::new(),
+            x: Default::default(),
         }
     }
 }
 
-const MONO: fn(f32) -> FontId = |s| FontId::new(s, FontFamily::Monospace);
+pub(super) const MONO: fn(f32) -> FontId = |s| FontId::new(s, FontFamily::Monospace);
 
 impl App {
     pub(super) fn toolbox_page(&mut self, ctx: &egui::Context) {
@@ -125,9 +182,15 @@ impl App {
                 top: 16,
                 bottom: 8,
             }))
-            .exact_width(232.0)
+            .exact_width(210.0)
             .resizable(false)
             .show(ctx, |ui| self.toolbox_nav(ui));
+        self.tick_toolbox2();
+        // 网络连接和 API：右边就是调试页那一套（侧边栏、日志、终端、快捷命令）
+        if comm_slot(self.s.tb.tool).is_some() || self.s.tb.tool == Tool::Api {
+            self.debug_page(ctx);
+            return;
+        }
         // CAN 循环发送
         if let (Some(at), Some(link)) = (self.tb.can_repeat, &self.tb.can) {
             if at.elapsed().as_millis() as u32 >= self.s.tb.can_period.max(1) {
@@ -159,35 +222,104 @@ impl App {
                     Tool::Baud => self.tb_baud(ui),
                     Tool::Can => self.tb_can(ui),
                     Tool::Hid => self.tb_hid(ui),
+                    other => self.tb_more(ui, other),
                 }
             });
     }
 
     fn toolbox_nav(&mut self, ui: &mut egui::Ui) {
         ui.label(RichText::new(t("工具箱")).font(FontId::new(15.0, bold())).color(TEXT()));
-        ui.add_space(14.0);
-        let groups: [(&str, &[Tool]); 4] = [
-            (t("文件服务"), &[Tool::Tftp, Tool::Http]),
-            (t("网络"), &[Tool::Discover]),
-            (t("计算"), &[Tool::Convert, Tool::Baud]),
-            (t("总线"), &[Tool::Can, Tool::Hid]),
-        ];
-        for (g, tools) in groups {
-            eyebrow(ui, g, "");
-            for &tool in tools {
-                let running = match tool {
-                    Tool::Tftp => self.tb.tftp.is_some(),
-                    Tool::Http => self.tb.http.is_some(),
-                    Tool::Discover => self.tb.disc.lock().unwrap().running,
-                    Tool::Can => self.tb.can.is_some(),
-                    Tool::Hid => self.tb.hid_dev.is_some(),
-                    _ => false,
-                };
-                if nav_row(ui, tool_text(tool).0, self.s.tb.tool == tool, running).clicked() {
-                    self.s.tb.tool = tool;
-                }
+        ui.add_space(10.0);
+        let search = ui.add(
+            egui::TextEdit::singleline(&mut self.tb.filter)
+                .hint_text(t("搜索工具"))
+                .desired_width(f32::INFINITY)
+                .margin(vec2(8.0, 5.0)),
+        );
+        ui.add_space(10.0);
+        let q = self.tb.filter.trim().to_lowercase();
+        let matches = |tool: Tool| {
+            if q.is_empty() {
+                return true;
             }
-            ui.add_space(12.0);
+            let (a, b) = tool_text(tool);
+            a.to_lowercase().contains(&q) || b.to_lowercase().contains(&q) || format!("{tool:?}").to_lowercase().contains(&q)
+        };
+        let favs: Vec<Tool> = self.s.tb.favs.iter().copied().filter(|t| matches(*t)).collect();
+        let mut list: Vec<(&str, Vec<Tool>)> = vec![];
+        if !favs.is_empty() {
+            list.push((t("收藏"), favs));
+        }
+        for (g, tools) in groups() {
+            let v: Vec<Tool> = tools.iter().copied().filter(|t| matches(*t) && (!q.is_empty() || !self.s.tb.favs.contains(t))).collect();
+            if !v.is_empty() {
+                list.push((g, v));
+            }
+        }
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+            if list.is_empty() {
+                ui.label(RichText::new(t("没有匹配的工具")).color(TEXT3()));
+            }
+            for (g, tools) in list {
+                eyebrow(ui, g, "");
+                for tool in tools {
+                    let state = self.tool_state(tool);
+                    let r = nav_row(ui, tool_text(tool).0, self.s.tb.tool == tool, state);
+                    if r.clicked() {
+                        self.s.tb.tool = tool;
+                    }
+                    let fav = self.s.tb.favs.contains(&tool);
+                    r.context_menu(|ui| {
+                        if ui.button(if fav { t("取消收藏") } else { t("收藏到最上面") }).clicked() {
+                            if fav {
+                                self.s.tb.favs.retain(|x| *x != tool);
+                            } else {
+                                self.s.tb.favs.push(tool);
+                            }
+                            ui.close_menu();
+                        }
+                    });
+                }
+                ui.add_space(10.0);
+            }
+        });
+        if !q.is_empty() && search.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+            // 名字里带关键字的优先，其次才是说明里带的
+            let gs = groups();
+            let all = || gs.iter().flat_map(|g| g.1.iter()).copied();
+            let by_name = all().find(|t| tool_text(*t).0.to_lowercase().contains(&q) || format!("{t:?}").to_lowercase().contains(&q));
+            if let Some(first) = by_name.or_else(|| all().find(|t| matches(*t))) {
+                self.s.tb.tool = first;
+            }
+        }
+    }
+
+    /// 列表上的状态点：0 无，1 运行 / 已连接，2 刚收到数据（闪一下）
+    fn tool_state(&self, tool: Tool) -> u8 {
+        if let Some(k) = comm_slot(tool) {
+            return match (self.slot_online(k), self.slot_active(k)) {
+                (true, true) => 2,
+                (true, false) => 1,
+                _ => 0,
+            };
+        }
+        let running = match tool {
+            Tool::Tftp => self.tb.tftp.is_some(),
+            Tool::Http => self.tb.http.is_some(),
+            Tool::Discover => self.tb.disc.lock().unwrap().running,
+            Tool::Can => self.tb.can.is_some(),
+            Tool::Hid => self.tb.hid_dev.is_some(),
+            other => self.tool2_running(other),
+        };
+        running as u8
+    }
+
+    /// 打开某个工具（命令面板、设备发现、状态栏都走这里）
+    pub(super) fn open_tool(&mut self, tool: Tool) {
+        self.s.tb.tool = tool;
+        self.set_page(Page::Tools);
+        if let Some(k) = comm_slot(tool) {
+            self.use_slot(k);
         }
     }
 
@@ -387,7 +519,12 @@ impl App {
 
     /// 点设备发现里的端口：HTTP 打开 API 标签，MQTT 填好 MQTT，其它用 TCP 客户端
     fn connect_to(&mut self, ip: &str, port: u16) {
-        if self.conn.is_some() && !matches!(port, 80 | 443 | 8080) {
+        let slot = match port {
+            80 | 443 | 8080 => None,
+            1883 | 8883 => Some(3),
+            _ => Some(1),
+        };
+        if slot.is_some_and(|k| self.slot_online(k)) {
             self.toast(t("先断开当前连接再切换"), WARN());
             return;
         }
@@ -400,23 +537,23 @@ impl App {
                     format!("{scheme}://{ip}:{port}/")
                 };
                 self.s.api.current = crate::api::Request { url, ..Default::default() };
-                self.s.api_mode = true;
+                self.open_tool(Tool::Api);
             }
             1883 | 8883 => {
-                self.s.api_mode = false;
-                self.s.transport = Transport::Mqtt;
                 self.s.net.mqtt.host = ip.into();
                 self.s.net.mqtt.port = port;
                 self.s.net.mqtt.tls = port == 8883;
+                self.open_tool(Tool::Mqtt);
             }
             _ => {
-                self.s.api_mode = false;
+                // TCP 会话要切成客户端：先换到这个会话再改
+                self.open_tool(Tool::Tcp);
+                self.use_slot(1);
                 self.s.transport = Transport::TcpClient;
                 self.s.net.tcp_host = ip.into();
                 self.s.net.tcp_port = port;
             }
         }
-        self.set_page(Page::Debug);
     }
 
     // ------------------------------------------------------------ 数据转换
@@ -530,9 +667,9 @@ impl App {
         });
         if let Some(h) = to_send {
             self.s.hex_send = true;
-            self.send_text = h;
-            self.s.api_mode = false;
             self.set_page(Page::Debug);
+            self.use_slot(0);
+            self.send_text = h;
             self.focus_send = true;
         }
     }
@@ -980,8 +1117,14 @@ impl App {
 
 // ------------------------------------------------------------ 小部件
 
-fn tool_text(t_: Tool) -> (&'static str, &'static str) {
+pub(super) fn tool_text(t_: Tool) -> (&'static str, &'static str) {
     match t_ {
+        Tool::Tcp => ("TCP", t("TCP 客户端或服务器，和串口一样看日志、开终端、发快捷命令")),
+        Tool::Udp => ("UDP", t("收发 UDP 数据包，每包一行并标出来源")),
+        Tool::Mqtt => ("MQTT", t("连接 MQTT 服务器，订阅主题、发布消息")),
+        Tool::Ble => (t("低功耗蓝牙"), t("扫描 BLE 设备，订阅通知、读写特征")),
+        Tool::Ws => ("WebSocket", t("连接 ws:// 或 wss:// 服务，收发文本 / 二进制消息")),
+        Tool::Api => (t("HTTP 接口"), t("像 Postman 一样调试设备上的 REST 接口")),
         Tool::Tftp => (t("TFTP 服务器"), t("把一个文件夹通过 TFTP 共享出去，U-Boot、交换机、IP 电话用它下载固件")),
         Tool::Http => (t("HTTP 文件服务器"), t("把一个文件夹通过 HTTP 共享出去，开发板做 OTA 升级时从这里下载，支持断点续传")),
         Tool::Discover => (t("设备发现"), t("找出局域网里的开发板、网关和服务：不知道 DHCP 分到的 IP 时很有用")),
@@ -989,10 +1132,11 @@ fn tool_text(t_: Tool) -> (&'static str, &'static str) {
         Tool::Baud => (t("波特率计算"), t("算 UART 分频寄存器的值和实际误差：STM32、AVR、ESP32、16550")),
         Tool::Can => (t("CAN 调试"), t("用 USB-CAN 适配器（SLCAN）收发 CAN 帧，按 ID 汇总、看周期和变化的字节")),
         Tool::Hid => (t("USB HID"), t("给自定义 HID 设备收发报告：输入、输出和特征报告")),
+        other => super::toolbox2::tool_text2(other),
     }
 }
 
-fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, running: bool) -> egui::Response {
+fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, state: u8) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
     let p = ui.painter();
     if on {
@@ -1008,10 +1152,14 @@ fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, running: bool) -> egui::Resp
         FontId::proportional(13.0),
         if on { TEXT() } else { TEXT2() },
     );
-    if running {
+    if state > 0 {
         let c = rect.right_center() - vec2(10.0, 0.0);
-        p.circle_filled(c, 5.5, OK().gamma_multiply(0.2));
-        p.circle_filled(c, 3.0, OK());
+        let col = if state == 2 { ACCENT() } else { OK() };
+        p.circle_filled(c, if state == 2 { 6.5 } else { 5.5 }, col.gamma_multiply(0.22));
+        p.circle_filled(c, 3.0, col);
+        if state == 2 {
+            ui.ctx().request_repaint_after(Duration::from_millis(400));
+        }
     }
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -1020,7 +1168,7 @@ fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, running: bool) -> egui::Resp
     resp
 }
 
-fn settings_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+pub(super) fn settings_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
     egui::Frame::new()
         .fill(BG2())
         .stroke(st(1.0, LINE()))
@@ -1032,7 +1180,7 @@ fn settings_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
         });
 }
 
-fn folder_row(ui: &mut egui::Ui, root: &mut String) {
+pub(super) fn folder_row(ui: &mut egui::Ui, root: &mut String) {
     form_row(ui, t("文件夹"), |ui| {
         let w = ui.available_width() - 80.0;
         ui.add_sized(vec2(w, 26.0), egui::TextEdit::singleline(root).font(MONO(12.5)).margin(vec2(6.0, 4.0)));
@@ -1044,7 +1192,7 @@ fn folder_row(ui: &mut egui::Ui, root: &mut String) {
     });
 }
 
-fn server_button(ui: &mut egui::Ui, running: bool) -> bool {
+pub(super) fn server_button(ui: &mut egui::Ui, running: bool) -> bool {
     let (label, fill, tc) = if running { (t("停止服务"), BG3(), ERR()) } else { (t("启动服务"), ACCENT(), ON_ACCENT()) };
     ui.horizontal(|ui| {
         ui.add_space(66.0);
@@ -1057,7 +1205,7 @@ fn server_button(ui: &mut egui::Ui, running: bool) -> bool {
     .inner
 }
 
-fn hint_line(ui: &mut egui::Ui, label: &str, code: &str) {
+pub(super) fn hint_line(ui: &mut egui::Ui, label: &str, code: &str) {
     ui.horizontal(|ui| {
         ui.label(RichText::new(label).color(TEXT2()));
         let r = ui.add(egui::Label::new(RichText::new(code).font(MONO(12.5)).color(ACCENT()).background_color(BG2())).sense(Sense::click()));
@@ -1067,7 +1215,7 @@ fn hint_line(ui: &mut egui::Ui, label: &str, code: &str) {
     });
 }
 
-fn header_row(ui: &mut egui::Ui, cols: &[(&str, f32)]) {
+pub(super) fn header_row(ui: &mut egui::Ui, cols: &[(&str, f32)]) {
     ui.horizontal(|ui| {
         for (h, w) in cols {
             cell(ui, *w, RichText::new(*h).small().color(TEXT3()));
@@ -1076,15 +1224,15 @@ fn header_row(ui: &mut egui::Ui, cols: &[(&str, f32)]) {
     ui.add_space(2.0);
 }
 
-const ROW_H: f32 = 22.0;
+pub(super) const ROW_H: f32 = 22.0;
 
 /// 表格行紧凑排列：行高固定 ROW_H，行间不留空（show_rows 需要行高准确）
-fn dense_rows(ui: &mut egui::Ui) {
+pub(super) fn dense_rows(ui: &mut egui::Ui) {
     ui.spacing_mut().item_spacing.y = 0.0;
     ui.spacing_mut().interact_size.y = ROW_H;
 }
 
-fn cell(ui: &mut egui::Ui, w: f32, text: RichText) {
+pub(super) fn cell(ui: &mut egui::Ui, w: f32, text: RichText) {
     ui.allocate_ui_with_layout(vec2(w, 18.0), Layout::left_to_right(Align::Center), |ui| {
         ui.set_min_width(w);
         ui.add(egui::Label::new(text).truncate());
@@ -1151,7 +1299,7 @@ fn xfer_table(ui: &mut egui::Ui, log: &[crate::toolbox::Xfer], http: bool) {
         });
 }
 
-fn out_row(ui: &mut egui::Ui, k: &str, v: &str) {
+pub(super) fn out_row(ui: &mut egui::Ui, k: &str, v: &str) {
     ui.horizontal_top(|ui| {
         let (r, _) = ui.allocate_exact_size(vec2(80.0, 18.0), Sense::hover());
         ui.painter().text(r.left_center(), Align2::LEFT_CENTER, k, FontId::proportional(12.0), TEXT3());
@@ -1169,7 +1317,7 @@ fn out_row(ui: &mut egui::Ui, k: &str, v: &str) {
     ui.add_space(4.0);
 }
 
-fn copy_label(ui: &mut egui::Ui, v: &str) {
+pub(super) fn copy_label(ui: &mut egui::Ui, v: &str) {
     let r = ui.add(egui::Label::new(RichText::new(v).font(MONO(12.5)).color(TEXT())).sense(Sense::click()));
     if r.on_hover_text(t("点击复制")).clicked() {
         ui.ctx().copy_text(v.to_string());

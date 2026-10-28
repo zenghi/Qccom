@@ -98,8 +98,10 @@ pub struct Settings {
     pub cmd_panel: bool,
     /// 终端模式（键盘直通设备）还是日志模式
     pub terminal: bool,
-    /// 连接方式：串口 / TCP / UDP / MQTT
+    /// 当前显示的连接方式（串口 / TCP / UDP / MQTT / BLE / WebSocket）
     pub transport: Transport,
+    /// TCP 工具是客户端还是服务器
+    pub tcp_mode: Transport,
     pub net: NetConfig,
     pub code: CodeSettings,
     pub git: GitSettings,
@@ -190,6 +192,7 @@ impl Default for Settings {
             cmd_panel: true,
             terminal: false,
             transport: Transport::Serial,
+            tcp_mode: Transport::TcpClient,
             net: NetConfig::default(),
             code: CodeSettings::default(),
             git: GitSettings::default(),
@@ -265,7 +268,9 @@ mod palette;
 mod plot;
 mod prefs;
 mod serialx;
+mod sess;
 mod toolbox;
+mod toolbox2;
 
 /// 日志里按字选择的范围：(行号, 字符位置)，字符位置按这一行显示出来的文字计（含时间戳等前缀）
 #[derive(Clone, Copy, PartialEq)]
@@ -407,6 +412,10 @@ pub struct App {
     at_sel: usize,
     /// 命令行指定、启动后要打开 / 回放的日志
     open_log: Option<(PathBuf, bool)>,
+    /// 停在后台的其它连接（当前连接所在的槽位为 None）
+    sessions: Vec<Option<sess::Sess>>,
+    /// 正在处理后台连接（不驱动 Modbus / 文件传输这些只属于当前连接的工具）
+    bg: bool,
 }
 
 /// 正在录制：当前文件、已写字节、开始时间、第几段
@@ -452,6 +461,12 @@ impl App {
         if let Some(p) = &extra_port {
             s.port = p.clone();
         }
+        // 调试页只放串口，网络连接都在工具箱里；启动时先显示串口
+        if s.transport == Transport::TcpServer {
+            s.tcp_mode = Transport::TcpServer;
+        }
+        s.transport = Transport::Serial;
+        s.api_mode = false;
         let (upd_tx, upd_rx) = mpsc::channel();
         let code = CodeView::new(std::mem::take(&mut s.code));
         let gitv = GitView::new(std::mem::take(&mut s.git), cc.egui_ctx.clone());
@@ -571,6 +586,8 @@ impl App {
             serial_ui: Default::default(),
             at_sel: 0,
             open_log,
+            sessions: (0..sess::SLOTS).map(|_| None).collect(),
+            bg: false,
         };
         app.parse_keywords();
         app.compile_rules();
@@ -679,8 +696,10 @@ impl App {
         if !r.is_empty() {
             self.send_raw(r);
         }
-        self.tools_rx(&d);
-        if let Some(b) = &self.bridge {
+        if !self.bg {
+            self.tools_rx(&d);
+        }
+        if let Some(b) = self.bridge.as_ref().filter(|_| self.s.transport == Transport::Serial) {
             b.forward(&d);
         }
         if self.paused {
@@ -992,8 +1011,15 @@ impl App {
         self.tick_replay();
         self.tick_dock();
         self.tick_tools();
-        self.tick_sniff();
-        self.poll_bridge();
+        if self.s.transport == Transport::Serial {
+            self.tick_sniff();
+            self.poll_bridge();
+        }
+        self.tick_conn();
+    }
+
+    /// 每个连接自己的定时工作：自动重连、速率、定时 / 整组发送、录制（后台连接也跑）
+    fn tick_conn(&mut self) {
         self.tick_stats();
         // 自动重连：设备重新出现后稍等一下（等驱动就绪）再连
         if let Some((_, since)) = &self.reconnect {
@@ -1063,7 +1089,8 @@ impl App {
         }
         let committed = std::mem::take(&mut self.buf.committed);
         // 新收完的行：应答规则、脚本、波形图
-        let want = !self.dock.trig_rt.iter().all(Option::is_none) || self.dock.script.is_some() || self.s.plot.on;
+        // 自动应答、脚本、波形图只跟当前显示的连接
+        let want = !self.bg && (!self.dock.trig_rt.iter().all(Option::is_none) || self.dock.script.is_some() || self.s.plot.on);
         if want {
             let texts: Vec<String> = committed
                 .iter()
@@ -1488,8 +1515,15 @@ impl App {
     // ------------------------------------------------------------ 侧边栏
 
     fn sidebar(&mut self, ui: &mut egui::Ui) {
-        let logo = self.logo.clone();
-        brand(ui, &logo, |ui| self.profile_button(ui));
+        if self.page == Page::Tools {
+            // 工具箱里的网络工具：标题换成工具名，配置方案只属于串口
+            let (title, desc) = toolbox::tool_text(self.s.tb.tool);
+            ui.label(RichText::new(title).font(FontId::new(17.0, bold())).color(TEXT()));
+            ui.label(RichText::new(desc).small().color(TEXT3()));
+        } else {
+            let logo = self.logo.clone();
+            brand(ui, &logo, |ui| self.profile_button(ui));
+        }
         ui.add_space(14.0);
 
         // 限宽：哪个控件多出几像素也不会把侧边栏撑宽（切换标签时宽度保持一致）
@@ -1506,46 +1540,6 @@ impl App {
                     ui.set_width(ui.available_width());
                     let busy = self.conn.is_some() || self.autobaud.is_some();
 
-                    // ---- 连接方式
-                    // API 不是连接方式：切过去时串口 / 网络连接留在后台照常收日志
-                    let cur = if self.s.api_mode {
-                        None
-                    } else {
-                        Some(if self.s.transport == Transport::TcpServer { Transport::TcpClient } else { self.s.transport })
-                    };
-                    let mut kind = cur;
-                    tab_strip(
-                        ui,
-                        &mut kind,
-                        &[
-                            (Some(Transport::Serial), t("串口")),
-                            (Some(Transport::TcpClient), "TCP"),
-                            (Some(Transport::Udp), "UDP"),
-                            (Some(Transport::Mqtt), "MQTT"),
-                            (Some(Transport::Ble), "BLE"),
-                            (None, "API"),
-                        ],
-                        30.0,
-                    );
-                    if kind != cur {
-                        match kind {
-                            None => self.s.api_mode = true,
-                            Some(k) => {
-                                let back = self.s.api_mode && (k == self.s.transport || (k == Transport::TcpClient && self.s.transport == Transport::TcpServer));
-                                self.s.api_mode = false;
-                                if !back {
-                                    if busy {
-                                        self.toast(t("先断开当前连接再切换"), WARN());
-                                    } else {
-                                        self.reconnect = None;
-                                        self.last_error = None;
-                                        self.s.transport = k;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    ui.add_space(12.0);
                     if self.s.api_mode {
                         self.api_sidebar(ui);
                         return;
@@ -1897,6 +1891,32 @@ impl App {
                     }
                 }
             }
+            Transport::Ws => {
+                ui.add_enabled_ui(!busy, |ui| {
+                    let w = &mut self.s.net.ws;
+                    card(ui, |ui| {
+                        form_row(ui, "URL", |ui| text_field(ui, &mut w.url, "ws://192.168.4.1:81/"));
+                        form_row(ui, t("发送"), |ui| {
+                            let mut txt = w.text;
+                            tab_strip(ui, &mut txt, &[(true, t("文本")), (false, t("二进制"))], 24.0);
+                            w.text = txt;
+                        });
+                        form_row(ui, "Ping", |ui| {
+                            ui.add(egui::DragValue::new(&mut w.ping_s).range(0..=600).suffix(" s"))
+                                .on_hover_text(t("每隔多少秒发一次 Ping 保活，0 = 不发"));
+                        });
+                        ui.add_space(4.0);
+                        ui.label(RichText::new(t("额外请求头（每行一个，比如 Authorization: Bearer …）")).small().color(TEXT3()));
+                        ui.add(
+                            egui::TextEdit::multiline(&mut w.headers)
+                                .desired_rows(2)
+                                .desired_width(f32::INFINITY)
+                                .font(FontId::new(12.0, FontFamily::Monospace)),
+                        );
+                    });
+                });
+                ui.label(RichText::new(t("每条消息单独一行，前面标出 txt / bin")).small().color(TEXT3()));
+            }
             Transport::Serial | Transport::Ble => {}
         }
     }
@@ -2155,7 +2175,7 @@ impl App {
         let search_w = if all_pills {
             (avail - 70.0 - 5.0 * 70.0).min(260.0)
         } else {
-            (avail - 70.0 - 110.0).clamp(70.0, 260.0)
+            (avail - 70.0 - 140.0).clamp(60.0, 260.0)
         };
         egui::Frame::new()
             .fill(BG2())
@@ -2673,6 +2693,7 @@ impl App {
                     .on_hover_text(p.display().to_string());
             }
             self.status_extras(ui);
+            self.status_conns(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(TEXT3()));
                 let r = ui
@@ -2693,6 +2714,45 @@ impl App {
                 ui.label(RichText::new(self.s.encoding.name()).small().color(TEXT3()));
             });
         });
+    }
+
+    /// 状态栏里其它在线的连接：点一下切过去
+    fn status_conns(&mut self, ui: &mut egui::Ui) {
+        let shown = matches!(self.page, Page::Debug | Page::Tools);
+        let mut go = None;
+        for c in self.live_conns() {
+            // 当前页面正显示着的连接左边已经有了
+            if c.current && shown {
+                continue;
+            }
+            ui.add_space(6.0);
+            let kind = match c.transport {
+                Transport::Serial => t("串口"),
+                Transport::TcpClient | Transport::TcpServer => "TCP",
+                Transport::Udp => "UDP",
+                Transport::Mqtt => "MQTT",
+                Transport::Ble => "BLE",
+                Transport::Ws => "WS",
+            };
+            let col = if c.up { OK() } else { WARN() };
+            let text = format!("● {kind} {}", truncate(&c.name, 22));
+            let r = ui.add(egui::Label::new(RichText::new(text).size(11.5).color(if c.unread { col } else { col.gamma_multiply(0.75) })).sense(Sense::click()));
+            if r.on_hover_text(t("后台连接：点击切过去")).clicked() {
+                go = Some(c.slot);
+            }
+        }
+        if let Some(k) = go {
+            self.goto_slot(k);
+        }
+    }
+
+    /// 跳到某个连接所在的页面
+    fn goto_slot(&mut self, k: usize) {
+        match toolbox::tool_of_slot(k) {
+            Some(tool) => self.open_tool(tool),
+            None => self.set_page(Page::Debug),
+        }
+        self.use_slot(k);
     }
 
     /// 状态栏里的回放、脚本、网络共享、监听口指示（点一下就能操作）
@@ -2773,7 +2833,14 @@ impl App {
         let (n, open) = self.rows();
 
         if n == 0 {
-            empty_state(ui, card_rect, self.ports.is_empty() && self.s.transport == Transport::Serial, self.conn.is_some(), &self.logo);
+            empty_state(
+                ui,
+                card_rect,
+                self.ports.is_empty() && self.s.transport == Transport::Serial,
+                self.conn.is_some(),
+                self.s.transport != Transport::Serial,
+                &self.logo,
+            );
         }
 
         let inner = card_rect.shrink2(vec2(1.0, 6.0));
@@ -3878,12 +3945,26 @@ impl eframe::App for App {
             let _ = r.w.flush();
         }
         self.disconnect();
+        self.close_all_sessions();
     }
 
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         if !self.s.window_placed {
             self.place_window(ctx);
         }
+        // 调试页显示串口；工具箱里选了网络工具就显示那个连接。其余页面保持不变
+        let want = match self.page {
+            Page::Debug => Some(0),
+            Page::Tools => toolbox::comm_slot(self.s.tb.tool),
+            _ => None,
+        };
+        if let Some(k) = want {
+            self.use_slot(k);
+        }
+        if matches!(self.page, Page::Debug | Page::Tools) {
+            self.s.api_mode = self.page == Page::Tools && self.s.tb.tool == toolbox::Tool::Api;
+        }
+        self.tick_background();
         self.handle_events();
         self.tick();
 
@@ -4296,7 +4377,7 @@ pub(crate) fn hud_corners(p: &egui::Painter, r: Rect, color: Color32) {
     }
 }
 
-fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, logo: &egui::TextureHandle) {
+fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, logo: &egui::TextureHandle) {
     let p = ui.painter();
     // 点阵背景
     let step = 22.0;
@@ -4325,6 +4406,8 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, logo:
         (t("已连接，等待数据"), t("设备有输出时会实时显示在这里"))
     } else if no_ports {
         (t("未发现串口"), t("插入 USB 转串口设备后会自动出现在左侧"))
+    } else if net {
+        (t("准备就绪"), t("左侧填好地址，点「连接」"))
     } else {
         (t("准备就绪"), t("左侧选好端口，点「连接」；不知道波特率就点「⚡ 自动」"))
     };

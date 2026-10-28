@@ -22,10 +22,10 @@ The thin **activity bar** on the far left switches between the four pages:
 
 | Icon | Page |
 |---|---|
-| Pulse | **Debug**: connections, log, terminal, quick commands. A green dot means a connection is open. |
+| Pulse | **Debug**: the serial port, log, terminal, quick commands. A green dot means a connection is open. |
 | `</>` | **Code**: browse source code next to the log. |
 | Branch | **Git**: branches, commit graph and diffs. |
-| Toolbox | **Toolbox**: file servers, device discovery, converters, CAN and HID. |
+| Toolbox | **Toolbox**: TCP, UDP, MQTT, BLE, WebSocket, HTTP API and Modbus slave, plus servers, network tools, calculators, CAN and HID. |
 
 The **gear** at the bottom of the activity bar holds everything you need less often: the command palette, settings, keyboard shortcuts, theme, language, update check and About. A **download arrow** appears above it only while an update needs your attention.
 
@@ -41,11 +41,11 @@ Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for exam
 
 The Debug page has three columns:
 
-- **Left sidebar** (`Ctrl+B` hides it): transport tabs (Serial / TCP / UDP / MQTT), device list, baud rate, the Connect button, a live link monitor (RX / TX bytes and a 60-second rate graph), display settings and advanced settings.
+- **Left sidebar** (`Ctrl+B` hides it): device list, baud rate, the Connect button, a live link monitor (RX / TX bytes and a 60-second rate graph), display settings and advanced settings.
 - **Center**: the top bar (Log / Terminal switch, search, level filter, pause, clear, copy, save, record), the log or terminal itself, and the command bar.
 - **Right**: the quick-command panel (`Ctrl+J` shows or hides it).
 
-The status bar at the bottom shows the connection, RX / TX activity lights, the encoding, the line count and the version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
+The status bar at the bottom shows the connection, RX / TX activity lights, every other connection that is online (click one to jump to it; its dot flashes when data arrives), the encoding, the line count and the version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
 
 ## Serial connection
 
@@ -119,9 +119,11 @@ Switch to **Terminal** in the top bar or press `Ctrl+\``. Click inside the termi
 
 The terminal always decodes UTF-8, which is what Linux boards use.
 
-## TCP, UDP and MQTT
+## TCP, UDP, MQTT and WebSocket
 
-Pick a tab above the device list. All log, terminal, quick-command and recording features work on network connections too.
+Network connections live at the top of the **Toolbox** (`Ctrl+Shift+B`), in the *Communication* group. Click one and the page shows the same sidebar, log, terminal and quick commands as the Debug page, so every log, terminal, quick-command and recording feature works on network connections too.
+
+**Several connections at once.** The serial port, TCP, UDP, MQTT, BLE and WebSocket each have their own connection and their own log, terminal, statistics and recording. Connect the serial port, then a TCP server, then MQTT: all of them stay connected and keep logging (and reconnecting) in the background while you look at another one. The status bar lists every live connection; click one to jump to it. In the toolbox list a green dot marks a connected tool and flashes when new data arrives.
 
 | Mode | Settings | Notes |
 |---|---|---|
@@ -129,12 +131,13 @@ Pick a tab above the device list. All log, terminal, quick-command and recording
 | **TCP server** | listen port | Accepts any number of clients. Data you send goes to all of them, and the sidebar shows how many are connected. |
 | **UDP** | local port, remote host and port | If you leave the remote host empty, replies go to whoever sent the last packet. Broadcast addresses are allowed. Each received datagram becomes a log entry tagged with the sender's address. |
 | **MQTT** | broker host and port, TLS, client ID, user name, password, keep-alive, clean session | MQTT 3.1.1. Add any number of subscriptions (wildcards `+` and `#` are fine). Choose a publish topic, QoS 0 / 1 / 2 and retain, then type in the command bar to publish. Incoming messages are shown with their topic. |
+| **WebSocket** | URL (`ws://` or `wss://`), text or binary frames, ping interval, extra headers | Each received message is one log entry tagged `txt` or `bin`. What you send goes out as one message. Use the headers box for `Authorization: Bearer …` and similar. |
 
 TLS uses the operating system's certificate store on Windows and the Mozilla root store on Linux.
 
 ## Bluetooth LE
 
-Open the **BLE** tab and click **Scan**. Nearby devices appear with their name, address, a hint such as *Nordic UART* or the manufacturer, and signal bars with the RSSI. Type in the filter box to narrow the list, or use the filter button to hide devices without a name. Devices not seen for 30 seconds are dimmed.
+Open **Bluetooth LE** in the toolbox and click **Scan**. Nearby devices appear with their name, address, a hint such as *Nordic UART* or the manufacturer, and signal bars with the RSSI. Type in the filter box to narrow the list, or use the filter button to hide devices without a name. Devices not seen for 30 seconds are dimmed.
 
 Select a device and click **Connect** (or double-click it). After connecting, the sidebar lists its services and characteristics:
 
@@ -149,7 +152,7 @@ Requirements: Windows 10 or later with Bluetooth turned on; on Linux, BlueZ with
 
 ![HTTP API request](gif/demo-api.gif)
 
-The **API** tab turns the main area into a Postman-style request editor, which is handy for the REST endpoints of ESP32, Linux boards and cloud services. A serial or network connection stays open in the background while you use it.
+**HTTP API** in the toolbox is a Postman-style request editor, which is handy for the REST endpoints of ESP32, Linux boards and cloud services. A serial or network connection stays open in the background while you use it.
 
 - Pick the method, type the URL and press **Send** (or `Enter` / `Ctrl+Enter`). The status, time and size appear above the response; JSON is indented and colored (toggle **Format**), and the **Headers** tab lists the response headers. Copy or save the body with the buttons on the right.
 - **Params**, **Headers**, **Body** (JSON, form or text) and **Auth** (Bearer token or Basic) tabs. `Content-Type` and `Authorization` are added for you and listed under the header table.
@@ -314,11 +317,27 @@ These follow Source Insight and help when reading an unfamiliar project.
 
 ![Data converter and baud calculator](gif/demo-toolbox.gif)
 
-The toolbox icon in the activity bar (`Ctrl+Shift+B`) opens a page with small utilities. A green dot next to a tool means it is running; servers keep running when you switch pages.
+The toolbox icon in the activity bar (`Ctrl+Shift+B`) opens a page with all the communication tools and small utilities. A green dot next to a tool means it is running or connected; servers and connections keep running when you switch pages.
+
+Type in the search box above the list to filter tools (Enter opens the first match). Right-click a tool and choose *Pin to top* to put it in a *Favorites* group. Every tool can also be opened from the command palette (`Ctrl+Shift+P`, then type its name).
+
+The *Communication* tools (TCP, UDP, MQTT, Bluetooth LE, WebSocket, HTTP API) are described in their own sections above. The others:
+
+- **Modbus slave**: simulate a device for a PLC, HMI or Modbus master. Choose Modbus TCP (port: 502 on Windows, 1502 on Linux where ports below 1024 need root) or RTU on a serial port, and the slave ID. Holding registers, input registers, coils and discrete inputs are shown in an editable grid from the start address you choose (HEX toggles the display). Every request is listed with its function, address, count and result. Values written by the master update the grid.
+- **MQTT broker**: an MQTT 3.1.1 broker on this computer, no Mosquitto needed. Wildcard subscriptions, retained messages, last will and keep-alive are supported; set a user name and password to require them. The page lists connected clients with their subscriptions, connection events and every message. Publish from the page, or click *Connect with the MQTT tool* to connect QCCOM's own MQTT tool to it.
+- **Syslog receiver**: listens on a UDP port (514 on Windows; 5514 on Linux, where ports below 1024 need root) and parses RFC 3164 and RFC 5424 messages into time, host, program, severity and text. Filter by host, program or text, and by minimum severity. On a Linux board, `syslogd -R <pc-ip>:5514` (busybox; the page shows this command with your address) or a `*.* @<pc-ip>:5514` rsyslog rule sends logs here.
+- **Ping / ports**: continuous ping with a latency chart, min / average / max and loss; a count of 0 pings until you stop. *TCP port check* tries a list of ports and ranges (`21-23, 80, 502`) and shows which are open.
+- **Subnet calculator**: type `192.168.1.10/24` or an address and mask to get the network, broadcast, usable range, host count, wildcard and binary forms. Type another address under *Compare* to check whether it is in the same subnet.
+- **Checksums**: type HEX bytes or text and see SUM8 / SUM16 / XOR / LRC and 14 CRC presets (CRC-8, CRC-16/MODBUS, CCITT, XMODEM, CRC-32…) at once, with the result in both byte orders. *Custom CRC* takes any width, polynomial, initial value, input / output reflection and final XOR.
+- **Timestamps**: converts Unix seconds, milliseconds, `0x` hex and date-times into each other, with the current time ticking at the top.
+- **Regex tester**: matches are highlighted in the test text and listed with their groups; the replace box previews `$1`-style replacements.
+- **Font & image to C**: *Text* draws each character with any TTF / TTC font (system fonts are listed, or pick a file) into a W×H cell; adjust size, offset and stroke weight. *Image* scales a PNG, JPG, BMP or GIF to the size you want and outputs monochrome (threshold or dithering) or RGB565 / RGB565 byte stream / RGB888 / 8-bit gray. Scan modes: row by row, column by column, page by page (SSD1306 and most OLEDs) and column-page; MSB or LSB first; inverse. The preview shows exactly the bits that are output. Copy the C array or save it as a header.
+- **Color converter**: HEX, `rgb()`, RGB888, RGB565 (also as bytes), RGB555, HSV and gray; the RGB565 swatch shows how the color will look on the display.
+- **ASCII table**: decimal, hex, octal and control-character names; *Show 128–255* adds the upper half. Click a hex value to copy it.
 
 - **TFTP server**: pick a folder and a port (69 needs admin rights; the default on Linux is 6969) and click *Start server*. The page shows the U-Boot command to copy. Turn on *Allow upload* to accept `tftp put`. Every transfer is listed with its progress.
 - **HTTP file server**: shares a folder with a directory listing and resumable downloads, handy for OTA tests. *Allow PUT upload* lets devices push logs with `curl -T`.
-- **Device discovery**: scans the local /24 network for common ports and asks mDNS for named devices. Click a port to connect: HTTP opens the API tab, MQTT fills in the MQTT tab, anything else uses the TCP client.
+- **Device discovery**: scans the local /24 network for common ports and asks mDNS for named devices. Click a port to connect: HTTP opens the HTTP API tool, MQTT connects the MQTT tool, anything else uses the TCP client.
 - **Data converter**: type HEX, text, Base64 or a number and see all the other forms, including every integer and float reading in both byte orders. Text understands `\r`, `\n`, `\t`, `\0` and `\xNN`. *Put in send bar* copies the bytes to the command bar as HEX.
 - **Baud calculator**: enter the peripheral clock (`72M`, `16MHz`…) and a baud rate to get the divider register for STM32, AVR, 16550 and ESP32 and the real error. Click a chip below to try another common rate.
 - **CAN**: works with SLCAN adapters (CANable, USBtin and many USB-CAN modules). Choose the adapter's serial port and bitrate and click *Open*. *Listen only* sends no ACK. Send single frames or repeat them at a period. *By ID* shows the latest data, count and period per ID, with bytes that changed in the last second highlighted; *Chronological* shows every frame.

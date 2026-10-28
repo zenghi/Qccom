@@ -16,8 +16,11 @@ use crate::binview::{BinEvt, Special};
 use crate::cindex::{self, Hit, Index, Kind, Progress, Sym};
 use crate::editor::{Buf, Editor, View};
 
+mod changes;
+mod editx;
 mod gen;
 mod insight;
+mod regs;
 use crate::git;
 use crate::highlight::{self, is_ident, Lang};
 use crate::i18n::{t, tf};
@@ -50,6 +53,12 @@ pub struct CodeSettings {
     pub clangd: bool,
     /// 空 = 自动查找
     pub clangd_path: String,
+    /// 自动换行（Alt+Z）
+    pub wrap: bool,
+    /// 显示行尾空格、Tab
+    pub show_ws: bool,
+    /// 保存时用 clang-format 格式化（工程里有 .clang-format 才生效）
+    pub fmt_on_save: bool,
     /// 代码生成动作（模板）
     pub macros: Vec<crate::codegen::MacroDef>,
     /// 文件头、TODO 里的作者和版权声明
@@ -71,6 +80,19 @@ pub struct CodeSettings {
     pub recordings: Vec<KeyMacro>,
     /// 每个工程打开的文件、光标、书签
     pub projects: std::collections::BTreeMap<String, ProjState>,
+    /// 本地历史：开关、保留天数、总容量（GB）、单个文件上限（MB）
+    pub hist_on: bool,
+    pub hist_days: u32,
+    pub hist_gb: u32,
+    pub hist_max_mb: u32,
+    /// 这些程序运行时的修改不进审阅清单（逗号分隔，如 UV4.exe）
+    pub hist_quiet: String,
+    /// 敏感文件规则（.gitignore 语法）：被外部修改时醒目标出
+    pub sensitive: String,
+    /// 审阅清单里隐藏只改了格式的文件
+    pub hide_format: bool,
+    /// 不再提示 .gitignore 缺编译产物规则的工程
+    pub ig_hint_off: Vec<String>,
 }
 
 impl Default for CodeSettings {
@@ -89,6 +111,9 @@ impl Default for CodeSettings {
             vim: false,
             clangd: true,
             clangd_path: String::new(),
+            wrap: false,
+            show_ws: false,
+            fmt_on_save: false,
             macros: crate::codegen::builtins(),
             author: String::new(),
             copyright: String::new(),
@@ -100,6 +125,14 @@ impl Default for CodeSettings {
             macro_recent: Default::default(),
             recordings: vec![],
             projects: Default::default(),
+            hist_on: true,
+            hist_days: 30,
+            hist_gb: 10,
+            hist_max_mb: 20,
+            hist_quiet: String::new(),
+            sensitive: crate::history::review::SENSITIVE_DEFAULT.into(),
+            hide_format: false,
+            ig_hint_off: vec![],
         }
     }
 }
@@ -110,6 +143,8 @@ enum Side {
     Search,
     Outline,
     Todo,
+    /// 外部修改审阅和时间线（有待审阅的修改时才显示图标）
+    Changes,
 }
 
 struct Node {
@@ -137,6 +172,8 @@ struct Doc {
     mtime: Option<std::time::SystemTime>,
     /// 外部改了文件，而编辑器里也有没保存的修改：等用户选
     ext_changed: bool,
+    /// 上次读盘或保存时的内容（外部修改冲突时做三方合并的基准）
+    saved: String,
     /// 最后一次编辑的时间（自动保存、崩溃恢复用）
     edited_at: Option<f64>,
     /// 和 Git HEAD 比的行改动：(起始行, 结束行, 'A' / 'M' / 'D')
@@ -150,6 +187,8 @@ struct Doc {
     /// ELF / map / HEX / 比较等特殊查看器；show_special = 当前显示它而不是文本
     special: Option<Special>,
     show_special: bool,
+    /// Markdown 左边原文、右边预览
+    md_split: bool,
     /// 不是磁盘上的文件（比较视图）
     virt: bool,
     /// 不生效的 #if 分支缓存：(文本版本, 宏环境指纹, 行范围)
@@ -161,7 +200,8 @@ struct Doc {
 impl Doc {
     fn load(path: &Path, root: &Path) -> Result<Doc, String> {
         let meta = std::fs::metadata(path).map_err(|e| e.to_string())?;
-        let limit = if is_firmware(path) { 64 } else { 8 };
+        let big_ok = is_firmware(path) || path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "csv" | "tsv"));
+        let limit = if big_ok { 64 } else { 8 };
         if meta.len() > limit * 1024 * 1024 {
             return Err(tf("文件太大（{}），超过 {} MB 不打开", &[&crate::app::human_bytes(meta.len()), &limit]));
         }
@@ -194,18 +234,21 @@ impl Doc {
             bom,
             mtime: meta.modified().ok(),
             ext_changed: false,
+            saved: String::new(),
             edited_at: None,
             git_lines: vec![],
             git_ver: None,
             blame: None,
             blame_req: false,
             backup_ver: None,
-            show_special: special.is_some(),
+            show_special: special.as_ref().is_some_and(|s| s.default_on()),
+            md_split: false,
             special,
             virt: false,
             inactive: (u64::MAX, 0, vec![]),
             scope: (u64::MAX, 0, None, None),
         };
+        d.saved = d.buf.text.clone();
         d.reparse();
         Ok(d)
     }
@@ -288,6 +331,7 @@ impl Doc {
             self.reparse();
         }
         self.ed.mark_clean();
+        self.saved = self.buf.text.clone();
         self.mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
         self.ext_changed = false;
         self.edited_at = None;
@@ -306,8 +350,9 @@ impl Doc {
         if self.bom {
             bytes.splice(0..0, *b"\xef\xbb\xbf");
         }
-        std::fs::write(&self.path, bytes).map_err(|e| e.to_string())?;
+        crate::history::save_tracked(&self.path, &bytes)?;
         self.ed.mark_clean();
+        self.saved = self.buf.text.clone();
         self.mtime = std::fs::metadata(&self.path).and_then(|m| m.modified()).ok();
         self.ext_changed = false;
         self.edited_at = None;
@@ -445,6 +490,8 @@ pub enum CodeEvt {
     Compare(PathBuf, Option<String>, PathBuf, Option<String>),
     /// 右键「解析结构体」：结构体定义的源码
     Struct(String),
+    /// 三方合并：(上次保存的版本, 我的修改, 写回的文件)
+    Merge(PathBuf, PathBuf, PathBuf),
 }
 
 pub struct CodeView {
@@ -528,6 +575,12 @@ pub struct CodeView {
     gen: gen::GenState,
     /// 右键菜单里显示的快捷键
     key_labels: HashMap<Act, String>,
+    /// 本地历史、外部修改审阅
+    hist: changes::HistUi,
+    /// 换了工程，下一帧（拿到 ctx 时）重启本地历史
+    hist_restart: bool,
+    ex: editx::EditX,
+    regs: regs::RegUi,
 }
 
 impl CodeView {
@@ -594,6 +647,10 @@ impl CodeView {
             recovery: scan_recovery(),
             gen: Default::default(),
             key_labels: HashMap::new(),
+            hist: Default::default(),
+            hist_restart: false,
+            ex: Default::default(),
+            regs: Default::default(),
         };
         v.s.font_size = v.s.font_size.clamp(9.0, 28.0);
         crate::codegen::merge(&mut v.s.macros);
@@ -662,6 +719,7 @@ impl CodeView {
         self.s.recent.truncate(10);
         self.s.root = ps;
         self.root = Some(p.clone());
+        self.hist_restart = true;
         self.reindex();
         self.refresh_git();
         self.restore_project(&p);
@@ -729,7 +787,7 @@ impl CodeView {
                         }
                         m.insert(rel, c);
                     }
-                    m.insert(format!("\u{2}{}", st.branch.split("...").next().unwrap_or("")), '\0');
+                    m.insert(format!("\u{2}{}", branch_label(&st.branch)), '\0');
                 }
             }
             let _ = tx.send(m);
@@ -1065,6 +1123,9 @@ impl CodeView {
                 files.push(h.path.clone());
             }
         }
+        if let Some(h) = &self.hist.h {
+            h.checkpoint(&tf("全工程替换“{}”之前", &[&pat.q]), false);
+        }
         let (mut n_files, mut n_hits, mut failed) = (0, 0, vec![]);
         for rel in files {
             let p = root.join(&rel);
@@ -1102,7 +1163,7 @@ impl CodeView {
             if bom {
                 data.splice(0..0, *b"\xef\xbb\xbf");
             }
-            match std::fs::write(&p, data) {
+            match crate::history::save_tracked(&p, &data) {
                 Ok(()) => {
                     n_hits += hits.len();
                     n_files += 1;
@@ -1257,10 +1318,29 @@ impl CodeView {
                 _ => {}
             }
         }
+        self.hist_notice(ui);
+        self.editx_notice(ui);
         let Some(d) = self.tabs.get_mut(self.active) else { return };
         if d.ext_changed {
             let now = ui.input(|i| i.time);
-            match notice_bar(ui, &tf("{} 已在外部修改", &[&d.rel]), &[t("重新加载"), t("保留我的修改")]) {
+            let dirty = d.dirty();
+            let btns = if dirty {
+                vec![t("合并…"), t("重新加载"), t("保留我的修改")]
+            } else {
+                vec![t("重新加载"), t("保留我的修改")]
+            };
+            let msg = if dirty {
+                tf("{} 已在外部修改，你这里也有没保存的修改", &[&d.rel])
+            } else {
+                tf("{} 已在外部修改", &[&d.rel])
+            };
+            let pick = notice_bar(ui, &msg, &btns).map(|i| if dirty { i } else { i + 1 });
+            if pick == Some(0) {
+                self.merge_external(now);
+                return;
+            }
+            let Some(d) = self.tabs.get_mut(self.active) else { return };
+            match pick.map(|i| i - 1) {
                 Some(0) => {
                     if let Err(e) = d.reload(now) {
                         self.events.push(CodeEvt::Toast(e, ERR()));
@@ -1305,6 +1385,19 @@ impl CodeView {
         }
     }
 
+    /// 拖进来的文件：正在看图片时拿来对比，返回 true 表示已处理
+    pub fn drop_on_viewer(&mut self, p: &Path) -> bool {
+        let Some(d) = self.tabs.get_mut(self.active).filter(|d| d.show_special) else { return false };
+        match d.special.as_mut().and_then(|s| s.drop_image(p)) {
+            Some(Ok(())) => true,
+            Some(Err(e)) => {
+                self.toast(e, ERR());
+                true
+            }
+            None => false,
+        }
+    }
+
     fn handle_bin_evt(&mut self, e: Option<BinEvt>, at: egui::Pos2, now: f64) {
         match e {
             Some(BinEvt::Symbol(name)) => {
@@ -1316,7 +1409,14 @@ impl CodeView {
                 let _ = now;
             }
             Some(BinEvt::Toast(m, c)) => self.toast(m, c),
-            None => {}
+            Some(BinEvt::Line(l)) => {
+                if let Some(d) = self.tabs.get_mut(self.active) {
+                    d.show_special = false;
+                }
+                self.goto_line(l);
+            }
+            Some(BinEvt::Open(p)) => self.open_file(&p, None),
+            Some(BinEvt::AsPixels) | None => {}
         }
     }
 
@@ -1453,6 +1553,15 @@ impl CodeView {
         self.poll_lsp(ctx);
         self.poll_git_lines(ctx);
         self.poll_disk(ctx);
+        if self.hist_restart {
+            self.hist_restart = false;
+            self.hist_start(ctx);
+            self.editx_start();
+            self.regs_start();
+        }
+        self.hist_poll();
+        self.editx_poll();
+        self.regs_poll();
         if let Some(rx) = &self.index_rx {
             match rx.try_recv() {
                 Ok(idx) => {
@@ -1559,6 +1668,8 @@ impl CodeView {
         self.quick_open(ctx);
         self.pick_popup(ctx);
         self.prompt_ui(ctx);
+        self.hist_windows(ctx);
+        self.conv_window(ctx);
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context, acts: &[Act]) {
@@ -1573,6 +1684,8 @@ impl CodeView {
         if has(Act::PageCode) {
             self.side = Side::Files;
         }
+        self.hist_acts(&has);
+        self.editx_acts(&has, ctx.input(|i| i.time));
         if has(Act::QuickOpen) {
             self.quick = Some(Quick {
                 q: String::new(),
@@ -1617,6 +1730,10 @@ impl CodeView {
                 self.active = (self.active + 1) % self.tabs.len();
             }
             if has(Act::SaveFile) {
+                if self.s.fmt_on_save && self.tabs.get(self.active).is_some_and(|d| d.dirty()) {
+                    let now = ctx.input(|i| i.time);
+                    self.format_doc(now, true);
+                }
                 if let Some(d) = self.tabs.get_mut(self.active) {
                     if d.dirty() {
                         match d.save() {
@@ -1821,6 +1938,15 @@ impl CodeView {
                     }
                 }
             }
+            if self.hist_pending() || self.side == Side::Changes {
+                let r = icon_button(ui, Icon::History, t("外部修改和本地历史"), self.side == Side::Changes);
+                if self.hist_pending() {
+                    ui.painter().circle_filled(r.rect.right_top() + vec2(-5.0, 5.0), 3.5, WARN());
+                }
+                if r.clicked() {
+                    self.side = Side::Changes;
+                }
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(6.0);
                 let fb = icon_button(ui, Icon::Folder, t("打开文件夹（右键：最近的工程）"), false);
@@ -1849,8 +1975,10 @@ impl CodeView {
                 if let Some(p) = open {
                     self.open_root(p);
                 }
+                // 侧边栏窄、左边图标多（有外部修改时多一个）时，放不下的按钮就不显示
+                let crowded = self.hist_pending() && self.s.side_width < 300.0;
                 if self.root.is_some() && self.side == Side::Files {
-                    if icon_button(ui, Icon::Collapse, t("全部折叠"), false).clicked() {
+                    if !crowded && icon_button(ui, Icon::Collapse, t("全部折叠"), false).clicked() {
                         let r = self.root.clone();
                         self.expanded.retain(|p| Some(p) == r.as_ref());
                     }
@@ -1873,6 +2001,7 @@ impl CodeView {
             Side::Search => self.search_panel(ui),
             Side::Outline => self.outline_panel(ui),
             Side::Todo => self.todo_panel(ui),
+            Side::Changes => self.changes_panel(ui),
         }
     }
 
@@ -1963,7 +2092,11 @@ impl CodeView {
     }
 
     fn mark(&self, rel: &str) -> Option<char> {
-        self.git_marks.get(&rel.replace('\\', "/")).copied()
+        let rel = rel.replace('\\', "/");
+        if self.hist.set.contains(&rel) {
+            return Some('◆');
+        }
+        self.git_marks.get(&rel).copied()
     }
 
     fn tree_rows(&mut self, ui: &mut Ui, dir: &Path, depth: usize) {
@@ -1999,6 +2132,7 @@ impl CodeView {
             let mut delete = false;
             let mut compare_with: Option<PathBuf> = None;
             let mut head_of: Option<PathBuf> = None;
+            let mut hist_of: Option<PathBuf> = None;
             r.context_menu(|ui| {
                 ui.set_min_width(190.0);
                 if ui.button(t("新建文件…")).clicked() {
@@ -2058,9 +2192,16 @@ impl CodeView {
                     head_of = Some(path.clone());
                     ui.close_menu();
                 }
+                if !is_dir && ui.button(t("本地历史…")).clicked() {
+                    hist_of = Some(path.clone());
+                    ui.close_menu();
+                }
             });
             if let Some(first) = compare_with.take() {
                 self.compare(&first, &path);
+            }
+            if let Some(p) = hist_of.take() {
+                self.show_file_history(&p);
             }
             if let Some(p) = head_of.take() {
                 let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -2153,9 +2294,9 @@ impl CodeView {
                 } else {
                     p.parent()
                         .map_or(Ok(()), std::fs::create_dir_all)
-                        .and_then(|_| std::fs::write(&p, b""))
-                        .map(|_| p)
                         .map_err(|e| e.to_string())
+                        .and_then(|_| crate::history::save_tracked(&p, b""))
+                        .map(|_| p)
                 }
             }
             TreeOp::NewDir => {
@@ -2211,6 +2352,7 @@ impl CodeView {
         let r = if p.is_dir() { std::fs::remove_dir_all(p) } else { std::fs::remove_file(p) };
         match r {
             Ok(()) => {
+                crate::history::removed(p);
                 // 关掉已删除文件的标签（没保存的修改也一起丢弃，之前已经确认过）
                 while let Some(i) = self.tabs.iter().position(|d| d.path.starts_with(p)) {
                     drop_backup(&mut self.tabs.remove(i));
@@ -2856,6 +2998,8 @@ impl CodeView {
             inactive: &inactive,
             scope: None,
             if_block: None,
+            wrap: self.s.wrap,
+            show_ws: self.s.show_ws,
         };
         let out = d.ed.show(ui, area, &mut d.buf, &view);
         if out.changed {
@@ -3151,8 +3295,16 @@ impl CodeView {
         let f = btn(Icon::Forward, t("前进  Alt+→"), false, nf);
         let b = btn(Icon::Back, t("后退  Alt+←"), false, nb);
         // 特殊查看器和原文之间切换
-        let toggle = match self.tabs.get(self.active).map(|d| (&d.special, d.buf.text.is_empty(), d.show_special)) {
-            Some((Some(sp), false, show)) => Some(if show { t("原文") } else { sp.label() }),
+        let toggle = match self.tabs.get(self.active).map(|d| (&d.special, d.buf.text.is_empty(), d.show_special, d.md_split)) {
+            // Markdown 三种：预览 → 分屏 → 原文
+            Some((Some(Special::Md(_)), false, show, split)) => Some(if show {
+                t("分屏")
+            } else if split {
+                t("原文")
+            } else {
+                t("预览")
+            }),
+            Some((Some(sp), false, show, _)) => Some(if show { t("原文") } else { sp.label() }),
             _ => None,
         };
         if let Some(label) = toggle {
@@ -3164,7 +3316,15 @@ impl CodeView {
             ui.painter().galley(br.center() - g.size() / 2.0, g, ACCENT());
             if resp.on_hover_text(t("切换显示方式")).clicked() {
                 if let Some(d) = self.tabs.get_mut(self.active) {
-                    d.show_special = !d.show_special;
+                    if matches!(d.special, Some(Special::Md(_))) {
+                        (d.show_special, d.md_split) = match (d.show_special, d.md_split) {
+                            (true, _) => (false, true),
+                            (false, true) => (false, false),
+                            _ => (true, false),
+                        };
+                    } else {
+                        d.show_special = !d.show_special;
+                    }
                 }
             }
         }
@@ -3188,23 +3348,42 @@ impl CodeView {
     // ------------------------------------------------------------ 编辑器
 
     fn editor(&mut self, ui: &mut Ui) {
-        let full = ui.available_rect_before_wrap();
-        let status_h = 24.0;
-        let area = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - status_h));
-        let status_rect = Rect::from_min_max(pos2(full.left(), area.bottom()), full.max);
+        let mut full = ui.available_rect_before_wrap();
         ui.allocate_rect(full, Sense::hover());
         let idx = self.index.clone();
         let sem = self.sem.clone();
         let active = self.active;
         let now = ui.input(|i| i.time);
         if self.tabs[active].show_special {
-            if let Some(sp) = self.tabs[active].special.as_mut() {
+            let d = &mut self.tabs[active];
+            if let Some(sp) = d.special.as_mut() {
+                sp.sync(&d.buf.text, d.buf.ver);
                 let mut c = ui.new_child(egui::UiBuilder::new().max_rect(full.shrink2(vec2(14.0, 0.0))));
                 let evt = sp.ui(&mut c);
                 self.handle_bin_evt(evt, ui.input(|i| i.pointer.hover_pos()).unwrap_or(full.center()), now);
                 return;
             }
         }
+        // Markdown 分屏：右半边预览，跟着编辑器滚动
+        let d = &mut self.tabs[active];
+        if d.md_split {
+            if let Some(sp @ Special::Md(_)) = d.special.as_mut() {
+                let pr = Rect::from_min_max(pos2(full.center().x, full.top()), full.max);
+                sp.sync(&d.buf.text, d.buf.ver);
+                sp.sync_line(d.ed.top_line);
+                ui.painter().vline(pr.left(), pr.y_range(), st(1.0, LINE()));
+                let mut c = ui.new_child(egui::UiBuilder::new().max_rect(pr.shrink2(vec2(12.0, 0.0))).id_salt("md-split"));
+                c.set_clip_rect(pr);
+                let evt = sp.ui(&mut c);
+                full.max.x = pr.left() - 1.0;
+                self.handle_bin_evt(evt, full.center(), now);
+            } else {
+                d.md_split = false;
+            }
+        }
+        let status_h = 24.0;
+        let area = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - status_h));
+        let status_rect = Rect::from_min_max(pos2(full.left(), area.bottom()), full.max);
         let marks = self.mark_colors();
         let inactive = self.inactive_of(active);
         let (scope, if_block) = self.scopes_of(active);
@@ -3255,6 +3434,8 @@ impl CodeView {
             inactive: &inactive,
             scope,
             if_block,
+            wrap: self.s.wrap,
+            show_ws: self.s.show_ws,
         };
         let out = d.ed.show(ui, area, &mut d.buf, &view);
         if out.changed {
@@ -3306,7 +3487,8 @@ impl CodeView {
         let num = self.hover.as_ref().filter(|h| h.word.starts_with(|c: char| c.is_ascii_digit()));
         if let Some(h) = num {
             if now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down()) {
-                if let Some(v) = cindex::eval(&h.word) {
+                if self.reg_hover(ui.ctx(), &self.tabs[active], h) {
+                } else if let Some(v) = cindex::eval(&h.word) {
                     egui::show_tooltip_at(
                         ui.ctx(),
                         egui::LayerId::new(egui::Order::Foreground, egui::Id::new("hover-layer")),
@@ -3344,7 +3526,8 @@ impl CodeView {
                     ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
                 }
             } else if lang.is_code() && now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down() || i.modifiers.command) {
-                if let Some(go) = hover_card(ui.ctx(), &h.word, h.rect, idx.as_deref(), &self.tabs[active]) {
+                if self.reg_hover(ui.ctx(), &self.tabs[active], h) {
+                } else if let Some(go) = hover_card(ui.ctx(), &h.word, h.rect, idx.as_deref(), &self.tabs[active]) {
                     let b = (go == h.word).then_some(h.at);
                     hover_def = Some((go, h.rect.left_bottom(), b));
                 }
@@ -3365,11 +3548,24 @@ impl CodeView {
         sp.hline(status_rect.x_range(), status_rect.top() + 0.5, st(1.0, LINE()));
         let mut items: Vec<(String, Color32)> = vec![
             (tf("行 {}，列 {}", &[&(d.cursor.0 + 1), &(d.cursor.1 + 1)]), TEXT2()),
-            (if d.gbk { "GBK".into() } else { "UTF-8".into() }, TEXT3()),
+            (
+                if d.gbk {
+                    "GBK".into()
+                } else if d.bom {
+                    "UTF-8 BOM".into()
+                } else {
+                    "UTF-8".into()
+                },
+                TEXT3(),
+            ),
             (if d.crlf { "CRLF".into() } else { "LF".into() }, TEXT3()),
             (t(d.lang.name()).to_string(), TEXT3()),
             (format!("{} {}", n_lines, t("行")), TEXT3()),
         ];
+        let chip = self.chip_label();
+        if let Some(c) = &chip {
+            items.insert(0, (c.clone(), if self.svd.is_some() { TEXT2() } else { TEXT3() }));
+        }
         let nsel = d.ed.sels.len();
         if nsel > 1 {
             items.insert(1, (tf("{} 个光标", &[&nsel]), ACCENT()));
@@ -3388,11 +3584,32 @@ impl CodeView {
             items.insert(0, (vm.status(), if insert { OK() } else { ACCENT() }));
         }
         let mut x = status_rect.right() - 12.0;
+        let (mut enc_r, mut eol_r, mut chip_r) = (Rect::NOTHING, Rect::NOTHING, Rect::NOTHING);
         for (s, c) in items.iter().rev() {
             let g = sp.layout_no_wrap(s.clone(), FontId::proportional(11.5), *c);
             x -= g.size().x;
-            sp.galley(pos2(x, status_rect.center().y - g.size().y / 2.0), g, *c);
+            let r = Rect::from_min_size(pos2(x, status_rect.center().y - g.size().y / 2.0), g.size());
+            if s == "GBK" || s.starts_with("UTF-8") {
+                enc_r = r;
+            } else if s == "LF" || s == "CRLF" {
+                eol_r = r;
+            } else if chip.as_ref() == Some(s) {
+                chip_r = r;
+            }
+            sp.galley(r.min, g, *c);
             x -= 18.0;
+        }
+        if d.textual() {
+            self.status_menus(ui, enc_r, eol_r);
+        }
+        if chip.is_some() {
+            let r = ui.interact(chip_r.expand(3.0), egui::Id::new("st-chip"), Sense::click()).on_hover_text(self.chip_hint());
+            if r.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if r.clicked() {
+                self.open_regs();
+            }
         }
         let idx_text = if let Some(pg) = &self.index_prog {
             (tf("正在建立索引… {} 个文件", &[&pg.files.load(Ordering::Relaxed)]), ACCENT())
@@ -4025,6 +4242,7 @@ pub(crate) fn tree_row(ui: &mut Ui, depth: usize, name: &str, note: Option<&str>
         Some('U') | Some('A') => Some(OK()),
         Some('D') => Some(ERR()),
         Some('•') => Some(WARN().gamma_multiply(0.7)),
+        Some('◆') => Some(ACCENT()),
         _ => None,
     };
     let g = p.layout_no_wrap(name.to_string(), FontId::proportional(12.5), mc.unwrap_or(if active { TEXT() } else { TEXT2() }));
@@ -4036,6 +4254,14 @@ pub(crate) fn tree_row(ui: &mut Ui, depth: usize, name: &str, note: Option<&str>
     if let (Some(c), Some(m)) = (mc, mark) {
         if m == '•' {
             p.circle_filled(pos2(r.right() - 14.0, r.center().y), 3.0, c);
+        } else if m == '◆' {
+            // 外部修改待审阅
+            let o = pos2(r.right() - 14.0, r.center().y);
+            p.add(Shape::convex_polygon(
+                vec![o + vec2(0.0, -4.0), o + vec2(4.0, 0.0), o + vec2(0.0, 4.0), o + vec2(-4.0, 0.0)],
+                c,
+                egui::Stroke::NONE,
+            ));
         } else {
             p.text(pos2(r.right() - 12.0, r.center().y), Align2::RIGHT_CENTER, m.to_string(), FontId::new(11.0, mono_bold()), c);
         }
@@ -4303,4 +4529,19 @@ fn is_firmware(p: &Path) -> bool {
         ext.as_str(),
         "bin" | "hex" | "ihex" | "ihx" | "s19" | "s28" | "s37" | "srec" | "mot" | "sx" | "img" | "dfu" | "fw" | "elf" | "axf" | "out"
     )
+}
+
+/// 「main...origin/main [ahead 1, behind 2]」→「main ↑1 ↓2」
+fn branch_label(b: &str) -> String {
+    let b = b.strip_prefix("No commits yet on ").unwrap_or(b);
+    let name = b.split("...").next().unwrap_or("").split(' ').next().unwrap_or("");
+    let num = |key: &str| b.split(key).nth(1).and_then(|r| r.split(|c: char| !c.is_ascii_digit()).next()).and_then(|n| n.parse::<u32>().ok());
+    let mut out = name.to_string();
+    if let Some(n) = num("ahead ") {
+        out += &format!(" ↑{n}");
+    }
+    if let Some(n) = num("behind ") {
+        out += &format!(" ↓{n}");
+    }
+    out
 }

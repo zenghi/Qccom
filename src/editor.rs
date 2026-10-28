@@ -61,6 +61,14 @@ impl Buf {
         &self.text[s..e.max(s)]
     }
 
+    /// 往前挪到最近的字符边界
+    pub(crate) fn floor(&self, mut b: usize) -> usize {
+        while b > 0 && !self.text.is_char_boundary(b) {
+            b -= 1;
+        }
+        b
+    }
+
     pub(crate) fn prev(&self, b: usize) -> usize {
         self.text[..b].chars().next_back().map_or(0, |c| b - c.len_utf8())
     }
@@ -196,6 +204,15 @@ fn byte_at_x(line: &str, want: f32, m: Metrics) -> usize {
     line.len()
 }
 
+/// 在显示行 r 里找 x（从行首量）对应的字节；不是最后一段时不落在段尾（段尾属于下一段）
+fn row_byte(line: &str, r: &Row, x: f32, m: Metrics) -> usize {
+    let mut o = byte_at_x(line, x, m).clamp(r.a, r.b);
+    if o == r.b && r.b < line.len() && o > r.a {
+        o = line[..o].char_indices().next_back().map_or(r.a, |(i, _)| i);
+    }
+    o
+}
+
 fn leading_ws(line: &str) -> &str {
     &line[..line.len() - line.trim_start_matches([' ', '\t']).len()]
 }
@@ -291,6 +308,37 @@ struct Drag {
     col_from: (usize, f32),
 }
 
+/// 显示的一行：第 l 行的 [a, b) 字节（不换行时是整行；自动换行时一行可以拆成几段）
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Row {
+    l: usize,
+    a: usize,
+    b: usize,
+}
+
+/// 按宽度 w 把一行拆成几段，尽量在空格后断开
+fn wrap_line(l: usize, line: &str, w: f32, m: Metrics, out: &mut Vec<Row>) {
+    let mut a = 0;
+    let mut x0 = 0.0f32;
+    let mut x = 0.0f32;
+    let mut brk: Option<(usize, f32)> = None;
+    for (i, c) in line.char_indices() {
+        let nx = x + m.adv(c, x);
+        if nx - x0 > w && i > a {
+            let (cut, cx) = brk.filter(|b| b.0 > a).unwrap_or((i, x));
+            out.push(Row { l, a, b: cut });
+            a = cut;
+            x0 = cx;
+            brk = None;
+        }
+        x = nx;
+        if c == ' ' || c == '\t' || c == ',' || c == ';' || is_wide(c) {
+            brk = Some((i + c.len_utf8(), x));
+        }
+    }
+    out.push(Row { l, a, b: line.len() });
+}
+
 #[derive(Default)]
 struct Cache {
     ver: u64,
@@ -343,6 +391,10 @@ pub struct View<'a> {
     /// 光标所在函数体、#if 块的行范围（画淡色底）
     pub scope: Option<(usize, usize)>,
     pub if_block: Option<(usize, usize)>,
+    /// 自动换行
+    pub wrap: bool,
+    /// 显示行尾空格、Tab 和空格混用
+    pub show_ws: bool,
 }
 
 pub struct Editor {
@@ -361,7 +413,9 @@ pub struct Editor {
     clicks: (f64, Pos2, u8),
     blink: f64,
     cache: Cache,
-    disp: (u64, Vec<usize>, Vec<usize>),
+    disp: (u64, Vec<Row>, Vec<usize>),
+    /// 自动换行的宽度（像素，上一帧量的）；None 表示不换行
+    wrap_w: Option<f32>,
     unit: String,
     sb_grab: Option<(bool, f32)>,
     ctrl_down_at: Option<usize>,
@@ -369,6 +423,8 @@ pub struct Editor {
     pub focus_req: bool,
     /// 上一帧可见的行数（翻页用）
     pub(crate) page_rows: usize,
+    /// 视口顶部是原文第几行（Markdown 预览同步滚动用）
+    pub top_line: usize,
     /// Vim 键位的状态（设置里打开时才有）
     pub vim: Option<crate::vim::Vim>,
     /// 小地图拖动中
@@ -398,12 +454,14 @@ impl Editor {
             blink: 0.0,
             cache: Cache::default(),
             disp: (u64::MAX, vec![], vec![]),
+            wrap_w: None,
             unit: buf.indent_unit(),
             sb_grab: None,
             ctrl_down_at: None,
             id,
             focus_req: false,
             page_rows: 30,
+            top_line: 0,
             vim: None,
             mm_drag: false,
             m: Metrics::default(),
@@ -611,6 +669,47 @@ impl Editor {
             })
             .collect();
         self.apply(buf, reps, EK::Other, now);
+    }
+
+    /// 一次替换多处，光标和选区跟着文字移动、留在原处附近（格式化、清理空白用）。items 按位置排好序
+    pub fn replace_keep(&mut self, buf: &mut Buf, items: Vec<(Range<usize>, String)>, now: f64) {
+        if items.is_empty() {
+            return;
+        }
+        let map = |p: usize| {
+            let mut d: isize = 0;
+            for (r, ins) in &items {
+                if r.end <= p {
+                    d += ins.len() as isize - r.len() as isize;
+                } else if r.start < p {
+                    return (r.start as isize + d) as usize + ins.len().min(p - r.start);
+                } else {
+                    break;
+                }
+            }
+            (p as isize + d) as usize
+        };
+        let sels: Vec<Sel> = self.sels.iter().map(|s| Sel::new(map(s.a), map(s.h))).collect();
+        let prim = self.primary;
+        self.replace_ranges(buf, items, now);
+        let n = buf.text.len();
+        self.sels = sels.into_iter().map(|s| Sel::new(buf.floor(s.a.min(n)), buf.floor(s.h.min(n)))).collect();
+        self.primary = prim.min(self.sels.len().saturating_sub(1));
+        self.normalize();
+    }
+
+    /// 删掉所有行尾空格，返回清理的行数
+    pub fn trim_trailing(&mut self, buf: &mut Buf, now: f64) -> usize {
+        let items: Vec<(Range<usize>, String)> = (0..buf.lines())
+            .filter_map(|l| {
+                let line = buf.line(l);
+                let t = line.trim_end_matches([' ', '\t']).len();
+                (t < line.len()).then(|| (buf.start(l) + t..buf.start(l) + line.len(), String::new()))
+            })
+            .collect();
+        let n = items.len();
+        self.replace_keep(buf, items, now);
+        n
     }
 
     /// 把一段换成新文字，光标放在新文字里的 `cursor` 处（None = 末尾）；可以撤销
@@ -1380,18 +1479,21 @@ impl Editor {
     /// 显示行（考虑折叠）之间上下移动
     fn vert(&self, buf: &Buf, s: Sel, rows: isize) -> (usize, Option<f32>) {
         let l = buf.line_of(s.h);
-        let col = s.goal.unwrap_or_else(|| xpos(buf.line(l), s.h - buf.start(l), self.m));
+        let off = s.h - buf.start(l);
         let disp = &self.disp.1;
-        let di = disp.partition_point(|&x| x < l) as isize;
-        let ti = di + rows;
+        let di = disp.partition_point(|r| r.l < l || (r.l == l && r.a <= off)).saturating_sub(1);
+        let x0 = |r: &Row| if r.a == 0 { 0.0 } else { xpos(buf.line(r.l), r.a, self.m) };
+        let base = disp.get(di).filter(|r| r.l == l).map_or(0.0, x0);
+        let col = s.goal.unwrap_or_else(|| xpos(buf.line(l), off, self.m) - base);
+        let ti = di as isize + rows;
         if ti < 0 {
             return (0, None);
         }
         if ti as usize >= disp.len() {
             return (buf.text.len(), None);
         }
-        let nl = disp[ti as usize];
-        (buf.start(nl) + byte_at_x(buf.line(nl), col, self.m), Some(col))
+        let r = disp[ti as usize];
+        (buf.start(r.l) + row_byte(buf.line(r.l), &r, col + x0(&r), self.m), Some(col))
     }
 
     fn key(&mut self, ui: &Ui, buf: &mut Buf, key: Key, m: Modifiers, lang: Lang, now: f64, out: &mut Out) -> bool {
@@ -1708,7 +1810,9 @@ impl Editor {
         let key = buf
             .ver
             .wrapping_mul(31)
-            .wrapping_add(self.folds.iter().fold(7u64, |h, l| h.wrapping_mul(1_000_003).wrapping_add(*l as u64)));
+            .wrapping_add(self.folds.iter().fold(7u64, |h, l| h.wrapping_mul(1_000_003).wrapping_add(*l as u64)))
+            .wrapping_add(self.wrap_w.map_or(0, |w| (w as u64 + 1).wrapping_mul(0x9E37_79B9)))
+            .wrapping_add((self.m.cw * 100.0) as u64);
         if self.disp.0 == key && !self.disp.1.is_empty() {
             return;
         }
@@ -1726,7 +1830,10 @@ impl Editor {
                 l = hidden[hi].1 + 1;
                 continue;
             }
-            v.push(l);
+            match self.wrap_w {
+                Some(w) => wrap_line(l, buf.line(l), w, self.m, &mut v),
+                None => v.push(Row { l, a: 0, b: buf.line(l).len() }),
+            }
             l += 1;
         }
         self.disp = (key, v, vec![]);
@@ -1909,11 +2016,29 @@ impl Editor {
         let gutter = Rect::from_min_max(rect.min, pos2(rect.left() + gutter_w, rect.bottom()));
         let text_rect = Rect::from_min_max(pos2(gutter.right(), rect.top()), pos2(rect.right() - mini_w, rect.bottom()));
         let pad_l = 8.0;
+        let want = v.wrap.then(|| (text_rect.width() - pad_l - sb_w - 14.0).max(cw * 20.0).round());
+        if want != self.wrap_w {
+            // 宽度变了：按新宽度重新拆行，光标所在行留在原来的位置
+            self.wrap_w = want;
+            self.refresh_disp(buf);
+            self.reveal.get_or_insert(-1.0);
+        }
         let disp = std::mem::take(&mut self.disp.1);
         let total_h = disp.len() as f32 * row_h + text_rect.height() * 0.6;
         let a0 = (self.scroll.y / row_h).max(0.0) as usize;
-        let max_cols = disp.iter().skip(a0.saturating_sub(200)).take(600).map(|&l| buf.line(l).len()).max().unwrap_or(0);
-        let content_w = max_cols as f32 * cw * 1.1 + pad_l + 120.0;
+        self.top_line = disp.get(a0).map_or(0, |r| r.l);
+        let max_cols = disp.iter().skip(a0.saturating_sub(200)).take(600).map(|r| r.b - r.a).max().unwrap_or(0);
+        let content_w = if v.wrap { text_rect.width() - sb_w } else { max_cols as f32 * cw * 1.1 + pad_l + 120.0 };
+        // 显示行的起点（从行首量的 x），第几行显示行，字节 → 显示行
+        let seg_x = |r: &Row| if r.a == 0 { 0.0 } else { xpos(buf.line(r.l), r.a, m) };
+        let line_di = |l: usize| disp.partition_point(|r| r.l < l);
+        let line_end_di = |l: usize| disp.partition_point(|r| r.l <= l).saturating_sub(1);
+        let row_of = |b: usize| {
+            let l = buf.line_of(b);
+            let off = b - buf.start(l);
+            disp.partition_point(|r| r.l < l || (r.l == l && r.a <= off)).saturating_sub(1)
+        };
+        let shows = |di: usize, l: usize| disp.get(di).is_some_and(|r| r.l == l);
         let resp = ui.interact(Rect::from_min_max(gutter.min, text_rect.max), self.id, Sense::click_and_drag());
         let focused = out.focused;
         self.page_rows = ((text_rect.height() / row_h) as usize).saturating_sub(2).max(1);
@@ -1922,8 +2047,8 @@ impl Editor {
         if let Some(frac) = self.reveal.take() {
             let h = self.head();
             let l = buf.line_of(h);
-            let di = disp.partition_point(|&x| x < l) as f32;
-            let y = di * row_h;
+            let di = row_of(h);
+            let y = di as f32 * row_h;
             if frac >= 0.0 {
                 if y < self.scroll.y || y + row_h > self.scroll.y + text_rect.height() {
                     self.scroll.y = y - text_rect.height() * frac;
@@ -1936,7 +2061,7 @@ impl Editor {
                     self.scroll.y = y + row_h - text_rect.height() + margin + 12.0;
                 }
             }
-            let x = xpos(buf.line(l), h - buf.start(l), m) + pad_l;
+            let x = xpos(buf.line(l), h - buf.start(l), m) - disp.get(di).map_or(0.0, seg_x) + pad_l;
             let vis_w = text_rect.width() - sb_w - 20.0;
             if x < self.scroll.x + 20.0 {
                 self.scroll.x = (x - 40.0).max(0.0);
@@ -1952,17 +2077,18 @@ impl Editor {
         let first = ((self.scroll.y / row_h).floor() as usize).min(disp.len());
         let last = (((self.scroll.y + text_rect.height()) / row_h).ceil() as usize + 1).min(disp.len());
         let row_y = |di: usize| origin.y + di as f32 * row_h;
-        let line_di = |l: usize| disp.partition_point(|&x| x < l);
-        let x_of = |b: usize| {
+        // 字节在第 di 个显示行里的 x；x_of 用字节自己所在的显示行
+        let x_at = |di: usize, b: usize| {
             let l = buf.line_of(b);
-            origin.x + xpos(buf.line(l), b - buf.start(l), m)
+            origin.x + xpos(buf.line(l), b - buf.start(l), m) - disp.get(di).filter(|r| r.l == l).map_or(0.0, seg_x)
         };
+        let x_of = |b: usize| x_at(row_of(b), b);
 
         // 屏幕坐标 → 字节位置
         let pos_to_byte = |p: Pos2| -> (usize, usize) {
             let di = (((p.y - origin.y) / row_h).floor().max(0.0) as usize).min(disp.len().saturating_sub(1));
-            let l = disp.get(di).copied().unwrap_or(0);
-            (buf.start(l) + byte_at_x(buf.line(l), (p.x - origin.x).max(0.0), m), l)
+            let Some(r) = disp.get(di) else { return (0, 0) };
+            (buf.start(r.l) + row_byte(buf.line(r.l), r, (p.x - origin.x).max(0.0) + seg_x(r), m), r.l)
         };
 
         // ---- 鼠标
@@ -2115,7 +2241,10 @@ impl Editor {
                             let (la, lb) = (l0.min(l), l0.max(l));
                             let mut v = vec![];
                             for di in line_di(la)..=line_di(lb).min(disp.len().saturating_sub(1)) {
-                                let ln = disp[di];
+                                let ln = disp[di].l;
+                                if disp[di].a > 0 {
+                                    continue;
+                                }
                                 let line = buf.line(ln);
                                 let s = buf.start(ln);
                                 v.push(Sel::new(s + byte_at_x(line, c0, m), s + byte_at_x(line, c1, m)));
@@ -2156,8 +2285,7 @@ impl Editor {
         // ---- 当前行
         if self.sels.iter().all(|s| s.empty()) {
             for s in &self.sels {
-                let l = buf.line_of(s.h);
-                let di = line_di(l);
+                let di = row_of(s.h);
                 if di >= first && di < last {
                     let y = row_y(di);
                     tp.rect_filled(
@@ -2172,7 +2300,7 @@ impl Editor {
         // ---- 光标所在的函数体、#if 块：很淡的底色，左边一条细线
         for (range, c, x0) in [(v.scope, ACCENT(), 0.0), (v.if_block, VIOLET(), 3.0)] {
             let Some((a, b)) = range else { continue };
-            let (da, db) = (line_di(a), line_di(b));
+            let (da, db) = (line_di(a), line_end_di(b));
             if db < first || da >= last {
                 continue;
             }
@@ -2185,8 +2313,8 @@ impl Editor {
 
         // ---- 行尾附注
         if let Some((l, g)) = v.ghost {
-            let di = line_di(l);
-            if di >= first && di < last && disp.get(di) == Some(&l) {
+            let di = row_of(buf.end(l));
+            if di >= first && di < last && shows(di, l) {
                 let x = x_of(buf.end(l)) + m.cw * 4.0;
                 tp.text(
                     pos2(x, row_y(di) + row_h / 2.0),
@@ -2200,20 +2328,21 @@ impl Editor {
 
         // ---- 查找结果
         if !v.find.is_empty() {
-            let lo = disp.get(first).map_or(0, |&l| buf.start(l));
-            let hi = disp.get(last.saturating_sub(1)).map_or(buf.text.len(), |&l| buf.end(l));
+            let lo = disp.get(first).map_or(0, |r| buf.start(r.l));
+            let hi = disp.get(last.saturating_sub(1)).map_or(buf.text.len(), |r| buf.end(r.l));
             let i0 = v.find.partition_point(|&(h, _)| h < lo);
             for (k, &(h, he)) in v.find.iter().enumerate().skip(i0) {
                 if h > hi {
                     break;
                 }
                 let l = buf.line_of(h);
-                let di = line_di(l);
-                if disp.get(di) != Some(&l) {
+                let di = row_of(h);
+                if !shows(di, l) {
                     continue;
                 }
                 let y = row_y(di);
-                let r = Rect::from_min_max(pos2(x_of(h), y + 1.0), pos2(x_of(he.min(buf.end(l))), y + row_h - 1.0));
+                let he = he.min(buf.start(l) + disp[di].b);
+                let r = Rect::from_min_max(pos2(x_at(di, h), y + 1.0), pos2(x_at(di, he), y + row_h - 1.0));
                 let cur = v.find_cur == Some(k);
                 tp.rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.45 } else { 0.2 }));
                 if cur {
@@ -2225,7 +2354,7 @@ impl Editor {
         // ---- F8 高亮的词
         if !v.marks.is_empty() {
             for di in first..last {
-                let l = disp[di];
+                let Row { l, a: ra, b: rb } = disp[di];
                 let line = buf.line(l);
                 let ls = buf.start(l);
                 for (w, c) in v.marks {
@@ -2237,9 +2366,10 @@ impl Editor {
                         let s = from + k;
                         from = s + w.len();
                         let ok = !line[..s].chars().next_back().is_some_and(is_ident) && !line[s + w.len()..].chars().next().is_some_and(is_ident);
-                        if ok {
+                        if ok && s >= ra && s < rb.max(ra + 1) {
                             let y = row_y(di);
-                            let r = Rect::from_min_max(pos2(x_of(ls + s) - 1.0, y + 1.0), pos2(x_of(ls + s + w.len()) + 1.0, y + row_h - 1.0));
+                            let e = (s + w.len()).min(rb);
+                            let r = Rect::from_min_max(pos2(x_at(di, ls + s) - 1.0, y + 1.0), pos2(x_at(di, ls + e) + 1.0, y + row_h - 1.0));
                             tp.rect_filled(r, 3.0, c.gamma_multiply(if is_light() { 0.32 } else { 0.30 }));
                             tp.hline(r.x_range(), r.bottom() - 0.5, st(1.5, *c));
                         }
@@ -2262,7 +2392,7 @@ impl Editor {
         };
         if let Some(w) = &hl_word {
             for di in first..last {
-                let l = disp[di];
+                let Row { l, a: ra, b: rb } = disp[di];
                 let line = buf.line(l);
                 let ls = buf.start(l);
                 let mut from = 0;
@@ -2270,9 +2400,10 @@ impl Editor {
                     let s = from + k;
                     from = s + w.len();
                     let ok = !line[..s].chars().next_back().is_some_and(is_ident) && !line[s + w.len()..].chars().next().is_some_and(is_ident);
-                    if ok {
+                    if ok && s >= ra && s < rb.max(ra + 1) {
                         let y = row_y(di);
-                        let r = Rect::from_min_max(pos2(x_of(ls + s), y + 1.0), pos2(x_of(ls + s + w.len()), y + row_h - 1.0));
+                        let e = (s + w.len()).min(rb);
+                        let r = Rect::from_min_max(pos2(x_at(di, ls + s), y + 1.0), pos2(x_at(di, ls + e), y + row_h - 1.0));
                         tp.rect_filled(r, 2.0, ACCENT().gamma_multiply(if is_light() { 0.16 } else { 0.14 }));
                     }
                 }
@@ -2287,16 +2418,19 @@ impl Editor {
             }
             let (a, b) = (s.min(), s.max());
             let (la, lb) = (buf.line_of(a), buf.line_of(b));
-            let (da, db) = (line_di(la), line_di(lb));
+            let (da, db) = (line_di(la), line_end_di(lb));
             for di in da.max(first)..=db.min(last.saturating_sub(1)) {
-                let Some(&l) = disp.get(di) else { break };
+                let Some(&Row { l, a: ra, b: rb }) = disp.get(di) else { break };
                 if l < la || l > lb {
                     continue;
                 }
-                let ls = buf.start(l);
-                let le = buf.end(l);
-                let x0 = x_of(a.max(ls));
-                let mut x1 = x_of(b.min(le));
+                let ls = buf.start(l) + ra;
+                let le = buf.start(l) + rb;
+                if b < ls || a > le {
+                    continue;
+                }
+                let x0 = x_at(di, a.max(ls));
+                let mut x1 = x_at(di, b.min(le));
                 if b > le {
                     x1 += cw * 0.6;
                 }
@@ -2310,8 +2444,8 @@ impl Editor {
         if let Some((a, b)) = pair {
             for at in [a, b] {
                 let l = buf.line_of(at);
-                let di = line_di(l);
-                if disp.get(di) == Some(&l) && di >= first && di < last {
+                let di = row_of(at);
+                if shows(di, l) && di >= first && di < last {
                     let y = row_y(di);
                     let r = Rect::from_min_max(pos2(x_of(at), y + 1.0), pos2(x_of(at) + cw, y + row_h - 1.0));
                     tp.rect(r, 2.0, pal::BRACKET().gamma_multiply(0.18), st(1.0, pal::BRACKET()), egui::StrokeKind::Inside);
@@ -2331,12 +2465,15 @@ impl Editor {
             };
             let mut prev_ind = 0usize;
             for di in first..last {
-                let l = disp[di];
+                let l = disp[di].l;
+                if disp[di].a > 0 {
+                    continue;
+                }
                 let ind = match indent_of(l) {
                     Some(i) => i,
                     None => {
                         // 空行用上下非空行里较小的缩进
-                        let next = disp[di..].iter().take(50).find_map(|&x| indent_of(x)).unwrap_or(0);
+                        let next = disp[di..].iter().take(50).find_map(|r| indent_of(r.l)).unwrap_or(0);
                         prev_ind.min(next)
                     }
                 };
@@ -2360,13 +2497,16 @@ impl Editor {
         // ---- 文字
         let toks = &self.cache.tokens;
         for di in first..last {
-            let l = disp[di];
+            let Row { l, a: ra, b: rb } = disp[di];
             let ls = buf.start(l);
             let line = buf.line(l);
             let y = row_y(di);
             if line.is_empty() {
                 continue;
             }
+            // 换行后的后续段：整体往左挪到段首
+            let sx = seg_x(&disp[di]);
+            let origin = pos2(origin.x - sx, origin.y);
             let ii = v.inactive.partition_point(|r| r.1 < l);
             let dim = v.inactive.get(ii).is_some_and(|r| r.0 <= l);
             // 只画横向可见部分附近的字
@@ -2397,8 +2537,13 @@ impl Editor {
                 tp.galley(pos2(origin.x + run_col, gy), g, c);
             };
             for (i, ch) in line.char_indices() {
-                if col > max_x {
+                if col > max_x + sx || i >= rb {
                     break;
+                }
+                if i < ra {
+                    col += m.adv(ch, col);
+                    run_col = col;
+                    continue;
                 }
                 let b = ls + i;
                 while ti < toks.len() && toks[ti].1 <= b {
@@ -2446,11 +2591,55 @@ impl Editor {
             }
             flush(&mut run, run_col, run_color, run_italic);
             // 折叠占位
-            if self.folds.contains(&l) {
+            if self.folds.contains(&l) && rb == line.len() {
                 let x = origin.x + xpos(line, line.len(), m) + 6.0;
                 let r = Rect::from_min_size(pos2(x, y + 3.0), vec2(cw * 3.0 + 6.0, row_h - 6.0));
                 tp.rect(r, 3.0, tint(10), st(1.0, LINE_HI()), egui::StrokeKind::Inside);
                 tp.text(r.center(), Align2::CENTER_CENTER, "⋯", FontId::proportional(v.font_size), TEXT2());
+            }
+        }
+
+        // ---- 空白：行尾空格、Tab、Tab 和空格混用的缩进
+        if v.show_ws && !v.big {
+            for di in first..last {
+                let Row { l, a: ra, b: rb } = disp[di];
+                let line = buf.line(l);
+                let ls = buf.start(l);
+                let y = row_y(di);
+                let lead = leading_ws(line).len();
+                let mixed = line[..lead].contains(' ') && line[..lead].contains('\t');
+                let tail = line.trim_end().len();
+                let tail = if tail == 0 { line.len() } else { tail };
+                if mixed && ra < lead {
+                    let r = Rect::from_min_max(pos2(x_at(di, ls + ra), y + 2.0), pos2(x_at(di, ls + lead.min(rb)), y + row_h - 2.0));
+                    tp.rect_filled(r, 2.0, WARN().gamma_multiply(0.16));
+                }
+                if tail < line.len() && rb > tail && !line[..tail].trim().is_empty() {
+                    let r = Rect::from_min_max(pos2(x_at(di, ls + tail.max(ra)), y + 2.0), pos2(x_at(di, ls + rb), y + row_h - 2.0));
+                    tp.rect_filled(r, 2.0, ERR().gamma_multiply(0.22));
+                }
+                for (i, ch) in line[ra..rb].char_indices() {
+                    let i = ra + i;
+                    let x = x_at(di, ls + i);
+                    let cy = y + row_h / 2.0;
+                    let c = TEXT3().gamma_multiply(0.55);
+                    if ch == '\t' {
+                        let x1 = x_at(di, ls + i + 1) - 3.0;
+                        tp.hline(egui::Rangef::new(x + 2.0, x1), cy, st(1.0, c));
+                        tp.line_segment([pos2(x1 - 3.0, cy - 3.0), pos2(x1, cy)], st(1.0, c));
+                        tp.line_segment([pos2(x1 - 3.0, cy + 3.0), pos2(x1, cy)], st(1.0, c));
+                    } else if ch == ' ' && (i < lead || i >= tail) {
+                        tp.circle_filled(pos2(x + cw / 2.0, cy), 1.1, c);
+                    } else if ch == '\u{3000}' || ch == '\u{a0}' {
+                        // 全角空格、不换行空格：AI 和网页复制来的代码里常见，编译会报错
+                        tp.rect_stroke(
+                            Rect::from_min_max(pos2(x + 1.0, y + 3.0), pos2(x_at(di, ls + i + ch.len_utf8()) - 1.0, y + row_h - 3.0)),
+                            2.0,
+                            st(1.0, WARN()),
+                            egui::StrokeKind::Inside,
+                        );
+                    }
+                }
             }
         }
 
@@ -2461,8 +2650,8 @@ impl Editor {
         }
         for (i, s) in self.sels.iter().enumerate() {
             let l = buf.line_of(s.h);
-            let di = line_di(l);
-            if disp.get(di) != Some(&l) || di < first || di >= last {
+            let di = row_of(s.h);
+            if !shows(di, l) || di < first || di >= last {
                 continue;
             }
             let x = x_of(s.h).round();
@@ -2471,8 +2660,7 @@ impl Editor {
             if let Some(vm) = self.vim.as_ref().filter(|v| v.mode != crate::vim::Mode::Insert) {
                 // Vim 普通 / 可视模式：块状光标，盖住光标下的字符
                 let at = if vm.mode != crate::vim::Mode::Normal && s.h > s.a { buf.prev(s.h) } else { s.h };
-                let l2 = buf.line_of(at);
-                let di2 = line_di(l2);
+                let di2 = row_of(at);
                 let x = x_of(at).round();
                 let ch = buf.char_at(at).filter(|c| *c != '\n');
                 let w = ch.map_or(m.cw, |c| m.adv(c, 0.0).max(m.cw * 0.6));
@@ -2517,7 +2705,7 @@ impl Editor {
                 };
                 let mut chain = vec![];
                 for n in 0..=3 {
-                    let Some(&l) = disp.get(first + n) else { break };
+                    let Some(&Row { l, .. }) = disp.get(first + n) else { break };
                     let sc = scopes(l);
                     if sc.len() <= n || n == 3 {
                         chain = sc.into_iter().take(3).collect();
@@ -2578,7 +2766,10 @@ impl Editor {
         let hover_gutter = pointer.is_some_and(|p| gutter.contains(p)) || ui.rect_contains_pointer(gutter);
         let sel_lines: Vec<(usize, usize)> = self.sels.iter().map(|s| (buf.line_of(s.min()), buf.line_of(s.max()))).collect();
         for di in first..last {
-            let l = disp[di];
+            let l = disp[di].l;
+            if disp[di].a > 0 {
+                continue;
+            }
             let y = row_y(di);
             let cy = y + row_h / 2.0;
             let cur = sel_lines.iter().any(|&(a, b)| a <= l && l <= b);
@@ -2617,7 +2808,7 @@ impl Editor {
             }
         }
         for &(a, b, k) in v.git {
-            let (da, db) = (line_di(a), line_di(b.max(a)));
+            let (da, db) = (line_di(a), line_end_di(b.max(a)));
             if db < first || da >= last {
                 continue;
             }
@@ -2639,12 +2830,12 @@ impl Editor {
         if let Some(pp) = pointer.filter(|_| in_text && resp.hovered() && self.drag.is_none()) {
             if pp.y > text_rect.top() + sticky_h {
                 let (b, l) = pos_to_byte(pp);
-                let line_end_x = x_of(buf.end(l));
+                let line_end_x = x_at(row_of(b), buf.start(l) + disp.get(row_of(b)).map_or(0, |r| r.b));
                 if pp.x <= line_end_x + 2.0 {
                     let w = buf.token_at(b).or_else(|| (b > 0).then(|| buf.token_at(buf.prev(b))).flatten());
                     if let Some((s, e)) = w {
-                        let di = line_di(l);
-                        let r = Rect::from_min_max(pos2(x_of(s), row_y(di)), pos2(x_of(e), row_y(di) + row_h));
+                        let di = row_of(s);
+                        let r = Rect::from_min_max(pos2(x_at(di, s), row_y(di)), pos2(x_at(di, e), row_y(di) + row_h));
                         if r.expand(1.0).contains(pp) {
                             out.hover = Some((s, e, r));
                             if mods.command && v.lang.is_code() && !buf.text[s..].starts_with(|c: char| c.is_ascii_digit()) {
@@ -2758,7 +2949,7 @@ impl Editor {
             let step = (1.0 / scale).ceil().max(1.0) as usize;
             let mut di = 0;
             while di < disp.len() {
-                let l = disp[di];
+                let l = disp[di].l;
                 let line = buf.line(l);
                 let t = line.trim_start();
                 if !t.is_empty() {
@@ -2783,7 +2974,7 @@ impl Editor {
                 di += step;
             }
             for &(h, _) in v.find.iter().take(2000) {
-                let y = mm.top() + 4.0 + line_di(buf.line_of(h)) as f32 * scale;
+                let y = mm.top() + 4.0 + row_of(h) as f32 * scale;
                 mp.rect_filled(Rect::from_min_size(pos2(mm.right() - 5.0, y), vec2(4.0, 2.0)), 0.0, WARN());
             }
             let vy0 = mm.top() + 4.0 + self.scroll.y / row_h * scale;

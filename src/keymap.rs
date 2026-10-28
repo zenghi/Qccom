@@ -291,6 +291,18 @@ pub enum Act {
     RecPlay,
     RecSave,
     OpenProject,
+    // 本地历史（v1.8）
+    Checkpoint,
+    ReviewChanges,
+    Timeline,
+    FileHistory,
+    // 编辑器（v1.8）
+    ToggleWrap,
+    ToggleWhitespace,
+    TrimWhitespace,
+    FormatDoc,
+    ProjectUtf8,
+    RegPanel,
     /// 代码生成动作（设置里可以编辑），下标对应动作列表
     Macro(u8),
 }
@@ -432,6 +444,16 @@ acts! {
     Act::RecPlay, "rec.play", "回放录制的按键", Code, ["Shift+Alt+P"];
     Act::RecSave, "rec.save", "把录制的按键保存为宏", Code, [];
     Act::OpenProject, "project.open", "打开工程文件夹", Global, [], true;
+    Act::Checkpoint, "history.checkpoint", "新建存档点", Code, [];
+    Act::ReviewChanges, "history.review", "审阅外部修改", Code, [];
+    Act::Timeline, "history.timeline", "本地历史时间线", Code, [];
+    Act::FileHistory, "history.file", "当前文件的本地历史", Code, [];
+    Act::ToggleWrap, "view.wrap", "切换自动换行", Code, ["Alt+Z"];
+    Act::ToggleWhitespace, "view.whitespace", "显示 / 隐藏空白字符", Code, [];
+    Act::TrimWhitespace, "edit.trim_ws", "删除行尾空格", Code, [];
+    Act::FormatDoc, "edit.format", "格式化文件或选中部分（clang-format）", Code, ["Shift+Alt+F"];
+    Act::ProjectUtf8, "encoding.project_utf8", "整个工程 GBK 转 UTF-8", Code, [];
+    Act::RegPanel, "svd.panel", "寄存器面板（SVD）", Code, [];
     Act::Macro(0), "macro.1", "代码生成动作", Code, ["Ctrl+Alt+I"];
     Act::Macro(1), "macro.2", "代码生成动作", Code, [];
     Act::Macro(2), "macro.3", "代码生成动作", Code, ["Ctrl+Alt+P"];

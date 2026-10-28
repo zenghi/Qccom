@@ -69,7 +69,7 @@ impl Doc {
         if self.bom && !self.gbk {
             bytes.splice(0..0, *b"\xef\xbb\xbf");
         }
-        std::fs::write(p, bytes).map_err(|e| format!("{}: {e}", p.display()))?;
+        crate::history::save_tracked(p, &bytes).map_err(|e| format!("{}: {e}", p.display()))?;
         self.dirty = false;
         Ok(())
     }

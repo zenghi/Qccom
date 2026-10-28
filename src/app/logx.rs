@@ -290,6 +290,36 @@ impl App {
 
     // ------------------------------------------------------------ 书签和标记
 
+    /// 烧录类任务：先给工程打一个存档点，日志里插一条「烧录 · 存档 #N」，以后能对上是哪份代码烧进去的
+    pub(super) fn flash_checkpoint(&mut self, name: &str, cmd: &str) {
+        const KEYS: &[&str] = &[
+            "烧录",
+            "下载",
+            "flash",
+            "download",
+            "program",
+            "burn",
+            "upload",
+            "openocd",
+            "jlink",
+            "st-flash",
+            "esptool",
+            "pyocd",
+            "stm32_programmer",
+        ];
+        let s = format!("{name} {cmd}").to_lowercase();
+        if !KEYS.iter().any(|k| s.contains(k)) {
+            return;
+        }
+        let Some(id) = self.code.checkpoint_now(&tf("烧录：{}", &[&name])) else { return };
+        let text = format!("──────  {}  {}  ──────", tf("烧录 · 存档 #{}", &[&id]), chrono::Local::now().format("%H:%M:%S"));
+        self.buf.sys(text);
+        if let Some(l) = self.buf.lines.back_mut() {
+            l.bookmark = true;
+        }
+        self.view_dirty = true;
+    }
+
     pub(super) fn insert_marker(&mut self) {
         self.marker_n += 1;
         let text = format!("──────  {}  {}  ──────", tf("标记 {}", &[&self.marker_n]), chrono::Local::now().format("%H:%M:%S"));
@@ -744,6 +774,10 @@ impl App {
         }
         if menu_item(ui, t("统计…"), "") {
             self.wins.stats = true;
+            ui.close_menu();
+        }
+        if menu_item(ui, t("两个关键字之间的耗时…"), "") {
+            self.mini.timing = true;
             ui.close_menu();
         }
         ui.separator();

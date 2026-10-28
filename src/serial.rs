@@ -178,7 +178,11 @@ pub fn open(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, tx: Sen
 /// side_b = 双口监听的第二个串口：数据用 DataB 送出
 #[allow(clippy::too_many_arguments)]
 pub fn open_side(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, side_b: bool, tx: Sender<Evt>, ctx: egui::Context) -> Result<Connection, String> {
-    let mut port = cfg.builder(name).timeout(Duration::from_millis(20)).open().map_err(|e| e.to_string())?;
+    let mut port = cfg
+        .builder(name)
+        .timeout(Duration::from_millis(20))
+        .open()
+        .map_err(|e| crate::portuse::busy_hint(name, &e.to_string()))?;
     let _ = port.write_data_terminal_ready(dtr);
     let _ = port.write_request_to_send(rts);
     let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
@@ -308,7 +312,7 @@ fn autobaud(name: &str, cfg: PortConfig, tx: &Sender<Evt>, ctx: &egui::Context) 
                     tries += 1;
                     thread::sleep(Duration::from_millis(60));
                 }
-                Err(e) => return Err(tf("无法打开 {}: {}", &[&name, &e])),
+                Err(e) => return Err(tf("无法打开 {}: {}", &[&name, &crate::portuse::busy_hint(name, &e.to_string())])),
             }
         };
         let _ = port.clear(serialport::ClearBuffer::Input);

@@ -355,6 +355,10 @@ impl App {
             ui.ctx().copy_text(p.name.clone());
             ui.close_menu();
         }
+        if menu_item(ui, t("插拔记录…"), "") {
+            self.open_plug_log(&p.name);
+            ui.close_menu();
+        }
     }
 
     pub(super) fn alias_window(&mut self, ctx: &egui::Context) {

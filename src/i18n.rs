@@ -63,6 +63,55 @@ fn unescape(s: &'static str) -> &'static str {
 }
 
 /// 翻译。参数必须是代码里的字面量（原文）
+/// 中文的拼音首字母（工具搜索用，如「固件打包」→ gjdb）。用 GB2312 一级汉字按拼音排序的特点查表，
+/// 不认识的字（二级汉字、非中文）原样保留
+pub fn py_initials(s: &str) -> String {
+    const B: &[(u16, char)] = &[
+        (0xB0A1, 'a'),
+        (0xB0C5, 'b'),
+        (0xB2C1, 'c'),
+        (0xB4EE, 'd'),
+        (0xB6EA, 'e'),
+        (0xB7A2, 'f'),
+        (0xB8C1, 'g'),
+        (0xB9FE, 'h'),
+        (0xBBF7, 'j'),
+        (0xBFA6, 'k'),
+        (0xC0AC, 'l'),
+        (0xC2E8, 'm'),
+        (0xC4C3, 'n'),
+        (0xC5B6, 'o'),
+        (0xC5BE, 'p'),
+        (0xC6DA, 'q'),
+        (0xC8BB, 'r'),
+        (0xC8F6, 's'),
+        (0xCBFA, 't'),
+        (0xCDDA, 'w'),
+        (0xCEF4, 'x'),
+        (0xD1B9, 'y'),
+        (0xD4D1, 'z'),
+    ];
+    let mut out = String::new();
+    let mut buf = [0u8; 4];
+    for c in s.chars() {
+        if c.is_ascii() {
+            out.push(c.to_ascii_lowercase());
+            continue;
+        }
+        let (g, _, bad) = encoding_rs::GBK.encode(c.encode_utf8(&mut buf));
+        if bad || g.len() != 2 {
+            continue;
+        }
+        let code = u16::from_be_bytes([g[0], g[1]]);
+        if (0xB0A1..0xD7FA).contains(&code) {
+            if let Some((_, l)) = B.iter().rev().find(|(b, _)| code >= *b) {
+                out.push(*l);
+            }
+        }
+    }
+    out
+}
+
 pub fn t(s: &'static str) -> &'static str {
     let lang = CUR.load(Ordering::Relaxed);
     if lang == 0 {
@@ -127,6 +176,13 @@ mod tests {
     use super::*;
 
     #[test]
+    fn pinyin() {
+        assert_eq!(py_initials("固件打包"), "gjdb");
+        assert_eq!(py_initials("串口占用"), "ckzy");
+        assert_eq!(py_initials("SVD 寄存器"), "svd jcq");
+    }
+
+    #[test]
     fn table_is_consistent() {
         let t = table();
         assert!(t.len() > 400);
@@ -147,83 +203,21 @@ mod tests {
     /// 代码里每一处 t("…") / tf("…") 都要在翻译表里有一行，漏了就提醒
     #[test]
     fn every_string_is_translated() {
-        let sources = [
-            include_str!("app.rs"),
-            include_str!("cmds.rs"),
-            include_str!("codeview.rs"),
-            include_str!("gitview.rs"),
-            include_str!("net.rs"),
-            include_str!("serial.rs"),
-            include_str!("update.rs"),
-            include_str!("git.rs"),
-            include_str!("cindex.rs"),
-            include_str!("highlight.rs"),
-            include_str!("keymap.rs"),
-            include_str!("app/palette.rs"),
-            include_str!("app/prefs.rs"),
-            include_str!("codeview/insight.rs"),
-            include_str!("codeview/gen.rs"),
-            include_str!("codegen.rs"),
-            include_str!("shell.rs"),
-            include_str!("termview.rs"),
-            include_str!("pattern.rs"),
-            include_str!("lsp.rs"),
-            include_str!("tools.rs"),
-            include_str!("snippets.rs"),
-            include_str!("binview.rs"),
-            include_str!("binview/parse.rs"),
-            include_str!("vim.rs"),
-            include_str!("editor.rs"),
-            include_str!("app/logx.rs"),
-            include_str!("app/dock.rs"),
-            include_str!("app/dbgtools.rs"),
-            include_str!("app/plot.rs"),
-            include_str!("app/serialx.rs"),
-            include_str!("checksum.rs"),
-            include_str!("modbus.rs"),
-            include_str!("xfer.rs"),
-            include_str!("bridge.rs"),
-            include_str!("script.rs"),
-            include_str!("logbuf.rs"),
-            include_str!("api.rs"),
-            include_str!("app/apiview.rs"),
-            include_str!("ble.rs"),
-            include_str!("app/blex.rs"),
-            include_str!("app/toolbox.rs"),
-            include_str!("app/toolbox2.rs"),
-            include_str!("app/toolbox3.rs"),
-            include_str!("app/toolbox4.rs"),
-            include_str!("app/toolbox5.rs"),
-            include_str!("app/sess.rs"),
-            include_str!("ws.rs"),
-            include_str!("toolbox/mod.rs"),
-            include_str!("toolbox/tftp.rs"),
-            include_str!("toolbox/httpd.rs"),
-            include_str!("toolbox/discover.rs"),
-            include_str!("toolbox/conv.rs"),
-            include_str!("toolbox/baud.rs"),
-            include_str!("toolbox/slcan.rs"),
-            include_str!("toolbox/hid.rs"),
-            include_str!("toolbox/fw.rs"),
-            include_str!("toolbox/sizediff.rs"),
-            include_str!("toolbox/vcd.rs"),
-            include_str!("toolbox/proj.rs"),
-            include_str!("toolbox/hwcalc.rs"),
-            include_str!("compareview.rs"),
-            include_str!("compareview/text.rs"),
-            include_str!("compareview/folder.rs"),
-            include_str!("compareview/hex.rs"),
-            include_str!("compareview/merge.rs"),
-            include_str!("compareview/table.rs"),
-            include_str!("compare/report.rs"),
-            include_str!("compare/table.rs"),
-            include_str!("shellint.rs"),
-            include_str!("remote.rs"),
-            include_str!("app/sshview.rs"),
-            include_str!("bgimg.rs"),
-        ];
+        // src 下所有源文件（新文件不用再手动加进列表）
+        fn walk(d: &std::path::Path, out: &mut Vec<String>) {
+            for e in std::fs::read_dir(d).unwrap().flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else if p.extension().is_some_and(|x| x == "rs") && !p.ends_with("i18n.rs") {
+                    out.push(std::fs::read_to_string(&p).unwrap());
+                }
+            }
+        }
+        let mut sources = vec![];
+        walk(&std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut sources);
         let mut missing = vec![];
-        for src in sources {
+        for src in &sources {
             let src = src.split("#[cfg(test)]").next().unwrap_or(src);
             for pat in ["t(\"", "tf(\"", "tr(\"", "c(\""] {
                 for (i, _) in src.match_indices(pat) {

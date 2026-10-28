@@ -55,19 +55,39 @@ pub enum Tool {
 }
 
 /// 工具列表的分组
-pub(super) fn groups() -> [(&'static str, &'static [Tool]); 10] {
+/// 第一组「通信调试」最常用，一直展开；其余分组同一时间只展开一个
+pub(super) fn groups() -> [(&'static str, &'static [Tool]); 6] {
     [
-        (t("通信调试"), &[Tool::Tcp, Tool::Udp, Tool::Mqtt, Tool::Ble, Tool::Ws, Tool::Ssh, Tool::Api, Tool::MbSlave]),
-        (t("服务器"), &[Tool::Tftp, Tool::Http, Tool::Syslog, Tool::Broker]),
-        (t("网络"), &[Tool::Discover, Tool::Ping, Tool::Subnet]),
-        (t("固件"), &[Tool::FwConv, Tool::FwPack, Tool::SizeDiff, Tool::Stack, Tool::Vectors]),
-        (t("芯片和工程"), &[Tool::Svd, Tool::Project, Tool::Ioc]),
-        (t("计算"), &[Tool::Convert, Tool::Baud, Tool::Checksum, Tool::Timestamp, Tool::Regex]),
-        (t("硬件计算"), &[Tool::Resistor, Tool::Adc, Tool::Pwm, Tool::I2cPull]),
+        (
+            t("通信调试"),
+            &[Tool::Tcp, Tool::Udp, Tool::Mqtt, Tool::Ble, Tool::Ws, Tool::Ssh, Tool::Api, Tool::MbSlave, Tool::Can, Tool::Hid],
+        ),
+        (t("服务器和网络"), &[Tool::Tftp, Tool::Http, Tool::Syslog, Tool::Broker, Tool::Discover, Tool::Ping, Tool::Subnet]),
+        (
+            t("固件和芯片"),
+            &[Tool::FwConv, Tool::FwPack, Tool::SizeDiff, Tool::Stack, Tool::Vectors, Tool::Svd, Tool::Project, Tool::Ioc],
+        ),
+        (
+            t("计算"),
+            &[
+                Tool::Convert,
+                Tool::Baud,
+                Tool::Checksum,
+                Tool::Timestamp,
+                Tool::Regex,
+                Tool::Resistor,
+                Tool::Adc,
+                Tool::Pwm,
+                Tool::I2cPull,
+            ],
+        ),
         (t("数据和协议"), &[Tool::Struct, Tool::Decode, Tool::Vcd, Tool::Qr]),
         (t("显示"), &[Tool::Font, Tool::Color, Tool::Ascii]),
-        (t("总线"), &[Tool::Can, Tool::Hid]),
     ]
+}
+
+pub(super) fn group_of(tool: Tool) -> usize {
+    groups().iter().position(|(_, ts)| ts.contains(&tool)).unwrap_or(0)
 }
 
 /// 网络连接类工具对应的会话槽位
@@ -114,6 +134,10 @@ pub struct ToolboxCfg {
     pub hid_feature_len: u16,
     /// 收藏的工具，排在列表最上面
     pub favs: Vec<Tool>,
+    /// 最近用过的工具（不含通信调试，最多 4 个）
+    pub recent: Vec<Tool>,
+    /// 展开的分组（通信调试之外同一时间只展开一个）
+    pub open_group: usize,
     /// v1.4 新工具的设置
     pub x: super::toolbox2::Cfg2,
     /// v1.6 嵌入式工具的设置
@@ -149,6 +173,8 @@ impl Default for ToolboxCfg {
             hid_data: "00 01 02 03".into(),
             hid_feature_len: 64,
             favs: vec![],
+            recent: vec![],
+            open_group: 0,
             x: Default::default(),
             z: Default::default(),
             ssh_hosts: vec![],
@@ -273,7 +299,7 @@ impl App {
         );
         ui.add_space(10.0);
         let q = self.tb.filter.trim().to_lowercase();
-        // 多个词都要命中（名字、说明、分组名、内部名任意一处），比如“firmware pack”
+        // 多个词都要命中（名字、说明、分组名、内部名、中文名的拼音首字母任意一处），比如“firmware pack”“gjdb”
         let all_groups = groups();
         let matches = |tool: Tool| {
             if q.is_empty() {
@@ -281,31 +307,72 @@ impl App {
             }
             let (a, b) = tool_text(tool);
             let g = all_groups.iter().find(|(_, ts)| ts.contains(&tool)).map_or("", |(g, _)| *g);
-            let hay = format!("{a} {b} {g} {tool:?}").to_lowercase();
+            let hay = format!("{a} {b} {g} {tool:?} {}", crate::i18n::py_initials(a)).to_lowercase();
             q.split_whitespace().all(|w| hay.contains(w))
         };
-        let favs: Vec<Tool> = self.s.tb.favs.iter().copied().filter(|t| matches(*t)).collect();
-        let mut list: Vec<(&str, Vec<Tool>)> = vec![];
-        if !favs.is_empty() {
-            list.push((t("收藏"), favs));
-        }
-        for (g, tools) in all_groups.iter() {
-            let v: Vec<Tool> = tools.iter().copied().filter(|t| matches(*t) && (!q.is_empty() || !self.s.tb.favs.contains(t))).collect();
-            if !v.is_empty() {
-                list.push((g, v));
+        let searching = !q.is_empty();
+        // (标题, 工具, 分组下标：None = 不能折叠)
+        let mut list: Vec<(&str, Vec<Tool>, Option<usize>)> = vec![];
+        if !searching {
+            let favs: Vec<Tool> = self.s.tb.favs.clone();
+            if !favs.is_empty() {
+                list.push((t("收藏"), favs, None));
+            }
+            // 正在运行的工具（服务器、CAN 等）：不管在哪个分组都列出来，方便切回去
+            let running: Vec<Tool> = all_groups[1..]
+                .iter()
+                .flat_map(|g| g.1.iter().copied())
+                .filter(|t| self.tool_state(*t) > 0 && !self.s.tb.favs.contains(t))
+                .collect();
+            if !running.is_empty() {
+                list.push((t("运行中"), running, None));
+            }
+            let recent: Vec<Tool> = self
+                .s
+                .tb
+                .recent
+                .iter()
+                .copied()
+                .filter(|t| !self.s.tb.favs.contains(t) && group_of(*t) != 0 && self.tool_state(*t) == 0)
+                .take(4)
+                .collect();
+            if !recent.is_empty() {
+                list.push((t("最近使用"), recent, None));
             }
         }
+        for (gi, (g, tools)) in all_groups.iter().enumerate() {
+            let v: Vec<Tool> = tools.iter().copied().filter(|t| matches(*t)).collect();
+            if !v.is_empty() {
+                list.push((g, v, (gi > 0 && !searching).then_some(gi)));
+            }
+        }
+        let mut pick = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             if list.is_empty() {
                 ui.label(RichText::new(t("没有匹配的工具")).color(TEXT3()));
             }
-            for (g, tools) in list {
-                eyebrow(ui, g, "");
+            for (g, tools, fold) in list {
+                let open = match fold {
+                    Some(gi) => {
+                        let open = self.s.tb.open_group == gi;
+                        if group_header(ui, g, tools.len(), open).clicked() {
+                            self.s.tb.open_group = if open { 0 } else { gi };
+                        }
+                        open
+                    }
+                    None => {
+                        eyebrow(ui, g, "");
+                        true
+                    }
+                };
+                if !open {
+                    continue;
+                }
                 for tool in tools {
                     let state = self.tool_state(tool);
                     let r = nav_row(ui, tool_text(tool).0, self.s.tb.tool == tool, state);
                     if r.clicked() {
-                        self.s.tb.tool = tool;
+                        pick = Some(tool);
                     }
                     let fav = self.s.tb.favs.contains(&tool);
                     r.context_menu(|ui| {
@@ -319,16 +386,19 @@ impl App {
                         }
                     });
                 }
-                ui.add_space(10.0);
+                ui.add_space(8.0);
             }
         });
+        if let Some(tool) = pick {
+            self.pick_tool(tool);
+        }
         if !q.is_empty() && search.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
             // 名字里带关键字的优先，其次才是说明里带的
             let gs = groups();
             let all = || gs.iter().flat_map(|g| g.1.iter()).copied();
             let by_name = all().find(|t| tool_text(*t).0.to_lowercase().contains(&q) || format!("{t:?}").to_lowercase().contains(&q));
             if let Some(first) = by_name.or_else(|| all().find(|t| matches(*t))) {
-                self.s.tb.tool = first;
+                self.pick_tool(first);
             }
         }
     }
@@ -357,9 +427,26 @@ impl App {
         running as u8
     }
 
+    /// 在列表里选中工具：记进「最近使用」
+    fn pick_tool(&mut self, tool: Tool) {
+        self.s.tb.tool = tool;
+        if group_of(tool) != 0 {
+            self.s.tb.recent.retain(|t| *t != tool);
+            self.s.tb.recent.insert(0, tool);
+            self.s.tb.recent.truncate(8);
+        }
+    }
+
     /// 打开某个工具（命令面板、设备发现、状态栏都走这里）
     pub(super) fn open_tool(&mut self, tool: Tool) {
         self.s.tb.tool = tool;
+        let g = group_of(tool);
+        if g != 0 {
+            self.s.tb.open_group = g;
+            self.s.tb.recent.retain(|t| *t != tool);
+            self.s.tb.recent.insert(0, tool);
+            self.s.tb.recent.truncate(8);
+        }
         self.set_page(Page::Tools);
         if let Some(k) = comm_slot(tool) {
             self.use_slot(k);
@@ -1180,12 +1267,41 @@ pub(super) fn tool_text(t_: Tool) -> (&'static str, &'static str) {
     }
 }
 
+/// 可折叠分组的标题行
+fn group_header(ui: &mut egui::Ui, title: &str, n: usize, open: bool) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::click());
+    let p = ui.painter();
+    if resp.hovered() {
+        p.rect_filled(rect, R_WIDGET, BG2());
+    }
+    crate::codeview::chevron(p, rect.left_center() + vec2(8.0, 0.0), open, TEXT3());
+    p.text(
+        rect.left_center() + vec2(20.0, 0.0),
+        Align2::LEFT_CENTER,
+        title,
+        FontId::new(11.5, bold()),
+        if open { TEXT2() } else { TEXT3() },
+    );
+    p.text(
+        rect.right_center() - vec2(8.0, 0.0),
+        Align2::RIGHT_CENTER,
+        n.to_string(),
+        FontId::new(10.5, FontFamily::Monospace),
+        TEXT3(),
+    );
+    if resp.hovered() {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+    ui.add_space(2.0);
+    resp
+}
+
 fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, state: u8) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
     let p = ui.painter();
     if on {
         p.rect_filled(rect, R_WIDGET, BG3());
-        p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 7.0), vec2(2.5, 16.0)), 1.5, ACCENT());
+        p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 6.0), vec2(2.5, 16.0)), 1.5, ACCENT());
     } else if resp.hovered() {
         p.rect_filled(rect, R_WIDGET, BG2());
     }

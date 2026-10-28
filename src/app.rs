@@ -129,6 +129,10 @@ pub struct Settings {
     pub recent_cmds: Vec<String>,
     /// 时间戳后面显示和上一行的时间差
     pub show_delta: bool,
+    /// 日志计时的两个关键字
+    pub timing_a: String,
+    pub timing_b: String,
+    pub timing_re: bool,
     pub rules: Vec<logx::Rule>,
     pub frame: logx::FrameCfg,
     /// 录制分段：超过多少 MB / 多少分钟换一个文件（0 = 不分段）
@@ -215,6 +219,9 @@ impl Default for Settings {
             ui_scale: 1.0,
             recent_cmds: Vec::new(),
             show_delta: false,
+            timing_a: String::new(),
+            timing_b: String::new(),
+            timing_re: false,
             rules: vec![],
             frame: Default::default(),
             rec_split_mb: 0,
@@ -274,6 +281,7 @@ mod blex;
 mod dbgtools;
 mod dock;
 mod logx;
+mod minitools;
 mod palette;
 mod plot;
 mod prefs;
@@ -425,6 +433,7 @@ pub struct App {
     replay: Option<logx::Replay>,
     stats: logx::Stats,
     wins: logx::Wins,
+    mini: minitools::Mini,
     dock: dock::Dock,
     mb: dbgtools::Mb,
     xf: dbgtools::Xf,
@@ -616,6 +625,7 @@ impl App {
             replay: None,
             stats: Default::default(),
             wins: Default::default(),
+            mini: Default::default(),
             dock: Default::default(),
             mb: Default::default(),
             xf: Default::default(),
@@ -1038,6 +1048,10 @@ impl App {
         let new: Vec<String> = list.iter().filter(|p| !self.ports.iter().any(|o| o.name == p.name)).map(|p| p.name.clone()).collect();
         let first_scan = !self.ports_seen;
         self.ports_seen = true;
+        if !first_scan {
+            let old = std::mem::take(&mut self.ports);
+            self.note_plugs(&old, &list);
+        }
         self.ports = list;
         if !first_scan {
             for n in &new {
@@ -1058,6 +1072,7 @@ impl App {
     }
 
     fn tick(&mut self) {
+        self.tick_awake();
         self.tick_replay();
         self.tick_dock();
         self.tick_tools();
@@ -2815,6 +2830,17 @@ impl App {
             self.status_conns(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(TEXT3()));
+                let br = self.code.branch();
+                if !br.is_empty() {
+                    let r = ui
+                        .add(egui::Label::new(RichText::new(br).small().color(TEXT3())).sense(Sense::click()))
+                        .on_hover_text(t("当前 Git 分支，点击打开 Git 页"));
+                    let (ir, _) = ui.allocate_exact_size(vec2(11.0, 11.0), Sense::hover());
+                    draw_icon(ui.painter(), ir, Icon::Branch, TEXT3());
+                    if r.clicked() {
+                        self.set_page(Page::Git);
+                    }
+                }
                 let r = ui
                     .add(egui::Label::new(RichText::new(t("⌨ 快捷键")).small().color(TEXT3())).sense(Sense::click()))
                     .on_hover_ui(|ui| shortcuts_help(ui, &self.km));
@@ -2989,6 +3015,8 @@ impl App {
         let mut ctx_cmd: Option<u8> = None;
         let mut ctx_mark: Option<u64> = None;
         let mut ctx_trigger: Option<String> = None;
+        let mut ctx_regs: Option<String> = None;
+        let has_svd = self.code.svd.is_some();
         let sel = self.sel.map(|(a, b)| (a.min(b), a.max(b)));
         let tsel = self.tsel.map(|s| s.ordered());
         let sel_fill = ui.visuals().selection.bg_fill;
@@ -3222,6 +3250,10 @@ impl App {
                         ctx_mark = Some(id);
                         ui.close_menu();
                     }
+                    if has_svd && l.plain.contains(|c: char| c == '=' || c == ':') && menu_item(ui, t("按 SVD 解码寄存器值"), "") {
+                        ctx_regs = Some(l.plain.clone());
+                        ui.close_menu();
+                    }
                     if l.dir != Dir::Sys && !l.plain.trim().is_empty() && menu_item(ui, t("用此行新建应答规则"), "") {
                         ctx_trigger = Some(l.plain.trim().to_string());
                         ui.close_menu();
@@ -3298,6 +3330,11 @@ impl App {
         }
         if let Some(id) = ctx_mark {
             self.toggle_bookmark(id);
+        }
+        if let Some(text) = ctx_regs {
+            if !self.code.decode_regs(&text) {
+                self.toast(t("这一行里没认出寄存器值"), TEXT3());
+            }
         }
         if let Some(pat) = ctx_trigger {
             self.s.triggers.push(dock::Trigger { pat, ..Default::default() });
@@ -4470,6 +4507,7 @@ impl eframe::App for App {
                     self.set_page(Page::Code);
                     self.code.open_file(&p, Some((line, None)));
                 }
+                ShellEvt::Task(name, cmd) => self.flash_checkpoint(&name, &cmd),
             }
         }
         // 换了工程：不管在哪一页都要同步（命令行打开文件夹时代码页还没显示）
@@ -4486,6 +4524,7 @@ impl eframe::App for App {
         }
         // 设置里记着 SVD 路径时，启动后代码页的寄存器悬停不用先打开工具也能用（路径没变就只是比较一下字符串）
         self.svd_sync();
+        self.code.reg_window(ctx);
         match self.page {
             Page::Code => {
                 self.code.ui(ctx, &acts, &self.km);
@@ -4500,10 +4539,25 @@ impl eframe::App for App {
                         CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
                         CodeEvt::Struct(src) => self.open_struct(src),
                         CodeEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
+                        CodeEvt::Merge(base, mine, out) => {
+                            use crate::compareview::Side;
+                            let disk = crate::compareview::temp_file("disk", &std::fs::read(&out).unwrap_or_default());
+                            self.cmpv.open_merge(
+                                Side::labeled(&base, &t("上次保存")),
+                                Side::labeled(&mine, &t("我的修改")),
+                                Side::labeled(&disk, &t("外部修改")),
+                                &out,
+                                None,
+                            );
+                            self.set_page(Page::Compare);
+                            self.compare_events();
+                        }
                     }
                 }
             }
             Page::Git => {
+                self.gitv.unsaved = self.code.dirty_paths();
+                self.gitv.sensitive.clone_from(&self.code.s.sensitive);
                 self.gitv.ui(ctx, &acts);
                 for e in std::mem::take(&mut self.gitv.events) {
                     match e {
@@ -4554,7 +4608,11 @@ impl eframe::App for App {
         }
         for p in dropped {
             match self.page {
-                Page::Code => self.code.open_file(&p, None),
+                Page::Code => {
+                    if !self.code.drop_on_viewer(&p) {
+                        self.code.open_file(&p, None)
+                    }
+                }
                 Page::Compare => self.cmpv.drop_files(vec![p]),
                 Page::Tools => self.tool_drop(p),
                 _ => self.load_log_path(&p, false),
@@ -4563,6 +4621,7 @@ impl eframe::App for App {
         let code = &self.code;
         self.bitcalc.ui(ctx, &|s| code.eval_expr(s));
         self.log_windows(ctx);
+        self.mini_windows(ctx);
         self.tool_windows(ctx);
         self.alias_window(ctx);
         self.api_windows(ctx);
@@ -5012,6 +5071,7 @@ pub(crate) enum Icon {
     Toolbox,
     Compare,
     Swap,
+    History,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -5093,6 +5153,17 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
             p.add(Shape::line(vec![pt(3.0, -6.0), pt(6.0, -3.0), pt(3.0, 0.0)], s));
             p.line_segment([pt(-6.0, 3.5), pt(6.0, 3.5)], s);
             p.add(Shape::line(vec![pt(-3.0, 0.5), pt(-6.0, 3.5), pt(-3.0, 6.5)], s));
+        }
+        Icon::History => {
+            // 钟面 + 逆时针箭头
+            let mut pts = vec![];
+            for k in 0..=20 {
+                let a = (-200.0f32 + k as f32 * 13.0).to_radians();
+                pts.push(pt(6.0 * a.cos(), 6.0 * a.sin()));
+            }
+            p.add(Shape::line(pts, s));
+            p.add(Shape::line(vec![pt(-7.6, -4.6), pt(-5.6, -2.0), pt(-3.0, -3.8)], s));
+            p.add(Shape::line(vec![pt(0.0, -3.5), pt(0.0, 0.0), pt(2.6, 1.8)], s));
         }
         Icon::Toolbox => {
             // 工具箱：箱体 + 提手 + 中间的扣

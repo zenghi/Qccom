@@ -112,6 +112,7 @@ impl App {
                     c.st_src = s;
                 }
             }
+            Tool::Checksum => self.hash_file(p),
             _ => self.load_log_path(&p, false),
         }
     }

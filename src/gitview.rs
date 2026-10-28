@@ -16,6 +16,8 @@ use crate::i18n::{t as tr, tf};
 use crate::keymap::Act;
 use crate::theme::*;
 
+mod ops;
+
 const ROW_H: f32 = 28.0;
 const LANE_W: f32 = 14.0;
 const MAX_LANES: usize = 14;
@@ -75,6 +77,7 @@ enum Msg {
     Diff(u64, Result<String, String>),
     Status(Result<Status, String>),
     Op(String, Result<String, String>),
+    Ops(ops::OpMsg),
 }
 
 #[derive(Clone, PartialEq)]
@@ -82,6 +85,8 @@ enum Sel {
     None,
     Work,
     Commit(String),
+    /// 固件体积历史
+    Sizes,
 }
 
 struct DiffView {
@@ -94,6 +99,11 @@ struct DiffView {
     loading: bool,
     err: Option<String>,
     max_chars: usize,
+    /// 原始 diff 文本（逐块暂存时取补丁用）
+    raw: String,
+    /// 工作区文件的 diff：可以逐块暂存 / 取消暂存；前 staged_hunks 块是已暂存的
+    work: Option<git::StatusFile>,
+    staged_hunks: usize,
 }
 
 struct Confirm {
@@ -136,6 +146,11 @@ pub struct GitView {
     busy: Option<String>,
     scroll_to_sel: bool,
     activated: bool,
+    ops: ops::Ops,
+    /// 代码页里还没保存的文件（提交前检查用），每帧由 App 更新
+    pub unsaved: Vec<PathBuf>,
+    /// 敏感文件规则（和本地历史共用）
+    pub sensitive: String,
     pub events: Vec<GitEvt>,
 }
 
@@ -174,6 +189,9 @@ impl GitView {
             busy: None,
             scroll_to_sel: false,
             activated: false,
+            ops: Default::default(),
+            unsaved: vec![],
+            sensitive: String::new(),
             events: vec![],
         }
     }
@@ -268,6 +286,7 @@ impl GitView {
         self.load_branches();
         self.load_status();
         self.load_log();
+        self.load_extra();
         if let Sel::Commit(h) = self.sel.clone() {
             self.load_info(&h);
         }
@@ -318,6 +337,9 @@ impl GitView {
             loading: true,
             err: None,
             max_chars: 0,
+            raw: String::new(),
+            work: None,
+            staged_hunks: 0,
         });
         self.spawn(move |r| Msg::Diff(g, job(r)));
     }
@@ -371,6 +393,11 @@ impl GitView {
                         d.loading = false;
                         match r {
                             Ok(text) => {
+                                if let (Some(f), Some(root)) = (&d.work, &self.root) {
+                                    let staged = git::git(root, &["diff", "--cached", "-M", "--", &f.path]).unwrap_or_default();
+                                    d.staged_hunks = staged.lines().filter(|l| l.starts_with("@@")).count();
+                                }
+                                d.raw.clone_from(&text);
                                 d.lines = git::parse_diff(&text)
                                     .into_iter()
                                     .filter(|l| {
@@ -389,11 +416,13 @@ impl GitView {
                 Msg::Op(label, r) => {
                     self.busy = None;
                     match r {
+                        Ok(_) if label == t("暂存此块") || label == t("取消暂存此块") => self.reload_work_diff(),
                         Ok(_) => self.toast(tf("{} 完成", &[&label]), OK()),
                         Err(e) => self.toast(tf("{} 失败：{}", &[&label, &friendly_err(&e)]), ERR()),
                     }
                     self.refresh();
                 }
+                Msg::Ops(m) => self.on_ops(m),
             }
         }
         // 搜索框停止输入 350ms 后再查
@@ -497,6 +526,7 @@ impl GitView {
                     match self.sel.clone() {
                         Sel::Work => self.work_panel(ui),
                         Sel::Commit(h) => self.commit_panel(ui, &h),
+                        Sel::Sizes => self.sizes_panel(ui),
                         Sel::None => {}
                     }
                 });
@@ -509,6 +539,7 @@ impl GitView {
             }
         });
         self.confirm_modal(ctx);
+        self.tag_window(ctx);
         if ctx.input(|i| i.key_pressed(Key::Escape)) && ctx.memory(|m| m.focused().is_none()) {
             if self.confirm.is_some() {
                 self.confirm = None;
@@ -574,6 +605,7 @@ impl GitView {
                 if icon_button(ui, Icon::Refresh, &t("刷新"), false).clicked() {
                     self.refresh();
                 }
+                self.more_menu(ui);
                 let busy = self.busy.is_some();
                 let r = icon_button(ui, Icon::Download, &t("拉取远程（git fetch --all --prune）"), busy);
                 if r.clicked() && !busy {
@@ -650,12 +682,20 @@ impl GitView {
                 self.file_sel = None;
                 self.load_status();
             }
-            let r = nav_row(ui, Icon::Commit, &t("全部分支的提交"), None, self.scope.is_none() && self.sel != Sel::Work, ACCENT());
+            let r = nav_row(
+                ui,
+                Icon::Commit,
+                &t("全部分支的提交"),
+                None,
+                self.scope.is_none() && !matches!(self.sel, Sel::Work | Sel::Sizes),
+                ACCENT(),
+            );
             if r.clicked() && self.scope.is_some() {
                 self.scope = None;
                 self.limit = PAGE;
                 self.load_log();
             }
+            self.side_extra(ui);
             ui.add_space(6.0);
 
             let f = self.branch_filter.to_lowercase();
@@ -1075,6 +1115,9 @@ impl GitView {
                         if icon_button(ui, Icon::Refresh, &t("刷新"), false).clicked() {
                             self.load_status();
                         }
+                        if self.dirty_count() > 0 {
+                            self.stage_all_button(ui);
+                        }
                     });
                 });
                 if let Some(s) = &self.status {
@@ -1090,6 +1133,7 @@ impl GitView {
             });
             return;
         }
+        self.commit_box(ui);
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
             let groups: [(String, Box<dyn Fn(&StatusFile) -> bool>); 4] = [
@@ -1126,6 +1170,9 @@ impl GitView {
                     }
                     let r = if conflict { r.on_hover_text(t("单击用三方合并解决冲突")) } else { r };
                     r.context_menu(|ui| {
+                        if !conflict {
+                            self.file_ops_menu(ui, f);
+                        }
                         if conflict && ui.button(t("解决冲突（三方合并）")).clicked() {
                             work_cmp = Some((f.path.clone(), true));
                             ui.close_menu();
@@ -1147,8 +1194,7 @@ impl GitView {
             }
         });
         if let Some(f) = open {
-            let path = f.path.clone();
-            self.open_diff(t("工作区更改"), path, move |r| git::worktree_diff(&r, &f));
+            self.open_work_diff(f);
         }
         if let (Some(p), Some(root)) = (to_code, &self.root) {
             self.events.push(GitEvt::OpenFile(root.join(p), 0));
@@ -1167,7 +1213,84 @@ impl GitView {
 
     // ------------------------------------------------------------ 差异
 
+    fn open_work_diff(&mut self, f: git::StatusFile) {
+        let path = f.path.clone();
+        let f2 = f.clone();
+        self.open_diff(t("工作区更改"), path, move |r| git::worktree_diff(&r, &f2));
+        if let Some(d) = self.diff.as_mut() {
+            // 未跟踪的新文件没有补丁头，只能整个文件暂存
+            d.work = (f.x != '?').then_some(f);
+        }
+    }
+
+    /// 逐块暂存 / 取消暂存之后：状态和 diff 都重新读
+    fn reload_work_diff(&mut self) {
+        self.refresh();
+        if let Some(f) = self.diff.as_ref().and_then(|d| d.work.clone()) {
+            let path = f.path.clone();
+            // 文件状态可能变了（全部暂存 / 全部取消），用新的 XY 不影响 diff 内容
+            let f = git::StatusFile { path, ..f };
+            self.open_work_diff(f);
+        }
+    }
+
+    /// 第 k 块的补丁（文件头 + 这一块）
+    fn hunk_patch(raw: &str, k: usize) -> Option<String> {
+        let mut head = String::new();
+        let mut in_head = false;
+        let mut n = 0;
+        let mut out: Option<String> = None;
+        for l in raw.split_inclusive('\n') {
+            if l.starts_with("diff --git") {
+                if out.is_some() {
+                    break;
+                }
+                head.clear();
+                in_head = true;
+            }
+            if l.starts_with("@@") {
+                if out.is_some() {
+                    break;
+                }
+                in_head = false;
+                if n == k {
+                    out = Some(head.clone());
+                }
+                n += 1;
+            }
+            if in_head {
+                head.push_str(l);
+            } else if let Some(o) = out.as_mut() {
+                o.push_str(l);
+            }
+        }
+        out.filter(|p| p.contains("+++ ") || p.contains("--- "))
+    }
+
+    fn stage_hunk(&mut self, k: usize, staged: bool) {
+        let Some(d) = self.diff.as_ref() else { return };
+        let Some(patch) = Self::hunk_patch(&d.raw, k) else { return };
+        let tmp = std::env::temp_dir().join(format!("qccom-hunk-{}.patch", std::process::id()));
+        if std::fs::write(&tmp, patch).is_err() {
+            return;
+        }
+        let mut args = vec!["apply".to_string(), "--cached".to_string(), "--recount".to_string()];
+        if staged {
+            args.push("-R".into());
+        }
+        args.push(tmp.to_string_lossy().into_owned());
+        self.run_op(if staged { t("取消暂存此块") } else { t("暂存此块") }.to_string(), args);
+    }
+
     fn diff_view(&mut self, ui: &mut Ui) {
+        let mut hunk_act: Option<(usize, bool)> = None;
+        self.diff_view_inner(ui, &mut hunk_act);
+        if let Some((k, staged)) = hunk_act {
+            self.stage_hunk(k, staged);
+        }
+    }
+
+    fn diff_view_inner(&mut self, ui: &mut Ui, hunk_act: &mut Option<(usize, bool)>) {
         let Some(d) = self.diff.as_ref() else { return };
         let bar = ui.available_rect_before_wrap();
         let bar = Rect::from_min_size(bar.min, vec2(bar.width(), 44.0));
@@ -1256,6 +1379,25 @@ impl GitView {
                                     font.clone(),
                                     if l.kind == DiffKind::Hunk { VIOLET().gamma_multiply(0.9) } else { TEXT3() },
                                 );
+                                // 工作区 diff：每块右边一个「暂存此块 / 取消暂存此块」
+                                if l.kind == DiffKind::Hunk && d.work.is_some() {
+                                    let k = d.lines[..i].iter().filter(|x| x.kind == DiffKind::Hunk).count();
+                                    let staged = k < d.staged_hunks;
+                                    let label = if staged { t("取消暂存此块") } else { t("暂存此块") };
+                                    let vis = ui.clip_rect().right().min(rect.right());
+                                    let g = p.layout_no_wrap(label.to_string(), FontId::proportional(11.5), ACCENT());
+                                    let br = Rect::from_min_max(pos2(vis - g.size().x - 26.0, rect.top() + 1.0), pos2(vis - 8.0, rect.bottom() - 1.0));
+                                    let r = ui.interact(br, ui.id().with(("hunk", i)), Sense::click());
+                                    let p = ui.painter();
+                                    p.rect_filled(br, 9.0, if r.hovered() { ACCENT().gamma_multiply(0.22) } else { ACCENT().gamma_multiply(0.10) });
+                                    p.galley(br.center() - g.size() / 2.0, g, ACCENT());
+                                    if staged {
+                                        p.text(pos2(tx.x - 14.0, rect.center().y), Align2::CENTER_CENTER, "●", FontId::proportional(8.0), OK());
+                                    }
+                                    if r.clicked() {
+                                        *hunk_act = Some((k, staged));
+                                    }
+                                }
                             }
                             _ => {
                                 let text = l.text.replace('\t', "    ");

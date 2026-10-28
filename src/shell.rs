@@ -352,6 +352,8 @@ pub enum ShellEvt {
     Done(String, std::time::Duration),
     /// Ctrl+点击了 `文件:行号`
     Open(PathBuf, usize),
+    /// 点了任务按钮：(任务名, 命令)
+    Task(String, String),
 }
 
 pub struct Shells {
@@ -883,6 +885,7 @@ impl Shells {
                     let r = r.on_hover_text(tip);
                     if r.clicked() {
                         task_run = Some(tk.cmd.clone());
+                        self.events.push(ShellEvt::Task(tk.name.clone(), tk.cmd.clone()));
                     }
                     if r.secondary_clicked() {
                         self.edit_tasks = true;

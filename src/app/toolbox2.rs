@@ -132,8 +132,19 @@ impl Default for Cfg2 {
 }
 
 /// 运行时状态
+/// 文件校验：后台线程算，界面看进度
+pub(super) struct FileHash {
+    path: PathBuf,
+    size: u64,
+    done: Arc<std::sync::atomic::AtomicU64>,
+    res: Arc<std::sync::Mutex<Option<Result<Vec<(&'static str, String)>, String>>>>,
+}
+
 #[derive(Default)]
 pub struct Ui2 {
+    files: Vec<FileHash>,
+    /// 粘贴的期望值，和结果一致的标绿
+    expect: String,
     mb: Option<mbslave::Slave>,
     mb_st: mbslave::Shared,
     syslog: Option<syslog::Server>,
@@ -165,7 +176,7 @@ pub(super) fn tool_text2(tool: Tool) -> (&'static str, &'static str) {
         Tool::Ping => (t("Ping / 端口"), t("连续 Ping 看延迟和丢包，或者检测设备开了哪些 TCP 端口")),
         Tool::Subnet => (t("子网计算"), t("算网络地址、广播地址、可用 IP 范围，判断两个地址是否在同一网段")),
         Tool::Broker => (t("MQTT 服务器"), t("在本机开一个 MQTT 服务器，不用另外装 Mosquitto")),
-        Tool::Checksum => (t("校验计算"), t("常用 CRC、累加和一次全算出来，也可以自定义 CRC 参数")),
+        Tool::Checksum => (t("校验计算"), t("常用 CRC、累加和一次全算出来，也可以自定义 CRC 参数；拖入文件算 MD5 / SHA1 / SHA256")),
         Tool::Timestamp => (t("时间戳转换"), t("Unix 时间戳和日期时间互相转换，秒和毫秒都认")),
         Tool::Regex => (t("正则测试"), t("写日志过滤规则、提取数据前先在这里试正则")),
         Tool::Font => (t("字模 / 取模"), t("文字和图片转成点阵或 RGB565 数组，给 LCD、OLED 用")),
@@ -852,7 +863,109 @@ impl App {
 
     // ------------------------------------------------------------ 校验计算
 
+    /// 拖进校验工具的文件：MD5 / SHA1 / SHA256 / CRC32
+    pub(super) fn hash_file(&mut self, p: PathBuf) {
+        if p.is_dir() {
+            return;
+        }
+        self.tb.x.files.retain(|f| f.path != p);
+        let size = std::fs::metadata(&p).map(|m| m.len()).unwrap_or(0);
+        let done = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let res = Arc::new(std::sync::Mutex::new(None));
+        let (pp, d2, r2, ctx) = (p.clone(), done.clone(), res.clone(), self.ctx.clone());
+        std::thread::spawn(move || {
+            let r = crc::file_hashes(&pp, &d2);
+            *r2.lock().unwrap() = Some(r);
+            ctx.request_repaint();
+        });
+        self.tb.x.files.insert(0, FileHash { path: p, size, done, res });
+        self.tb.x.files.truncate(6);
+    }
+
+    fn file_hashes_ui(&mut self, ui: &mut egui::Ui) {
+        eyebrow(ui, t("文件校验"), "");
+        ui.horizontal(|ui| {
+            if ui.button(t("选择文件…")).clicked() {
+                if let Some(ps) = rfd::FileDialog::new().pick_files() {
+                    for p in ps {
+                        self.hash_file(p);
+                    }
+                }
+            }
+            ui.label(RichText::new(t("或者直接把文件拖进来，算 MD5 / SHA1 / SHA256 / CRC32")).small().color(TEXT3()));
+        });
+        if self.tb.x.files.is_empty() {
+            return;
+        }
+        ui.add(
+            egui::TextEdit::singleline(&mut self.tb.x.expect)
+                .hint_text(t("粘贴期望的校验值核对（可选）"))
+                .desired_width(f32::INFINITY)
+                .font(MONO(12.5)),
+        );
+        let want = self.tb.x.expect.trim().to_lowercase().replace([' ', '-'], "");
+        let want = want.trim_start_matches("0x").to_string();
+        let mut del = None;
+        let mut busy = false;
+        for (i, f) in self.tb.x.files.iter().enumerate() {
+            ui.add_space(6.0);
+            egui::Frame::new()
+                .fill(BG0())
+                .stroke(st(1.0, LINE()))
+                .corner_radius(R_CARD)
+                .inner_margin(egui::Margin::same(10))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        let name = f.path.file_name().map_or(String::new(), |n| n.to_string_lossy().into_owned());
+                        ui.label(RichText::new(name).color(TEXT())).on_hover_text(f.path.display().to_string());
+                        ui.label(RichText::new(human_bytes(f.size)).small().color(TEXT3()));
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if ui.small_button("×").on_hover_text(t("移除")).clicked() {
+                                del = Some(i);
+                            }
+                        });
+                    });
+                    match &*f.res.lock().unwrap() {
+                        None => {
+                            busy = true;
+                            let p = f.done.load(std::sync::atomic::Ordering::Relaxed) as f32 / f.size.max(1) as f32;
+                            ui.add(egui::ProgressBar::new(p).desired_height(6.0));
+                        }
+                        Some(Err(e)) => {
+                            ui.label(RichText::new(e).color(ERR()));
+                        }
+                        Some(Ok(v)) => {
+                            egui::Grid::new(("fh", i)).num_columns(2).spacing([14.0, 3.0]).show(ui, |ui| {
+                                for (name, h) in v {
+                                    ui.label(RichText::new(*name).font(MONO(12.0)).color(VIOLET()));
+                                    let hit = !want.is_empty() && *h == want;
+                                    if hit {
+                                        ui.horizontal(|ui| {
+                                            copy_label(ui, h);
+                                            ui.label(RichText::new(t("一致")).small().color(OK()));
+                                        });
+                                    } else {
+                                        copy_label(ui, h);
+                                    }
+                                    ui.end_row();
+                                }
+                            });
+                        }
+                    }
+                });
+        }
+        if let Some(i) = del {
+            self.tb.x.files.remove(i);
+        }
+        if busy {
+            ui.ctx().request_repaint_after(std::time::Duration::from_millis(100));
+        }
+        ui.add_space(14.0);
+    }
+
     fn tb_checksum(&mut self, ui: &mut egui::Ui) {
+        self.file_hashes_ui(ui);
         let enc = self.s.encoding;
         let c = &mut self.s.tb.x;
         ui.horizontal(|ui| {

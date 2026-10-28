@@ -155,3 +155,51 @@ mod tests {
         assert_eq!(c.bytes(0x4B37, false), vec![0x4B, 0x37]);
     }
 }
+
+/// 文件校验（v1.8）：流式算 MD5 / SHA1 / SHA256 / CRC32，几百 MB 的固件也不用全读进内存。
+/// done 记录已经读了多少字节，界面上画进度。
+pub fn file_hashes(path: &std::path::Path, done: &std::sync::atomic::AtomicU64) -> Result<Vec<(&'static str, String)>, String> {
+    use md5::Digest;
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
+    let (mut m, mut s1, mut s2) = (md5::Md5::new(), sha1::Sha1::new(), sha2::Sha256::new());
+    let table: Vec<u32> = (0..256u32).map(|i| (0..8).fold(i, |c, _| if c & 1 != 0 { 0xEDB8_8320 ^ (c >> 1) } else { c >> 1 })).collect();
+    let mut crc = u32::MAX;
+    let mut buf = vec![0u8; 1 << 20];
+    loop {
+        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
+        if n == 0 {
+            break;
+        }
+        let d = &buf[..n];
+        m.update(d);
+        s1.update(d);
+        s2.update(d);
+        for &b in d {
+            crc = table[((crc ^ b as u32) & 0xFF) as usize] ^ (crc >> 8);
+        }
+        done.fetch_add(n as u64, std::sync::atomic::Ordering::Relaxed);
+    }
+    let hex = |b: &[u8]| b.iter().map(|x| format!("{x:02x}")).collect::<String>();
+    Ok(vec![
+        ("CRC32", format!("{:08x}", !crc)),
+        ("MD5", hex(&m.finalize())),
+        ("SHA1", hex(&s1.finalize())),
+        ("SHA256", hex(&s2.finalize())),
+    ])
+}
+
+#[cfg(test)]
+mod file_tests {
+    #[test]
+    fn hashes() {
+        let p = std::env::temp_dir().join("qccom-hash-test.txt");
+        std::fs::write(&p, b"123456789").unwrap();
+        let done = std::sync::atomic::AtomicU64::new(0);
+        let h = super::file_hashes(&p, &done).unwrap();
+        assert_eq!(h[0].1, "cbf43926");
+        assert_eq!(h[1].1, "25f9e794323b453885f5181f1b624d0b");
+        assert_eq!(h[2].1, "f7c3bc1d808e04732adf679965ccc34ca7ae3441");
+        assert_eq!(done.load(std::sync::atomic::Ordering::Relaxed), 9);
+    }
+}

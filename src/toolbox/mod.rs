@@ -22,6 +22,7 @@ pub mod slcan;
 pub mod stack;
 pub mod structp;
 pub mod svd;
+pub mod svdfind;
 pub mod syslog;
 pub mod tftp;
 pub mod vcd;

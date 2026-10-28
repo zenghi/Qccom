@@ -201,7 +201,13 @@ impl App {
 
     /// 启动时和换文件时载入 SVD（代码页悬停也要用）
     pub(super) fn svd_sync(&mut self) {
-        let path = self.s.tb.z.x.svd_path.trim().to_string();
+        // 工具箱里手动指定的优先，没指定时用代码页按工程配置自动找到的
+        let manual = self.s.tb.z.x.svd_path.trim().to_string();
+        let path = if manual.is_empty() {
+            self.code.svd_auto().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default()
+        } else {
+            manual
+        };
         if path == self.tb.z.x.svd_key {
             return;
         }

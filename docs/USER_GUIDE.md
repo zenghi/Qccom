@@ -219,6 +219,14 @@ Right-click a port card to give it an alias (for example *Main board*) or to set
 
 **More windows.** *New window* (`Ctrl+Shift+N`) starts another QCCOM window with its own settings, so you can watch two devices side by side.
 
+**Time between two keywords** (⋯ menu). Enter a start and an end keyword (or regex), for example `boot:` and `WiFi connected`; every start up to the next end is one measurement, using the log timestamps. You get the count, min, max and average, and each run with outliers marked. *Copy results* copies a table.
+
+**Port in use.** When a serial port can't be opened because another program holds it, the error names the program and its PID (on Windows, the running serial tools that may hold it).
+
+**Plug history.** Right-click a port → *Plug history…* lists every time a USB serial device was plugged in or out, with its VID:PID.
+
+**No sleep while working.** While any connection is open or a recording runs, QCCOM keeps the computer from going to sleep (the screen can still turn off).
+
 ## Code viewer
 
 ![Macro hover and go to definition](gif/demo-code.gif)
@@ -254,6 +262,23 @@ Files are editable; `Ctrl+S` saves, and a dot on the tab marks unsaved changes. 
 - **Saving**: files changed by another program reload on their own; if you have unsaved edits too, a bar lets you reload or keep yours. Turn on **Auto save** in Settings → Code Editor to save one second after you stop typing. Unsaved files are backed up every few seconds, and after a crash QCCOM offers to restore them.
 - **Git**: colored bars left of the code mark added (green), modified (blue) and deleted (red) lines compared with the last commit. The end of the current line shows who last changed it, when and why (turn off in settings).
 - **More**: the word under the cursor is highlighted everywhere; the enclosing function and blocks stay pinned at the top while you scroll; holding `Ctrl` underlines identifiers you can jump to.
+
+### Wrap, whitespace, encodings and formatting
+
+- **Word wrap**: `Alt+Z` (or *Toggle word wrap* in the palette). Long lines break at spaces and punctuation; typing, cursor movement and selection work on the wrapped rows.
+- **Whitespace**: *Show / hide whitespace* draws tabs as arrows and spaces as dots, marks trailing spaces in red, mixed tab / space indentation in amber and full-width or non-breaking spaces in a box. *Trim trailing whitespace* cleans the file.
+- **Encoding and line endings**: the status bar shows `UTF-8`, `UTF-8 BOM` or `GBK` and `LF` / `CRLF`; click either to convert and save. QCCOM never converts files on its own: GBK files open and save as GBK. When a project mixes GBK and UTF-8, a bar appears once with *Convert all to UTF-8…*; the window lists the GBK files (all ticked), adds a BOM by default (Keil needs it) and creates a checkpoint first, so one click on the checkpoint undoes it. The same is in the palette as *Convert whole project from GBK to UTF-8*.
+- **Formatting**: `Shift+Alt+F` formats the file, or only the selected lines, with `clang-format` using the project's `.clang-format`. Without a `.clang-format` nothing is changed. *Format on save* is in Settings → Code Editor.
+- **Edited here and outside**: when a file you have unsaved edits in is changed by another program, the bar offers *Merge…*: a three-way merge of the last saved version, your edits and the external version, so neither side is lost.
+
+### Register preview
+
+When the project names its chip (Keil `.uvprojx`, IAR `.ewp`, CubeMX `.ioc`, STM32CubeIDE `.cproject`, ESP-IDF `sdkconfig`, PlatformIO `platformio.ini`) QCCOM finds the matching SVD file by itself (in the project, the Keil / IAR / STM32Cube pack folders and `~/STMicroelectronics`). The chip shows in the status bar. Then:
+
+- Hover `USART1->CR1` or a macro such as `USART_CR1_UE` to see the address, reset value and bit fields. Hover a number in an assignment (`USART1->CR1 = 0x200C;`) to see it split into fields with their names.
+- Click the chip in the status bar (or *Register panel (SVD)* in the palette) for a floating panel: registers used in the current file or all peripherals, type a value and tick bits to build one, copy the value or the C statement. The *Dump compare* tab takes two register dumps pasted from logs (`CR1=0x200C`, `0x40013800: 0x200C`, `USART1->CR1 = …`) and lists the bits that changed.
+- In the log, right-click a line → *Decode register values via SVD*.
+A manually loaded SVD in the toolbox takes precedence.
 
 ### Project folder
 
@@ -308,6 +333,25 @@ These follow Source Insight and help when reading an unfamiliar project.
 
 ![Context window and call hierarchy](screenshot-insight.png)
 
+## Local history and external changes
+
+QCCOM keeps every version of the files in the open project, on your computer only (Settings → Code Editor → *Local history*: 30 days and 10 GB by default, files over 20 MB skipped). Folders and files excluded by the project's `.gitignore` are skipped too; when `.gitignore` doesn't exclude build outputs yet, a bar offers to add rules for Keil, IAR, GCC, CMake, ESP-IDF, PlatformIO and Zephyr (`.bin` / `.hex` are not excluded by default).
+
+- **External changes**: when another program (an AI tool, Keil, a script…) changes project files, the file tree marks them and a bar says how many files and lines changed. *Review* opens a list grouped into rounds; click a file to compare it with the version before the change and revert block by block, or keep / revert a whole round or everything. *Keep all* creates a checkpoint. Sensitive files (linker scripts, startup and clock files, partition tables, device trees, build files, vendor library folders; editable in settings) are highlighted, files whose only change is whitespace can be hidden, and a file whose encoding or line endings were changed gets *Restore encoding*. Programs listed under *Programs not to flag* are still versioned but not listed.
+- **File history**: right-click a file → *Local history…*. Every save and external change is a version; click to compare with now or with the previous version, and restore with one click.
+- **Checkpoints**: *New checkpoint* (with an optional note) captures the whole project. *Go back here* restores the project to that point, saving the current state first, so going back can itself be undone. `.git` is never touched. The timeline shows checkpoints, rounds of external changes and deleted files, which can be restored.
+- **Flash marks**: running the *Flash* task inserts a line `Flash · checkpoint #12` into the serial log, so later you know which code produced that log.
+
+## Viewers
+
+Some files open in a viewer instead of the text editor; the button in the breadcrumb bar switches between the viewer and the text.
+
+- **Images** (PNG, JPEG, BMP, GIF, ICO, WebP, TGA): zoom with the wheel, pan by dragging, a pixel grid at high zoom and the color under the cursor in hex and RGB565 (click to copy). GIFs play, with pause and frame stepping. *More* copies the current frame, or all frames of a GIF, as a C array (RGB565, RGB888, ARGB8888 or 1-bit mono), exports a frame as PNG, or compares with another image (or drop a second image on the first): side by side, overlay with a slider, or a difference map with the count of changed pixels.
+- **Raw pixels**: `.rgb565`, `.raw`, `.gray` and HEX dumps (*View as pixels* in the hex viewer) are shown as an image in RGB565 / RGB888 / gray / mono with a width you choose; the width is guessed from common LCD sizes. You can also paste HEX bytes from a log.
+- **Markdown**: a rendered preview with an outline, images (GIFs animate), code highlighting, tables and links to other project files. The button cycles *Preview → Split → Source*; in split view the preview follows the editor as you scroll and type.
+- **JSON / YAML / TOML**: *Tree* shows a collapsible tree with a filter; click a node to jump to its line. Syntax errors are reported with the line number.
+- **CSV / TSV**: a table that stays fast with hundreds of thousands of rows (files up to 64 MB). Click up to four numeric column headers to plot them, with min / max / average.
+
 ## Firmware tools
 
 - **Map, ELF, HEX and BIN files** open in a viewer instead of as text. A Map file shows how full each memory region is, with tables of symbols, object files and output sections that you can sort and filter. An ELF file shows code / data / bss sizes, sections, symbols and segments. HEX, BIN and S-record files show a hex grid: click a byte to see it as u8 to u64, signed, float, little or big endian; drag to select and `Ctrl+C` to copy; type an address to jump; export a HEX file as BIN. The pill on the right of the breadcrumb bar switches back to the raw text.
@@ -345,7 +389,7 @@ The *Communication* tools (TCP, UDP, MQTT, Bluetooth LE, WebSocket, SSH / Telnet
 - **Syslog receiver**: listens on a UDP port (514 on Windows; 5514 on Linux, where ports below 1024 need root) and parses RFC 3164 and RFC 5424 messages into time, host, program, severity and text. Filter by host, program or text, and by minimum severity. On a Linux board, `syslogd -R <pc-ip>:5514` (busybox; the page shows this command with your address) or a `*.* @<pc-ip>:5514` rsyslog rule sends logs here.
 - **Ping / ports**: continuous ping with a latency chart, min / average / max and loss; a count of 0 pings until you stop. *TCP port check* tries a list of ports and ranges (`21-23, 80, 502`) and shows which are open.
 - **Subnet calculator**: type `192.168.1.10/24` or an address and mask to get the network, broadcast, usable range, host count, wildcard and binary forms. Type another address under *Compare* to check whether it is in the same subnet.
-- **Checksums**: type HEX bytes or text and see SUM8 / SUM16 / XOR / LRC and 14 CRC presets (CRC-8, CRC-16/MODBUS, CCITT, XMODEM, CRC-32…) at once, with the result in both byte orders. *Custom CRC* takes any width, polynomial, initial value, input / output reflection and final XOR.
+- **Checksums**: type HEX bytes or text and see SUM8 / SUM16 / XOR / LRC and 14 CRC presets (CRC-8, CRC-16/MODBUS, CCITT, XMODEM, CRC-32…) at once, with the result in both byte orders. *Custom CRC* takes any width, polynomial, initial value, input / output reflection and final XOR. Drop files on the tool (or *Choose File…*) for their CRC32, MD5, SHA1 and SHA256; paste an expected value to check it.
 - **Timestamps**: converts Unix seconds, milliseconds, `0x` hex and date-times into each other, with the current time ticking at the top.
 - **Regex tester**: matches are highlighted in the test text and listed with their groups; the replace box previews `$1`-style replacements.
 - **Font & image to C**: *Text* draws each character with any TTF / TTC font (system fonts are listed, or pick a file) into a W×H cell; adjust size, offset and stroke weight. *Image* scales a PNG, JPG, BMP or GIF to the size you want and outputs monochrome (threshold or dithering) or RGB565 / RGB565 byte stream / RGB888 / 8-bit gray. Scan modes: row by row, column by column, page by page (SSD1306 and most OLEDs) and column-page; MSB or LSB first; inverse. The preview shows exactly the bits that are output. Copy the C array or save it as a header.
@@ -420,6 +464,10 @@ Click the branch icon in the activity bar. It opens the repository that contains
 - **Commits on all branches**: a commit graph with colored lanes, branch and tag labels, author, relative time and short hash. Use ↑ / ↓ to move, and scroll to load more history. The search box filters by commit message (case-insensitive).
 - **Branches, remotes and tags** in the sidebar: click one to show only its history, double-click to check it out, and right-click for more actions. Checking out a remote branch creates a local tracking branch. Checking out a tag (or a commit, from its context menu) gives a detached HEAD. QCCOM warns you first when you have uncommitted changes and explains in plain language why a checkout failed.
 - **Commit details**: message, author, date, parent links and changed files with add / delete bars. Click a file for a line-numbered, highlighted diff. Double-click a diff line to open that file at that line in the code viewer.
+- **Commit and push**: the commit box at the top of *Working tree changes*; *Generate* drafts a message from the staged files and changed functions. With nothing staged, *Commit all* commits every change. `Ctrl+Enter` commits. Stage, unstage or discard single files from their context menu, or open a file's diff and use *Stage hunk* / *Unstage hunk* on each block. Before committing, QCCOM checks for unsaved files, conflict markers, build outputs, files over 5 MB, likely secrets and changed sensitive files; you can commit anyway.
+- **More (⋯)**: pull and merge, push, undo the last commit (changes stay staged), stash and restore, create a tag (the next version is suggested), record firmware size and update submodules. Submodules are listed with their state.
+- **Firmware size**: every commit made in QCCOM records ROM / RAM from the newest `.map` / `.elf`; *Firmware size* in the sidebar lists them with the change per commit.
+- The **status bar** shows the current branch with ahead / behind counts (`main ↑1 ↓2`); click it to open the Git page.
 
 ## Compare and merge
 

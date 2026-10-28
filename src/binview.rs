@@ -17,12 +17,23 @@ pub enum BinEvt {
     /// 跳到这个符号的定义
     Symbol(String),
     Toast(String, Color32),
+    /// 跳到原文第几行（树形查看点节点）
+    Line(usize),
+    /// 打开文件（Markdown 里的相对链接）
+    Open(PathBuf),
+    /// HEX 视图里点了「按像素查看」
+    AsPixels,
 }
 
 pub enum Special {
     Hex(Box<HexView>),
     Elf(Box<ElfView>),
     Map(Box<MapView>),
+    Image(Box<crate::viewer::image::ImageView>),
+    Pixels(Box<crate::viewer::image::PixelView>),
+    Md(Box<crate::viewer::md::MdView>),
+    Tree(Box<crate::viewer::tree::TreeView>),
+    Csv(Box<crate::viewer::csv::CsvView>),
 }
 
 const BIN_EXT: &[&str] = &["bin", "hex", "ihex", "ihx", "s19", "s28", "s37", "srec", "mot", "sx", "img", "dfu", "fw"];
@@ -31,7 +42,32 @@ const ELF_EXT: &[&str] = &["elf", "axf", "out", "o", "so", "ko", "a"];
 impl Special {
     /// 按扩展名和内容决定要不要用特殊查看器；text 是能按文本解码时的内容
     pub fn detect(path: &Path, bytes: &[u8], text: Option<&str>) -> Option<Special> {
+        use crate::viewer::{csv::CsvView, image, md::MdView, tree};
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if image::is_image(path) {
+            return Some(Special::Image(Box::new(image::ImageView::new(path, bytes))));
+        }
+        if matches!(ext.as_str(), "rgb565" | "rgb" | "raw" | "gray" | "lcd") {
+            return Some(Special::Pixels(Box::new(image::PixelView::new(bytes.to_vec()))));
+        }
+        if matches!(ext.as_str(), "md" | "markdown") {
+            return text.map(|t| Special::Md(Box::new(MdView::new(path, t))));
+        }
+        if let Some(k) = tree::Kind::of(&ext) {
+            return text.map(|t| Special::Tree(Box::new(tree::TreeView::new(k, t))));
+        }
+        if matches!(ext.as_str(), "csv" | "tsv") {
+            // 大文件不解码成文本，直接按字节读
+            let owned;
+            let t = match text {
+                Some(t) => t,
+                None => {
+                    owned = String::from_utf8_lossy(bytes).into_owned();
+                    &owned
+                }
+            };
+            return Some(Special::Csv(Box::new(CsvView::new(t))));
+        }
         if is_elf(bytes) {
             return match parse_elf(bytes) {
                 Ok(e) => Some(Special::Elf(Box::new(ElfView::new(e)))),
@@ -56,14 +92,70 @@ impl Special {
             Special::Hex(_) => t("十六进制"),
             Special::Elf(_) => "ELF",
             Special::Map(_) => t("内存占用"),
+            Special::Image(_) => t("图片"),
+            Special::Pixels(_) => t("像素"),
+            Special::Md(_) => t("预览"),
+            Special::Tree(_) => t("树形"),
+            Special::Csv(_) => t("表格"),
+        }
+    }
+
+    /// 打开文件时默认显示查看器（树形默认看原文）
+    pub fn default_on(&self) -> bool {
+        !matches!(self, Special::Tree(_))
+    }
+
+    /// 原文改了：预览、树形跟着更新
+    pub fn sync(&mut self, text: &str, ver: u64) {
+        match self {
+            Special::Md(v) => v.update(text, ver),
+            Special::Tree(v) => v.update(text, ver),
+            _ => {}
+        }
+    }
+
+    /// 图片查看时拖进来另一张图：直接对比
+    pub fn drop_image(&mut self, p: &Path) -> Option<Result<(), String>> {
+        match self {
+            Special::Image(v) if crate::viewer::image::is_image(p) => Some(v.compare_with(p.to_path_buf())),
+            _ => None,
+        }
+    }
+
+    /// Markdown 预览跟着编辑器滚动
+    pub fn sync_line(&mut self, line: usize) {
+        if let Special::Md(v) = self {
+            v.sync_line(line);
         }
     }
 
     pub fn ui(&mut self, ui: &mut Ui) -> Option<BinEvt> {
         match self {
-            Special::Hex(v) => v.ui(ui),
+            Special::Hex(v) => {
+                let e = v.ui(ui);
+                if matches!(e, Some(BinEvt::AsPixels)) {
+                    let data = v.img.segs.first().map(|s| s.1.clone()).unwrap_or_default();
+                    *self = Special::Pixels(Box::new(crate::viewer::image::PixelView::new(data)));
+                    return None;
+                }
+                e
+            }
             Special::Elf(v) => v.ui(ui),
             Special::Map(v) => v.ui(ui),
+            Special::Image(v) => v.ui(ui).map(|crate::viewer::image::ImgEvt::Toast(m, c)| BinEvt::Toast(m, c)),
+            Special::Pixels(v) => {
+                v.ui(ui);
+                None
+            }
+            Special::Md(v) => v.ui(ui).map(|crate::viewer::md::MdEvt::Open(p)| BinEvt::Open(p)),
+            Special::Tree(v) => v.ui(ui).map(|e| match e {
+                crate::viewer::tree::TreeEvt::Line(l) => BinEvt::Line(l),
+                crate::viewer::tree::TreeEvt::Toast(m) => BinEvt::Toast(m, OK()),
+            }),
+            Special::Csv(v) => {
+                v.ui(ui);
+                None
+            }
         }
     }
 }
@@ -785,6 +877,13 @@ impl HexView {
                             evt = Some(BinEvt::Toast(e, ERR()));
                         }
                     }
+                }
+                if ui
+                    .button(t("按像素查看"))
+                    .on_hover_text(t("把数据当成 RGB565 / RGB888 / 灰度 / 单色图像显示，看 LCD 显存、摄像头数据"))
+                    .clicked()
+                {
+                    evt = Some(BinEvt::AsPixels);
                 }
                 if self.img.kind != "BIN" && ui.button(t("导出为 BIN…")).clicked() {
                     match self.export_bin() {

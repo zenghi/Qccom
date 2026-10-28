@@ -71,6 +71,10 @@ pub(super) struct Sess {
 }
 
 impl Sess {
+    pub(super) fn recording(&self) -> bool {
+        self.record.is_some()
+    }
+
     pub fn new(transport: Transport, max_lines: usize, frame_gap_ms: u32) -> Self {
         let (evt_tx, evt_rx) = mpsc::channel();
         let mut buf = LogBuf::new(max_lines);

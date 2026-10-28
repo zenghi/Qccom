@@ -306,7 +306,6 @@ impl Device {
     }
 
     /// 地址落在哪个寄存器上
-    #[cfg(test)]
     pub fn at(&self, addr: u64) -> Option<(&Periph, &Reg)> {
         self.periphs.iter().find_map(|p| p.regs.iter().find(|r| p.base + r.offset == addr).map(|r| (p, r)))
     }
@@ -323,6 +322,88 @@ pub fn decode(r: &Reg, v: u64) -> Vec<(String, String, u64, String)> {
             (bits, f.name.clone(), x, f.enum_name(x).map(|e| e.name.clone()).unwrap_or_default())
         })
         .collect()
+}
+
+impl Device {
+    /// 外设名或分组名（USART → USART1、USART2…）对上的第一个外设
+    fn periph_like(&self, name: &str) -> Option<&Periph> {
+        self.periphs
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(name))
+            .or_else(|| self.periphs.iter().find(|p| p.group.eq_ignore_ascii_case(name)))
+    }
+
+    /// CMSIS 位宏：USART_CR1_UE、USART_CR1_UE_Pos、GPIO_ODR_ODR5 → (外设分组, 寄存器, 位域)
+    pub fn bit_macro(&self, name: &str) -> Option<(&Periph, &Reg, &Field)> {
+        let base = name.strip_suffix("_Pos").or_else(|| name.strip_suffix("_Msk")).unwrap_or(name);
+        let parts: Vec<&str> = base.split('_').collect();
+        for i in 1..parts.len() {
+            let Some(p) = self.periph_like(&parts[..i].join("_")) else { continue };
+            for j in i + 1..parts.len() {
+                let reg = parts[i..j].join("_");
+                let Some(r) = p.regs.iter().find(|r| r.name.replace(['[', ']'], "").eq_ignore_ascii_case(&reg)) else {
+                    continue;
+                };
+                let field = parts[j..].join("_");
+                // 多位位域里的单独一位：USART_CR1_M_0
+                let f = r.fields.iter().find(|f| f.name.eq_ignore_ascii_case(&field)).or_else(|| {
+                    let (head, tail) = field.rsplit_once('_')?;
+                    tail.parse::<u32>().ok()?;
+                    r.fields.iter().find(|f| f.name.eq_ignore_ascii_case(head))
+                });
+                if let Some(f) = f {
+                    return Some((p, r, f));
+                }
+            }
+        }
+        None
+    }
+
+    /// 从一段文字（日志、粘贴的转储）里认出寄存器值：(外设, 寄存器, 值)
+    /// 支持 USART1->CR1 = 0x200C、0x4001380C: 0x200C、USART1 CR1=0x200C、CR1=0x200C（寄存器名唯一时）
+    pub fn parse_dump(&self, text: &str) -> Vec<(String, String, u64)> {
+        let mut out: Vec<(String, String, u64)> = vec![];
+        let mut ctx: Option<String> = None;
+        for line in text.lines() {
+            let toks: Vec<&str> = line
+                .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '[' || c == ']'))
+                .filter(|s| !s.is_empty())
+                .collect();
+            // 行里出现的外设名作为后面寄存器的上下文
+            if let Some(p) = toks.iter().find(|t| self.periphs.iter().any(|p| p.name.eq_ignore_ascii_case(t))) {
+                ctx = Some(p.to_string());
+            }
+            let mut i = 0;
+            while i + 1 < toks.len() {
+                let (a, b) = (toks[i], toks[i + 1]);
+                let Some(v) = num(b).filter(|_| b.starts_with(|c: char| c.is_ascii_digit())) else {
+                    i += 1;
+                    continue;
+                };
+                // 地址: 值
+                if let Some(addr) = num(a).filter(|_| a.starts_with("0x") || a.starts_with("0X")) {
+                    if let Some((p, r)) = self.at(addr) {
+                        out.push((p.name.clone(), r.name.clone(), v));
+                        i += 2;
+                        continue;
+                    }
+                }
+                if a.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_') {
+                    let hit = ctx.as_deref().and_then(|c| self.find(c, a)).map(|(p, r)| (p.name.clone(), r.name.clone())).or_else(|| {
+                        let all: Vec<(&Periph, &Reg)> = self.periphs.iter().filter_map(|p| p.regs.iter().find(|r| r.name.eq_ignore_ascii_case(a)).map(|r| (p, r))).collect();
+                        (all.len() == 1).then(|| (all[0].0.name.clone(), all[0].1.name.clone()))
+                    });
+                    if let Some((p, r)) = hit {
+                        out.push((p, r, v));
+                        i += 2;
+                        continue;
+                    }
+                }
+                i += 1;
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -392,5 +473,14 @@ mod tests {
         assert!(p.desc.contains("asynchronous receiver"));
         let f = &cr1.fields[0];
         assert_eq!(f.set(0, 1), 1 << 13);
+        let (bp, br, bf) = d.bit_macro("USART_CR1_UE_Pos").unwrap();
+        assert_eq!((bp.group.as_str(), br.name.as_str(), bf.name.as_str()), ("USART", "CR1", "UE"));
+        assert!(d.bit_macro("USART_CR1_M_0").is_some());
+        assert!(d.bit_macro("GPIO_CR1_UE").is_none());
+        let v = d.parse_dump("USART1->CR1 = 0x200C\n0x40013800: 0x80\nUSART2 SR=0xC0 CR1=0x2000\n");
+        assert_eq!(v.len(), 4);
+        assert_eq!(v[0], ("USART1".into(), "CR1".into(), 0x200C));
+        assert_eq!(v[1], ("USART1".into(), "SR".into(), 0x80));
+        assert_eq!(v[3], ("USART2".into(), "CR1".into(), 0x2000));
     }
 }

@@ -43,9 +43,12 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **调试工具**：日志数值实时波形图、过滤 / 高亮规则、二进制协议分帧和校验检查、自动应答、[Rhai](https://rhai.rs) 测试脚本、Modbus RTU / TCP 主站、XMODEM / YMODEM 发送文件、发送时自动加 CRC、AT 指令助手、多行发送、按原时序回放日志、统计、标记和书签。
 - **串口扩展**：DTR / RTS / Break 控制和 CTS / DSR / RI / CD 实时状态，一键复位（含 ESP32 下载模式时序），串口共享到网络，双口监听，端口别名，配置方案，多窗口。
 - **比较与合并**（`Ctrl+Shift+M`）：内置 Beyond Compare 式比较。文本比较带行内差异，两边都能直接改、一键把一段推到另一边；文件夹比较和同步；十六进制比较能自动对齐插入的字节，HEX 按地址比较；Git 冲突三方合并；CSV 和 map 符号表比较；HTML 报告。到处都能右键比较，包括系统文件管理器（「用 QCCOM 打开」「用 QCCOM 比较」）。
-- **Git 查看器**：本地 / 远程分支和标签、所有分支的提交图、提交详情、带行号的差异对比、工作区状态、切换分支、拉取。
+- **外部修改和本地历史**：AI 工具、Keil 等别的程序改了工程文件会列出来，逐块保留或还原；每个文件自动留版本，一键打存档点、整个工程回到任意存档点，只存本机、不动 `.git`。
+- **查看器**：图片（GIF 播放、逐帧、转 C 数组、两图对比）、原始像素（RGB565 显存）、Markdown 预览（分屏同步滚动）、JSON / YAML / TOML 树、CSV 表格和曲线。
+- **寄存器预览**：从 Keil / IAR / CubeMX / ESP-IDF 等工程配置自动找到芯片的 SVD，悬停寄存器和数值按位域解码，寄存器面板和转储对比。
+- **Git**：本地 / 远程分支和标签、所有分支的提交图、提交详情、带行号的差异对比；提交、推送、按文件或代码块暂存、提交前检查、撤销上次提交、stash、打标签、子模块，每次提交记录固件体积，状态栏显示当前分支。
 - **SSH 和 Telnet**：远程登录开发板和网关，多个会话同时在线；用系统自带的 OpenSSH（密钥、agent、`~/.ssh/config` 都能用），把文件拖到终端上就能上传。
-- **工具箱**（`Ctrl+Shift+B`）：所有通信调试工具（TCP、UDP、MQTT、BLE、WebSocket、SSH / Telnet、HTTP 接口、Modbus 从站）排在最前，另有 TFTP / HTTP 文件服务器、本地 MQTT 服务器、Syslog 接收、局域网设备发现、Ping 和端口检测、子网计算、数据转换、校验计算（含自定义 CRC）、时间戳、正则测试、字模 / 图片取模、颜色转换、ASCII 表、UART 波特率计算、SLCAN CAN 调试和 USB HID。可搜索、可收藏，每个工具都能从命令面板直接打开。
+- **工具箱**（`Ctrl+Shift+B`）：所有通信调试工具（TCP、UDP、MQTT、BLE、WebSocket、SSH / Telnet、HTTP 接口、Modbus 从站）排在最前，另有 TFTP / HTTP 文件服务器、本地 MQTT 服务器、Syslog 接收、局域网设备发现、Ping 和端口检测、子网计算、数据转换、校验计算（含自定义 CRC）、时间戳、正则测试、字模 / 图片取模、颜色转换、ASCII 表、UART 波特率计算、SLCAN CAN 调试和 USB HID。可搜索（支持拼音首字母）、可收藏、记住最近使用，每个工具都能从命令面板直接打开；校验计算也能算文件的 MD5 / SHA1 / SHA256。
 - **嵌入式工具**：固件转换 / 合并（HEX、BIN、S-record、ELF）、带 CRC 的升级包头、两次编译的体积对比（支持 GCC、Keil、LLVM 的 map）、最坏栈深度分析、中断向量表（标出没实现的中断）、SVD 寄存器查看（编辑器里悬停也能看）、Keil / IAR 工程导入生成 `compile_commands.json`、CubeMX 引脚表、电阻 / 分压 / NTC / PWM / I2C 上拉计算、C 结构体解析、CBOR / MessagePack / Protobuf 解码、VCD 波形查看和二维码。
 - **录制与导出**：保存或复制日志；也可以把之后的每一行实时写入文件（可按大小或时长分卷），适合长时间挂机抓日志。
 - **自动更新**：从你自己的服务器检查新版本，下载后做 SHA-256 校验再替换。格式见 [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md)。

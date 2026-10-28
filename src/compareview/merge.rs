@@ -121,7 +121,7 @@ impl MergeTab {
         } else {
             self.result.clone().into_bytes()
         };
-        std::fs::write(&self.out, bytes).map_err(|e| format!("{}: {e}", self.out.display()))?;
+        crate::history::save_tracked(&self.out, &bytes).map_err(|e| format!("{}: {e}", self.out.display()))?;
         self.saved = true;
         Ok(())
     }

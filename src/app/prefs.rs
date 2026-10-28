@@ -540,6 +540,68 @@ impl App {
         });
     }
 
+    /// 本地历史和外部修改审阅（v1.8）
+    fn prefs_history(&mut self, ui: &mut egui::Ui, q: &str) {
+        if q.is_empty() || ["本地历史", "外部修改", "敏感文件", "存档点"].iter().any(|k| find_ci(t(k), q).is_some()) {
+            ui.label(RichText::new(t("本地历史")).font(FontId::new(15.0, bold())).color(TEXT()));
+            ui.add_space(2.0);
+        }
+        let mut changed = false;
+        let cs = &mut self.code.s;
+        row(
+            ui,
+            q,
+            t("本地历史"),
+            t("自动记下工程文件的每个版本，别的程序（AI 工具、Keil 等）改了文件会列出来让你审阅；可以随时回到存档点"),
+            |ui| {
+                changed |= switch(ui, &mut cs.hist_on).changed();
+            },
+        );
+        row(ui, q, t("保留天数"), t("超过天数的普通版本自动清理，手动建的存档点不会删"), |ui| {
+            changed |= ui.add(egui::DragValue::new(&mut cs.hist_days).range(1..=3650).suffix(t(" 天"))).changed();
+        });
+        row(ui, q, t("总容量上限"), t("所有工程的历史加起来超过这个大小时，从最旧的开始清理"), |ui| {
+            changed |= ui.add(egui::DragValue::new(&mut cs.hist_gb).range(1..=1000).suffix(" GB")).changed();
+        });
+        row(ui, q, t("单个文件上限"), t("超过这个大小的文件不记版本（固件、图片等大文件）"), |ui| {
+            changed |= ui.add(egui::DragValue::new(&mut cs.hist_max_mb).range(1..=1024).suffix(" MB")).changed();
+        });
+        row(
+            ui,
+            q,
+            t("不提示的程序"),
+            t("这些程序运行时的修改照常记版本，但不进审阅清单，逗号分隔，如 UV4.exe, iarbuild.exe"),
+            |ui| {
+                changed |= ui.add(egui::TextEdit::singleline(&mut cs.hist_quiet).desired_width(240.0).hint_text("UV4.exe")).changed();
+            },
+        );
+        row(
+            ui,
+            q,
+            t("敏感文件"),
+            t("被外部修改时醒目标出（只提醒，不拦截）。写法和 .gitignore 一样，每行一条"),
+            |ui| {
+                ui.vertical(|ui| {
+                    changed |= ui
+                        .add(egui::TextEdit::multiline(&mut cs.sensitive).desired_width(240.0).desired_rows(5).font(egui::TextStyle::Monospace))
+                        .changed();
+                    if ui.small_button(t("恢复默认")).clicked() {
+                        cs.sensitive = crate::history::review::SENSITIVE_DEFAULT.into();
+                        changed = true;
+                    }
+                });
+            },
+        );
+        if let Some(n) = self.code.hist_storage() {
+            if q.is_empty() {
+                ui.label(RichText::new(tf("历史占用 {} MB", &[&format!("{:.1}", n as f64 / 1048576.0)])).size(11.5).color(TEXT3()));
+            }
+        }
+        if changed {
+            self.code.hist_settings_changed(ui.ctx());
+        }
+    }
+
     fn prefs_editor(&mut self, ui: &mut egui::Ui, q: &str) {
         row(ui, q, t("代码字号"), t("代码浏览器的字体大小（Ctrl+= / Ctrl+- 也可以调）"), |ui| {
             ui.add(egui::Slider::new(&mut self.code.s.font_size, 9.0..=28.0).step_by(0.5));
@@ -614,6 +676,8 @@ impl App {
                 switch(ui, &mut self.code.s.scope_bg);
             },
         );
+        ui.add_space(18.0);
+        self.prefs_history(ui, q);
         ui.add_space(18.0);
         if q.is_empty() || ["代码生成", "作者", "版权声明", "打印函数", "文件头"].iter().any(|k| find_ci(t(k), q).is_some()) {
             ui.label(RichText::new(t("代码生成")).font(FontId::new(15.0, bold())).color(TEXT()));

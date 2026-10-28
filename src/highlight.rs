@@ -219,6 +219,10 @@ impl Lang {
         }
     }
 
+    pub fn block_comment(self) -> Option<(&'static str, &'static str)> {
+        self.spec().block
+    }
+
     pub fn is_code(self) -> bool {
         !matches!(self, Lang::Plain | Lang::Markdown | Lang::Json | Lang::Ini)
     }

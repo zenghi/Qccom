@@ -60,6 +60,8 @@ pub enum GitEvt {
     Toast(String, Color32),
     /// 在代码查看里打开文件（行号从 0 开始）
     OpenFile(PathBuf, usize),
+    /// 在 Git 页打开了别的文件夹：代码页跟着换工程
+    Project(PathBuf),
 }
 
 enum Msg {
@@ -183,8 +185,9 @@ impl GitView {
             return;
         }
         self.activated = true;
+        // 代码页和 Git 页共用一个工程：优先用代码页当前的文件夹
         let saved = (!self.s.root.is_empty()).then(|| PathBuf::from(&self.s.root));
-        if let Some(p) = saved.or_else(|| code_root.map(Path::to_path_buf)) {
+        if let Some(p) = code_root.map(Path::to_path_buf).or(saved) {
             self.open_root(&p);
             if self.root.is_none() && code_root.is_some() && self.s.root.is_empty() {
                 self.err = None; // 代码文件夹不是仓库时安静地停在欢迎页
@@ -222,6 +225,26 @@ impl GitView {
     fn pick_folder(&mut self) {
         if let Some(p) = rfd::FileDialog::new().set_title(t("打开 Git 仓库")).pick_folder() {
             self.open_root(&p);
+            if self.root.is_some() {
+                self.events.push(GitEvt::Project(p));
+            }
+        }
+    }
+
+    /// 代码页换了工程：已经进过 Git 页就跟着打开（不是仓库时停在欢迎页），没进过就等进来时再说
+    pub fn follow_project(&mut self, p: &Path) {
+        if !self.activated {
+            self.s.root.clear();
+            return;
+        }
+        match git::find_root(p) {
+            Ok(r) if self.root.as_ref() == Some(&r) => {}
+            Ok(_) => self.open_root(p),
+            Err(_) => {
+                self.root = None;
+                self.s.root.clear();
+                self.err = Some(tf("当前工程「{}」不是 Git 仓库", &[&p.display()]));
+            }
         }
     }
 

@@ -38,6 +38,8 @@ pub(super) struct Insight {
     tab: RelTab,
     root: Option<String>,
     pinned: bool,
+    /// 上下文窗口固定：不随光标变化（单击预览别的符号时自动固定）
+    ctx_pinned: bool,
     callees: HashMap<String, Vec<Call>>,
     callers: HashMap<String, Option<Vec<Call>>>,
     callers_rx: Vec<(String, Receiver<Vec<Call>>)>,
@@ -53,6 +55,7 @@ impl Default for Insight {
             tab: RelTab::Callees,
             root: None,
             pinned: false,
+            ctx_pinned: false,
             callees: HashMap::new(),
             callers: HashMap::new(),
             callers_rx: vec![],
@@ -273,6 +276,9 @@ impl CodeView {
     // ------------------------------------------------------------ 上下文窗口
 
     fn update_context(&mut self, now: f64) {
+        if self.ins.ctx_pinned {
+            return;
+        }
         let w = self.cursor_word().unwrap_or_default();
         if w != self.ins.ctx_word {
             self.ins.ctx_word = w;
@@ -282,8 +288,30 @@ impl CodeView {
         if now - self.ins.ctx_since < 0.25 || w.is_empty() || self.ins.ctx.as_ref().is_some_and(|c| c.word == w) {
             return;
         }
-        let Some((path, line, kind)) = self.ctx_def(&w) else { return };
-        let Some(text) = self.file_text(&path) else { return };
+        if let Some(c) = self.build_ctx(&w, None) {
+            self.ins.ctx = Some(c);
+        }
+    }
+
+    /// 在上下文窗口里预览一个符号（调用关系、上下文窗口里单击时用），并固定住
+    pub(super) fn preview_ctx(&mut self, w: &str, at: Option<(PathBuf, u32)>) {
+        if let Some(c) = self.build_ctx(w, at) {
+            self.ins.ctx = Some(c);
+            self.ins.ctx_pinned = true;
+            self.context_win = true;
+        }
+    }
+
+    fn build_ctx(&self, w: &str, at: Option<(PathBuf, u32)>) -> Option<CtxView> {
+        let w = w.to_string();
+        let (path, line, kind) = match at {
+            Some((p, l)) => {
+                let k = self.ctx_def(&w).map_or(Kind::Func, |x| x.2);
+                (p, l, k)
+            }
+            None => self.ctx_def(&w)?,
+        };
+        let text = self.file_text(&path)?;
         let lang = Lang::from_path(&path);
         let all: Vec<&str> = text.split('\n').collect();
         let l = line as usize;
@@ -329,7 +357,7 @@ impl CodeView {
             }
         }
         let lines = all[first..=end.min(all.len() - 1)].iter().map(|s| s.to_string()).collect();
-        self.ins.ctx = Some(CtxView {
+        Some(CtxView {
             word: w,
             path,
             line,
@@ -337,7 +365,7 @@ impl CodeView {
             first: first as u32,
             lines,
             lang,
-        });
+        })
     }
 
     fn ctx_def(&self, w: &str) -> Option<(PathBuf, u32, Kind)> {
@@ -379,10 +407,24 @@ impl CodeView {
                 if icon_button(ui, Icon::Close, t("关闭"), false).clicked() {
                     close = true;
                 }
+                let pin_tip = if self.ins.ctx_pinned {
+                    t("已固定：不随光标变化（点击取消）")
+                } else {
+                    t("固定当前内容")
+                };
+                if icon_button(ui, Icon::Bookmark, pin_tip, self.ins.ctx_pinned).clicked() {
+                    self.ins.ctx_pinned = !self.ins.ctx_pinned;
+                    if !self.ins.ctx_pinned {
+                        self.ins.ctx_word.clear();
+                        self.ins.ctx = None;
+                    }
+                }
+                ui.label(RichText::new(t("单击符号预览 · 双击跳转")).size(11.0).color(TEXT3()));
             });
         });
         let rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(rect, 0.0, BG0());
+        let mut preview: Option<String> = None;
         if let Some(c) = &self.ins.ctx {
             let font = FontId::new((self.s.font_size - 1.0).max(9.0), FontFamily::Monospace);
             let text = c.lines.join("\n").replace('\t', "    ");
@@ -390,9 +432,30 @@ impl CodeView {
             let row_h = g.size().y / g.rows.len().max(1) as f32;
             egui::ScrollArea::both().id_salt(("ctx-sa", &c.word)).auto_shrink([false, false]).show(ui, |ui| {
                 let gutter = 48.0;
-                let (r, _) = ui.allocate_exact_size(vec2((g.size().x + gutter + 40.0).max(ui.available_width()), g.size().y + 12.0), Sense::hover());
-                let p = ui.painter();
+                let (r, resp) = ui.allocate_exact_size(vec2((g.size().x + gutter + 40.0).max(ui.available_width()), g.size().y + 12.0), Sense::click());
                 let top = r.top() + 6.0;
+                // 单击符号：在这里预览它的定义；双击：跳到这一行
+                if let Some(pp) = resp.interact_pointer_pos().filter(|_| resp.clicked() || resp.double_clicked()) {
+                    let row = (((pp.y - top) / row_h).max(0.0) as usize).min(c.lines.len().saturating_sub(1));
+                    let cur = g.cursor_from_pos(pp - pos2(r.left() + gutter, top));
+                    let chars: Vec<char> = text.chars().collect();
+                    let ci = cur.ccursor.index.min(chars.len());
+                    let mut a = ci;
+                    while a > 0 && is_ident(chars[a - 1]) {
+                        a -= 1;
+                    }
+                    let mut b = ci;
+                    while b < chars.len() && is_ident(chars[b]) {
+                        b += 1;
+                    }
+                    let word: String = chars[a..b].iter().collect();
+                    if resp.double_clicked() {
+                        go = Some((c.path.clone(), c.first + row as u32, word));
+                    } else if !word.is_empty() && word.starts_with(|ch: char| !ch.is_ascii_digit()) && word != c.word {
+                        preview = Some(word);
+                    }
+                }
+                let p = ui.painter();
                 let hl = (c.line - c.first) as f32;
                 p.rect_filled(Rect::from_min_size(pos2(r.left(), top + hl * row_h), vec2(r.width(), row_h)), 0.0, ACCENT().gamma_multiply(0.09));
                 for i in 0..c.lines.len() {
@@ -409,6 +472,11 @@ impl CodeView {
         }
         if close {
             self.context_win = false;
+        }
+        if let Some(w) = preview {
+            if self.ctx_def(&w).is_some() {
+                self.preview_ctx(&w, None);
+            }
         }
         if let Some((p, l, w)) = go {
             self.open_at_word(&p, l as usize, &w);
@@ -476,10 +544,13 @@ impl CodeView {
             }
             kind_badge(p, pos2(r.left() + 22.0, r.center().y), Kind::Func);
             p.text(pos2(r.left() + 36.0, r.center().y), Align2::LEFT_CENTER, &root, FontId::new(12.5, FontFamily::Monospace), TEXT());
-            if resp.clicked() {
+            if resp.double_clicked() {
                 if let Some((pp, l, _)) = self.func_def(&root) {
                     go = Some((pp, l, root.clone()));
                 }
+            } else if resp.clicked() {
+                let def = self.func_def(&root).map(|f| (f.0, f.1));
+                self.preview_ctx(&root, def);
             }
             let mut stack = vec![root.clone()];
             self.rel_rows(ui, &ctx, &root, 1, &mut stack, &mut go);
@@ -559,13 +630,13 @@ impl CodeView {
                         self.ins.open.insert(key.clone());
                     }
                 } else {
-                    *go = Some((c.path.clone(), c.line, c.name.clone()));
+                    // 单击：在上下文窗口预览；双击：跳过去
+                    let def = self.func_def(&c.name).map(|f| (f.0, f.1));
+                    self.preview_ctx(&c.name, def);
                 }
             }
-            if resp.double_clicked() && expandable {
-                if !self.ins.open.remove(&key) {
-                    self.ins.open.insert(key.clone());
-                }
+            if resp.double_clicked() && !chevron_hit {
+                *go = Some((c.path.clone(), c.line, c.name.clone()));
             }
             if open {
                 stack.push(c.name.clone());

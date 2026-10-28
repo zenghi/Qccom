@@ -246,6 +246,48 @@ Files are editable; `Ctrl+S` saves, and a dot on the tab marks unsaved changes. 
 - **Git**: colored bars left of the code mark added (green), modified (blue) and deleted (red) lines compared with the last commit. The end of the current line shows who last changed it, when and why (turn off in settings).
 - **More**: the word under the cursor is highlighted everywhere; the enclosing function and blocks stay pinned at the top while you scroll; holding `Ctrl` underlines identifiers you can jump to.
 
+### Project folder
+
+The Code page, the Git page, the terminal panel and the TFTP / HTTP servers share one project folder. Open it from the folder button, the Git page or the command palette (*Open project folder*). Each project remembers its open tabs, cursor positions and bookmarks, so switching back puts you where you were.
+
+### Navigating
+
+| Keys | Action |
+|---|---|
+| Alt+← / Alt+→, mouse back / forward | Back / forward |
+| Ctrl+Alt+- (or `<` in quick open) | Navigation history |
+| Ctrl+Q | Last edit location |
+| Alt+O | Switch header / source |
+| Ctrl+Alt+] | Matching `#if` / `#else` / `#endif` |
+| Alt+PageUp / Alt+PageDown | Previous / next function |
+| Ctrl+F12 | Go to declaration |
+| Ctrl+K F12 | Open the definition to the side |
+
+**Highlights**: `F8` marks the word under the cursor; press it on another word for the next of 8 colors, or again on the same word to change its color. `Shift+F8` removes one, `Ctrl+Shift+F8` clears all, `F3` / `Shift+F3` jump between marked words. Marks also show on the scrollbar.
+
+**Inactive code** is greyed: `#if 0`, `#ifdef` of a macro that is not defined, the branch of `#if / #else` that is not compiled. Macros come from the project's `#define`s; add the ones your build passes with `-D` in Settings → Code Editor → *Extra macros*. Conditions QCCOM cannot evaluate are shown as active.
+
+### Code generation and macro actions
+
+Right-click in the editor for **Code generation**, **Edit** and **Key macros**. The default actions:
+
+| Keys | Action |
+|---|---|
+| Ctrl+Alt+I | Wrap the selection in `#ifdef` (asks for the macro) |
+| Ctrl+Alt+P | printf the variable under the cursor; the format follows its type |
+| Ctrl+Alt+D | Doxygen comment for the function (also `/**` + Enter) |
+| Ctrl+Alt+H | File header |
+| Ctrl+Shift+Alt+P | Remove every debug print inserted by QCCOM |
+| Ctrl+Shift+/ | Toggle block comment |
+| Ctrl+Alt+/ | Wrap in `#if 0` / unwrap |
+| Ctrl+Alt+U | Cycle naming style (snake / camel / Pascal / UPPER) |
+
+Also in the menu: `#if / #else` wrap, hex dump, include guard + `extern "C"`, TODO, separator, enum → `switch`, add declaration to the header / stub to the source, and align on `=` or `,`.
+
+Edit the actions in Settings → Code Editor → *Code generation*: name, where the result goes (replace selection, at cursor, line below / above, above the function, top of file, whole file) and the template. Variables: `${SELECTION}` `${WORD}` `${FUNC}` `${FILE}` `${GUARD}` `${DATE}` `${TIME}` `${YEAR}` `${AUTHOR}` `${COPYRIGHT}` `${PRINT}` `${FMT}` `${ARG}` `${PARAMS}` `${RETURN}` `${MARK}` `${INPUT:Label}` `${CURSOR}`. Set your name, copyright line and print function (`printf`, `rt_kprintf`, `SEGGER_RTT_printf(0, `…) in the same section. A line whose variable is empty is dropped.
+
+**Key recording**: `Shift+Alt+R` starts and stops recording, `Shift+Alt+P` plays it back. *Save as macro* in the right-click menu keeps it under a name.
+
 ### Context window, call hierarchy and bookmarks
 
 These follow Source Insight and help when reading an unfamiliar project.
@@ -321,6 +363,8 @@ A few seconds after start, QCCOM checks for a newer version. If one exists, a ca
 Publishers: see [UPDATE_SERVER.md](UPDATE_SERVER.md).
 
 ## Keyboard shortcuts
+
+**Schemes**: Settings → Keyboard Shortcuts offers QCCOM, VS Code, Source Insight and Keil layouts (for example `F8`/`F3`/`F4` highlights and `Alt+,` back in Source Insight, `Ctrl+-` back in Keil). Bindings you changed yourself always win.
 
 Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S`): click a key to record a new one, right-click to reset or remove, and add more than one binding per command. Two combos pressed in a row make a sequence such as `Ctrl+K Ctrl+T`; the status bar shows the first half while it waits. Conflicts are flagged, and the whole set can be exported to or imported from a JSON file. The tables below list the defaults.
 

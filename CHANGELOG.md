@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.3.0
+
+Code editor upgrades for reading and writing firmware, and one shared project folder.
+
+- **Shared project folder**: the Code page, Git page, terminal panel and the TFTP / HTTP servers now follow the same project. Switching projects remembers each one's open tabs, cursor positions and bookmarks. *Open project folder* is in the command palette.
+- **Navigation**: navigation history (`Ctrl+Alt+-`, or type `<` in quick open), last edit location (`Ctrl+Q`), header / source switch (`Alt+O`), matching `#if / #else / #endif` (`Ctrl+Alt+]`), previous / next function (`Alt+PageUp / PageDown`), go to declaration (`Ctrl+F12`), open the definition to the side (`Ctrl+K F12`). Mouse back / forward buttons work.
+- **Highlights**: `F8` marks the word under the cursor in one of 8 colors (press again for the next color), `Shift+F8` removes it, `Ctrl+Shift+F8` clears all, `F3 / Shift+F3` jump between marks. Marks also show on the scrollbar.
+- **Inactive code**: `#if 0`, `#ifdef` of undefined macros and the dead branch of `#if / #else` are greyed out, using the project's `#define`s plus extra macros you can add in settings. The current function body gets a faint background.
+- **Comments**: `Ctrl+Shift+/` toggles a block comment, `Ctrl+Alt+/` wraps the selection in `#if 0` (or unwraps it). Typing `/**` and Enter above a function writes a Doxygen comment with its parameters.
+- **Macro actions**: a right-click *Code generation* menu and 16 customizable actions: `#ifdef` / `#if-#else` wrap, printf of the variable under the cursor with a format matched to its type (`%u`, `%ld`, `%p`, `%f`…), hex dump, Doxygen function comment, file header, include guard + `extern "C"`, TODO, separator. Templates use `${SELECTION}`, `${WORD}`, `${FUNC}`, `${FILE}`, `${DATE}`, `${AUTHOR}`, `${INPUT:…}` and more, and are edited in Settings → Code Editor. *Remove debug prints* deletes every line they inserted.
+- **More editing**: enum → `switch`, add the declaration to the header (or a stub to the source), align on `=` / `,`, cycle naming style (`Ctrl+Alt+U`), new C / H files get a file header.
+- **Key recording**: `Shift+Alt+R` records, `Shift+Alt+P` plays back, and a recording can be saved as a named macro.
+- **Keymap schemes**: QCCOM / VS Code / Source Insight / Keil in Settings → Keyboard Shortcuts; your own bindings stay on top.
+- **Context window**: click a symbol in it to preview, double-click to jump; a pin keeps the content. Call hierarchy entries preview on click and jump on double-click.
+
 ## 1.2.1
 
 - Animated demos in the README and user guide (`docs/gif/`).

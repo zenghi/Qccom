@@ -28,7 +28,7 @@ fn table() -> &'static HashMap<&'static str, Vec<&'static str>> {
     TABLE.get_or_init(|| {
         let mut m = HashMap::new();
         for line in include_str!("../assets/i18n.tsv").lines() {
-            if line.starts_with('#') || line.trim().is_empty() {
+            if line.starts_with("# ") || line.trim().is_empty() {
                 continue;
             }
             // 第 0 列是原文本身，译文从第 1 列（English）开始；\n 等转义还原成真正的字符
@@ -162,6 +162,8 @@ mod tests {
             include_str!("app/palette.rs"),
             include_str!("app/prefs.rs"),
             include_str!("codeview/insight.rs"),
+            include_str!("codeview/gen.rs"),
+            include_str!("codegen.rs"),
             include_str!("shell.rs"),
             include_str!("termview.rs"),
             include_str!("pattern.rs"),

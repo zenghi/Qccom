@@ -130,8 +130,26 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
             "多行发送间隔",
         ],
         Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS", "共享到网络"],
-        Cat::Editor => &["代码字号", "缩略图", "使用 clangd", "clangd 路径", "代码片段", "Vim 键位", "自动保存", "行内 Blame"],
-        Cat::Keys => &["快捷键"],
+        Cat::Editor => &[
+            "代码字号",
+            "缩略图",
+            "使用 clangd",
+            "clangd 路径",
+            "代码片段",
+            "Vim 键位",
+            "自动保存",
+            "行内 Blame",
+            "灰显不生效的分支",
+            "额外定义的宏",
+            "当前块底色",
+            "代码生成",
+            "作者",
+            "版权声明",
+            "打印函数",
+            "新建文件自动加文件头",
+            "代码生成动作",
+        ],
+        Cat::Keys => &["快捷键", "快捷键方案"],
         Cat::About => &["关于", "版本", "许可证"],
     };
     q.is_empty() || find_ci(cat.label(), q).is_some() || items.iter().any(|s| find_ci(t(s), q).is_some())
@@ -466,6 +484,161 @@ impl App {
         row(ui, q, t("行内 Blame"), t("在当前行末尾淡淡显示最后修改它的人、时间和提交说明"), |ui| {
             switch(ui, &mut self.code.s.inline_blame);
         });
+        row(
+            ui,
+            q,
+            t("灰显不生效的分支"),
+            t("#if 0、#ifdef 未定义的宏等不会被编译的代码显示成灰色（宏取自工程里的 #define）"),
+            |ui| {
+                switch(ui, &mut self.code.s.dim_inactive);
+            },
+        );
+        row(
+            ui,
+            q,
+            t("额外定义的宏"),
+            t("编译选项里 -D 定义、工程里找不到的宏，用逗号分隔，如 DEBUG, USE_HAL_DRIVER, STM32F407xx"),
+            |ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.code.s.defines).desired_width(240.0).hint_text("DEBUG, USE_HAL=1"));
+            },
+        );
+        row(
+            ui,
+            q,
+            t("当前块底色"),
+            t("光标所在的函数体和 #if 块画一层淡淡的底色，左边一条细线"),
+            |ui| {
+                switch(ui, &mut self.code.s.scope_bg);
+            },
+        );
+        ui.add_space(18.0);
+        if q.is_empty() || ["代码生成", "作者", "版权声明", "打印函数", "文件头"].iter().any(|k| find_ci(t(k), q).is_some()) {
+            ui.label(RichText::new(t("代码生成")).font(FontId::new(15.0, bold())).color(TEXT()));
+            ui.add_space(2.0);
+        }
+        row(ui, q, t("作者"), t("文件头、函数说明、TODO 里的 ${AUTHOR}"), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.code.s.author).desired_width(240.0).hint_text(t("你的名字")));
+        });
+        row(ui, q, t("版权声明"), t("文件头里的 ${COPYRIGHT}，可以写 ${YEAR}；留空就不写这一行"), |ui| {
+            ui.add(egui::TextEdit::singleline(&mut self.code.s.copyright).desired_width(240.0).hint_text("Copyright (c) ${YEAR} ..."));
+        });
+        row(
+            ui,
+            q,
+            t("打印函数"),
+            t("插入 printf 时用的函数，比如 printf、rt_kprintf、LOG_D、SEGGER_RTT_printf(0, "),
+            |ui| {
+                ui.add(egui::TextEdit::singleline(&mut self.code.s.print_fn).desired_width(240.0).hint_text("printf"));
+            },
+        );
+        row(
+            ui,
+            q,
+            t("新建文件自动加文件头"),
+            t("在文件树里新建 .c / .h 时自动写入文件头说明，.h 还会加头文件保护"),
+            |ui| {
+                switch(ui, &mut self.code.s.auto_header);
+            },
+        );
+        if q.is_empty() || find_ci(t("代码生成动作"), q).is_some() {
+            self.macro_editor(ui);
+        }
+    }
+
+    /// 代码生成动作列表：名字、位置、模板，可增删、恢复默认
+    fn macro_editor(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(14.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(t("代码生成动作")).size(13.5).color(TEXT()));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                if ui.button(t("全部恢复默认")).clicked() {
+                    self.code.s.macros = crate::codegen::builtins();
+                    self.code.publish_macro_names();
+                }
+                let full = self.code.s.macros.len() >= crate::keymap::MACRO_SLOTS;
+                if ui.add_enabled(!full, egui::Button::new(t("添加动作"))).clicked() {
+                    self.code.s.macros.push(crate::codegen::MacroDef {
+                        name: tf("我的动作 {}", &[&(self.code.s.macros.len() + 1)]),
+                        place: crate::codegen::Place::Cursor,
+                        template: "${SELECTION}".into(),
+                        builtin: String::new(),
+                    });
+                    self.code.publish_macro_names();
+                }
+            });
+        });
+        ui.add_space(2.0);
+        ui.label(
+            RichText::new(t(
+                "变量：${SELECTION} ${WORD} ${FILE} ${FUNC} ${DATE} ${AUTHOR} ${PRINT} ${FMT} ${ARG} ${PARAMS} ${RETURN} ${GUARD} ${MARK} ${INPUT:提示} ${CURSOR}",
+            ))
+            .font(FontId::new(11.5, egui::FontFamily::Monospace))
+            .color(TEXT3()),
+        );
+        ui.add_space(8.0);
+        let w = ui.available_width();
+        let mut remove = None;
+        let mut up = None;
+        let mut changed = false;
+        let n = self.code.s.macros.len();
+        for i in 0..n {
+            let keys = self.km.label(Act::Macro(i as u8));
+            let m = &mut self.code.s.macros[i];
+            egui::Frame::new()
+                .fill(BG2())
+                .stroke(st(1.0, LINE()))
+                .corner_radius(R_CARD)
+                .inner_margin(egui::Margin::same(10))
+                .show(ui, |ui| {
+                    ui.set_width(w - 22.0);
+                    ui.horizontal(|ui| {
+                        changed |= ui.add(egui::TextEdit::singleline(&mut m.name).desired_width(220.0).font(FontId::proportional(13.0))).changed();
+                        egui::ComboBox::from_id_salt(("macro-place", i)).selected_text(m.place.label()).width(150.0).show_ui(ui, |ui| {
+                            for p in crate::codegen::Place::ALL {
+                                ui.selectable_value(&mut m.place, p, p.label());
+                            }
+                        });
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if icon_button(ui, Icon::Close, t("删除"), false).clicked() {
+                                remove = Some(i);
+                            }
+                            if i > 0 && ui.small_button(t("上移")).clicked() {
+                                up = Some(i);
+                            }
+                            if !m.builtin.is_empty() {
+                                if let Some(d) = crate::codegen::builtins().into_iter().find(|d| d.builtin == m.builtin) {
+                                    if *m != d && ui.small_button(t("恢复默认")).clicked() {
+                                        *m = d;
+                                        changed = true;
+                                    }
+                                }
+                            }
+                            let k = if keys.is_empty() { t("未绑定快捷键").to_string() } else { keys.clone() };
+                            ui.label(RichText::new(k).size(11.5).color(TEXT3()));
+                        });
+                    });
+                    ui.add_space(6.0);
+                    ui.add(
+                        egui::TextEdit::multiline(&mut m.template)
+                            .font(FontId::new(12.0, egui::FontFamily::Monospace))
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(2),
+                    );
+                });
+            ui.add_space(6.0);
+        }
+        if let Some(i) = remove {
+            self.code.s.macros.remove(i);
+            changed = true;
+        }
+        if let Some(i) = up {
+            self.code.s.macros.swap(i, i - 1);
+            changed = true;
+        }
+        if changed {
+            self.code.publish_macro_names();
+        }
+        ui.label(RichText::new(t("快捷键在「快捷键」里按动作名字修改；每个动作也在编辑器右键 → 代码生成里")).size(11.5).color(TEXT3()));
     }
 
     fn prefs_about(&mut self, ui: &mut egui::Ui) {
@@ -497,7 +670,7 @@ impl App {
     /// 保存某个命令当前的绑定；和默认一样就删掉覆盖项
     fn store_keys(&mut self, a: Act, list: Vec<String>) {
         let d = def(a);
-        let defaults: Vec<String> = d.keys.iter().filter_map(|k| crate::keymap::parse_chord(k)).map(|c| chord_str(&c)).collect();
+        let defaults: Vec<String> = self.km.defaults(a).iter().filter_map(|k| crate::keymap::parse_chord(k)).map(|c| chord_str(&c)).collect();
         if list == defaults {
             self.s.keys.remove(d.id);
         } else {
@@ -596,6 +769,32 @@ impl App {
                 }
             });
         });
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(t("快捷键方案")).size(13.0).color(TEXT2()));
+            ui.add_space(6.0);
+            for sc in crate::keymap::Scheme::ALL {
+                let on = self.s.key_scheme == sc;
+                let b = egui::Button::new(RichText::new(sc.label()).size(12.5).color(if on { ON_ACCENT() } else { TEXT() }))
+                    .fill(if on { ACCENT() } else { BG3() })
+                    .corner_radius(R_WIDGET)
+                    .min_size(vec2(0.0, 26.0));
+                if ui.add(b).clicked() && !on {
+                    self.s.key_scheme = sc;
+                    self.km.scheme = sc;
+                    self.km.rebuild(&self.s.keys);
+                    let n = self.s.keys.len();
+                    self.toast(
+                        if n > 0 {
+                            tf("已切换到 {}，你单独改过的 {} 个快捷键保持不变", &[&sc.label(), &n])
+                        } else {
+                            tf("已切换到 {}", &[&sc.label()])
+                        },
+                        OK(),
+                    );
+                }
+            }
+        });
         ui.add_space(4.0);
         ui.label(
             RichText::new(t("点击按键可以修改，按 Esc 取消；连按两组组合键可以设成序列（如 Ctrl+K Ctrl+S）。右键可恢复默认或删除。"))
@@ -611,8 +810,12 @@ impl App {
         let mut defs: Vec<_> = ACTIONS.iter().collect();
         defs.sort_by_key(|d| d.scope as u8);
         for d in defs {
+            if matches!(d.act, Act::Macro(i) if i as usize >= self.code.s.macros.len()) {
+                continue;
+            }
             let binds: Vec<String> = self.km.bindings(d.act).iter().map(|c| chord_str(c)).collect();
-            let label = t(d.label);
+            let label_s = crate::keymap::act_label(d.act);
+            let label = label_s.as_str();
             if !q.is_empty() && find_ci(label, &q).is_none() && find_ci(d.id, &q).is_none() && !binds.iter().any(|b| find_ci(b, &q).is_some()) {
                 continue;
             }
@@ -727,7 +930,7 @@ impl App {
                 }
             });
             if let Some(cl) = clash {
-                let names: Vec<&str> = cl.iter().map(|a| t(def(*a).label)).collect();
+                let names: Vec<String> = cl.iter().map(|a| crate::keymap::act_label(*a)).collect();
                 ui.label(RichText::new(tf("⚠ 和「{}」冲突，同一页面里按下时只会执行其中一个", &[&names.join("」「")])).size(12.0).color(ERR()));
             }
             let y = ui.cursor().top();

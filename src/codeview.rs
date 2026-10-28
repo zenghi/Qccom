@@ -16,6 +16,7 @@ use crate::binview::{self, BinEvt, Special};
 use crate::cindex::{self, Hit, Index, Kind, Progress, Sym};
 use crate::editor::{Buf, Editor, View};
 
+mod gen;
 mod insight;
 use crate::git;
 use crate::highlight::{self, is_ident, Lang};
@@ -25,6 +26,7 @@ use crate::lsp;
 use crate::pattern::Pat;
 use crate::snippets;
 use crate::theme::*;
+pub use gen::{KeyMacro, ProjState};
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -48,6 +50,27 @@ pub struct CodeSettings {
     pub clangd: bool,
     /// 空 = 自动查找
     pub clangd_path: String,
+    /// 代码生成动作（模板）
+    pub macros: Vec<crate::codegen::MacroDef>,
+    /// 文件头、TODO 里的作者和版权声明
+    pub author: String,
+    pub copyright: String,
+    /// 插入 printf 用的打印函数
+    pub print_fn: String,
+    /// 新建 .c / .h 文件时自动加文件头（.h 再加头文件保护）
+    pub auto_header: bool,
+    /// 额外当作已定义的宏（判断 #ifdef 用），如 DEBUG, USE_HAL=1
+    pub defines: String,
+    /// 灰显不生效的 #if 分支
+    pub dim_inactive: bool,
+    /// 光标所在函数体、#if 块画淡色底
+    pub scope_bg: bool,
+    /// 代码生成输入框里最近输入过的值
+    pub macro_recent: std::collections::BTreeMap<String, Vec<String>>,
+    /// 保存的按键宏
+    pub recordings: Vec<KeyMacro>,
+    /// 每个工程打开的文件、光标、书签
+    pub projects: std::collections::BTreeMap<String, ProjState>,
 }
 
 impl Default for CodeSettings {
@@ -66,6 +89,17 @@ impl Default for CodeSettings {
             vim: false,
             clangd: true,
             clangd_path: String::new(),
+            macros: crate::codegen::builtins(),
+            author: String::new(),
+            copyright: String::new(),
+            print_fn: "printf".into(),
+            auto_header: true,
+            defines: String::new(),
+            dim_inactive: true,
+            scope_bg: true,
+            macro_recent: Default::default(),
+            recordings: vec![],
+            projects: Default::default(),
         }
     }
 }
@@ -118,6 +152,10 @@ struct Doc {
     show_special: bool,
     /// 不是磁盘上的文件（比较视图）
     virt: bool,
+    /// 不生效的 #if 分支缓存：(文本版本, 宏环境指纹, 行范围)
+    inactive: (u64, u64, Vec<(usize, usize)>),
+    /// 光标所在函数体、#if 块缓存：(文本版本, 光标行, 函数体, #if 块)
+    scope: (u64, usize, Option<(usize, usize)>, Option<(usize, usize)>),
 }
 
 impl Doc {
@@ -165,6 +203,8 @@ impl Doc {
             show_special: special.is_some(),
             special,
             virt: false,
+            inactive: (u64::MAX, 0, vec![]),
+            scope: (u64::MAX, 0, None, None),
         };
         d.reparse();
         Ok(d)
@@ -201,6 +241,8 @@ impl Doc {
             special: Some(Special::Diff(Box::new(v))),
             show_special: true,
             virt: true,
+            inactive: (u64::MAX, 0, vec![]),
+            scope: (u64::MAX, 0, None, None),
         })
     }
 
@@ -398,6 +440,7 @@ enum QuickMode {
     FileSymbols,
     Line,
     Snippets,
+    History,
 }
 
 struct Quick {
@@ -428,6 +471,10 @@ struct Hover {
 
 pub enum CodeEvt {
     Toast(String, Color32),
+    /// 打开了另一个工程（Git 页、终端跟着换）
+    Project(PathBuf),
+    /// 打开设置页的代码部分
+    OpenSettings,
     /// Ctrl+点击代码里的数字：在位域计算器里打开
     BitCalc(String, Option<i128>),
 }
@@ -508,6 +555,9 @@ pub struct CodeView {
     todo_filter: String,
     /// 启动时发现的崩溃恢复备份：(备份文件, 原文件)
     pub recovery: Vec<(PathBuf, PathBuf)>,
+    gen: gen::GenState,
+    /// 右键菜单里显示的快捷键
+    key_labels: HashMap<Act, String>,
 }
 
 impl CodeView {
@@ -571,9 +621,18 @@ impl CodeView {
             todo_for: None,
             todo_filter: String::new(),
             recovery: scan_recovery(),
+            gen: Default::default(),
+            key_labels: HashMap::new(),
         };
         v.s.font_size = v.s.font_size.clamp(9.0, 28.0);
+        crate::codegen::merge(&mut v.s.macros);
+        v.publish_macro_names();
         v
+    }
+
+    /// 让命令面板、快捷键设置显示动作的名字
+    pub fn publish_macro_names(&self) {
+        crate::keymap::set_macro_names(self.s.macros.iter().map(|m| m.name.clone()).collect());
     }
 
     /// 第一次进入代码页时才真正打开上次的文件夹（不进入就不占资源）
@@ -582,14 +641,17 @@ impl CodeView {
             let p = PathBuf::from(&self.s.root);
             if p.is_dir() {
                 let tabs = self.s.tabs.clone();
+                let known = self.s.projects.contains_key(&self.s.root);
                 self.open_root(p);
-                for t in tabs {
-                    let p = PathBuf::from(t);
-                    if p.is_file() {
-                        self.open_file(&p, None);
+                if !known {
+                    for t in tabs {
+                        let p = PathBuf::from(t);
+                        if p.is_file() {
+                            self.open_file(&p, None);
+                        }
                     }
+                    self.active = 0;
                 }
-                self.active = 0;
             }
         }
     }
@@ -604,6 +666,17 @@ impl CodeView {
 
     pub fn open_root(&mut self, p: PathBuf) {
         let p = std::fs::canonicalize(&p).map(strip_unc).unwrap_or(p);
+        if self.root.as_deref() == Some(p.as_path()) {
+            return;
+        }
+        // 先记下当前工程的状态，换回来时恢复
+        self.snapshot();
+        for i in (0..self.tabs.len()).rev() {
+            if self.tabs[i].dirty() && !self.tabs[i].virt {
+                let _ = self.tabs[i].save();
+            }
+        }
+        self.split = None;
         self.tree.clear();
         self.expanded.clear();
         self.tabs.clear();
@@ -620,6 +693,9 @@ impl CodeView {
         self.root = Some(p.clone());
         self.reindex();
         self.refresh_git();
+        self.restore_project(&p);
+        self.sync_tabs();
+        self.events.push(CodeEvt::Project(p));
     }
 
     fn reindex(&mut self) {
@@ -704,6 +780,11 @@ impl CodeView {
             .unwrap_or_default();
         v.sort_by(|a, b| b.dir.cmp(&a.dir).then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase())));
         self.tree.insert(dir.to_path_buf(), v);
+    }
+
+    /// 选一个文件夹作为工程（代码页、Git 页、终端共用）
+    pub fn pick_project(&mut self) {
+        self.pick_folder();
     }
 
     fn pick_folder(&mut self) {
@@ -798,6 +879,7 @@ impl CodeView {
     }
 
     fn nav(&mut self, back: bool) {
+        self.gen.quiet = 3;
         let (from, to) = if back { (&mut self.back, &mut self.fwd) } else { (&mut self.fwd, &mut self.back) };
         let Some((p, l)) = from.pop() else { return };
         if let Some(d) = self.tabs.get(self.active) {
@@ -1447,9 +1529,14 @@ impl CodeView {
 
     // ------------------------------------------------------------ 主界面
 
-    pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act]) {
+    pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act], km: &crate::keymap::Keymap) {
         self.poll(ctx);
-        self.shortcuts(ctx, acts);
+        if self.key_labels.is_empty() || ctx.input(|i| i.pointer.secondary_pressed()) {
+            self.key_labels = crate::keymap::ACTIONS.iter().map(|d| (d.act, km.label(d.act))).collect();
+        }
+        let mut all = self.gen_frame(ctx, acts);
+        all.extend_from_slice(acts);
+        self.shortcuts(ctx, &all);
 
         egui::SidePanel::left("code-side")
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 0 }))
@@ -1502,6 +1589,7 @@ impl CodeView {
         });
         self.quick_open(ctx);
         self.pick_popup(ctx);
+        self.prompt_ui(ctx);
     }
 
     fn shortcuts(&mut self, ctx: &egui::Context, acts: &[Act]) {
@@ -1648,6 +1736,11 @@ impl CodeView {
             }
             if d.buf.ver != before {
                 d.syms_stale = Some(now);
+            }
+        }
+        for a in acts {
+            if !self.tabs.is_empty() || matches!(a, Act::NavHistory) {
+                self.gen_act(ctx, *a);
             }
         }
         if has(Act::NavBack) {
@@ -2121,6 +2214,7 @@ impl CodeView {
                 }
                 if e.op == TreeOp::NewFile {
                     self.open_file(&p, None);
+                    self.auto_header_new_file();
                 }
                 self.reindex();
                 self.refresh_git();
@@ -2761,6 +2855,8 @@ impl CodeView {
         let sem = self.sem.clone();
         let (font_size, minimap) = (self.s.font_size, self.s.minimap);
         let vim_on = self.s.vim;
+        let marks = self.mark_colors();
+        let inactive = self.inactive_of(i);
         let d = &mut self.tabs[i];
         let view = View {
             lang: d.lang,
@@ -2773,6 +2869,10 @@ impl CodeView {
             big: d.buf.text.len() > 1_500_000,
             ghost: None,
             vim: vim_on,
+            marks: &marks,
+            inactive: &inactive,
+            scope: None,
+            if_block: None,
         };
         let out = d.ed.show(ui, area, &mut d.buf, &view);
         if out.changed {
@@ -3105,7 +3205,11 @@ impl CodeView {
                 return;
             }
         }
+        let marks = self.mark_colors();
+        let inactive = self.inactive_of(active);
+        let (scope, if_block) = self.scopes_of(active);
         let d = &mut self.tabs[active];
+        d.ed.doc_hook = d.lang == Lang::C;
 
         // 待跳转：设置光标/选区，并滚到那一行
         if let Some((line, sel)) = d.goto.take() {
@@ -3147,6 +3251,10 @@ impl CodeView {
             big: d.buf.text.len() > 1_500_000,
             ghost: ghost.as_deref().map(|g| (d.cursor.0, g)),
             vim: self.s.vim,
+            marks: &marks,
+            inactive: &inactive,
+            scope,
+            if_block,
         };
         let out = d.ed.show(ui, area, &mut d.buf, &view);
         if out.changed {
@@ -3185,7 +3293,7 @@ impl CodeView {
                 self.events.push(CodeEvt::BitCalc(lit, v));
             }
         }
-        if let Some((s, e, r)) = out.hover {
+        if let Some((s, e, r)) = out.hover.filter(|_| !self.gen.menu_open) {
             let w = d.buf.text[s..e].to_string();
             match &self.hover {
                 Some(h) if h.at == s && h.word == w => {}
@@ -3290,6 +3398,26 @@ impl CodeView {
         if let Some((w, at, b)) = want_def.or(hover_def) {
             self.hover = None;
             self.goto_definition(&w, at, b, now);
+        }
+        self.track_position(out.changed);
+        if let Some(l) = out.doc_comment {
+            self.doc_comment_at(l, now);
+        }
+        // 右键菜单
+        if let Some(resp) = out.menu {
+            let labels = std::mem::take(&mut self.key_labels);
+            let lab = |a: Act| labels.get(&a).cloned().unwrap_or_default();
+            let mut picked = None;
+            let mut shown = false;
+            resp.context_menu(|ui| {
+                shown = true;
+                picked = self.editor_menu(ui, &lab);
+            });
+            self.gen.menu_open = shown;
+            self.key_labels = labels;
+            if let Some(a) = picked {
+                self.shortcuts(ui.ctx(), &[a]);
+            }
         }
     }
 
@@ -3497,9 +3625,10 @@ impl CodeView {
             Some('#') => QuickMode::Symbols,
             Some(':') => QuickMode::Line,
             Some('!') => QuickMode::Snippets,
+            Some('<') => QuickMode::History,
             _ => QuickMode::Files,
         };
-        let q = qk.q.trim_start_matches(['@', '#', ':', '!']).trim().to_string();
+        let q = qk.q.trim_start_matches(['@', '#', ':', '!', '<']).trim().to_string();
         // 候选项：(主文字, 副文字, 打开目标)
         let mut items: Vec<(String, String, Option<Kind>, PathBuf, Option<u32>)> = vec![];
         let root = self.root.clone().unwrap_or_default();
@@ -3546,6 +3675,32 @@ impl CodeView {
                         if snippets::applies(s, d.lang) && (ql.is_empty() || s.prefix.to_lowercase().contains(&ql) || s.name.to_lowercase().contains(&ql)) {
                             items.push((s.prefix.clone(), s.name.clone(), None, PathBuf::new(), Some(i as u32)));
                         }
+                    }
+                }
+            }
+            QuickMode::History => {
+                // 后退栈（最近的在前）+ 前进栈
+                let ql = q.to_lowercase();
+                let mut seen = HashSet::new();
+                for (p, l) in self.back.iter().rev().chain(self.fwd.iter().rev()) {
+                    if !seen.insert((p.clone(), *l)) {
+                        continue;
+                    }
+                    let rel = p.strip_prefix(&root).unwrap_or(p).to_string_lossy().replace('\\', "/");
+                    let text = self
+                        .tabs
+                        .iter()
+                        .find(|d| d.path == *p)
+                        .map(|d| d.buf.line((*l).min(d.buf.lines().saturating_sub(1))).trim().to_string())
+                        .unwrap_or_default();
+                    let main = format!("{}:{}", rel, l + 1);
+                    if !ql.is_empty() && !main.to_lowercase().contains(&ql) && !text.to_lowercase().contains(&ql) {
+                        continue;
+                    }
+                    let text: String = text.chars().take(80).collect();
+                    items.push((main, text, None, p.clone(), Some(*l as u32)));
+                    if items.len() >= 60 {
+                        break;
                     }
                 }
             }
@@ -3596,6 +3751,7 @@ impl CodeView {
                             QuickMode::FileSymbols => t("当前文件里的符号"),
                             QuickMode::Line => t("输入行号"),
                             QuickMode::Snippets => t("搜索代码片段（输入前缀后按 Tab 也能展开）"),
+                            QuickMode::History => t("导航历史：最近跳转过的位置"),
                         };
                         let te = ui.add_sized(
                             vec2(w, 32.0),
@@ -3610,7 +3766,7 @@ impl CodeView {
                         }
                         ui.add_space(6.0);
                         if items.is_empty() {
-                            let msg = if self.index.is_none() && mode != QuickMode::Line && mode != QuickMode::FileSymbols {
+                            let msg = if self.index.is_none() && !matches!(mode, QuickMode::Line | QuickMode::FileSymbols | QuickMode::History) {
                                 t("正在建立索引…")
                             } else {
                                 t("没有匹配项")

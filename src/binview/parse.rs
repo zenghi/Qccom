@@ -21,6 +21,8 @@ pub struct Sec {
     pub flags: u64,
     pub addr: u64,
     pub size: u64,
+    /// 在文件里的偏移
+    pub off: u64,
 }
 
 pub struct Seg {
@@ -30,6 +32,7 @@ pub struct Seg {
     pub paddr: u64,
     pub filesz: u64,
     pub memsz: u64,
+    pub off: u64,
 }
 
 pub struct ESym {
@@ -146,6 +149,7 @@ pub fn parse_elf(b: &[u8]) -> Result<Elf, String> {
             flags: s.2,
             addr: s.3,
             size: s.5,
+            off: s.4,
         })
         .collect();
 
@@ -153,11 +157,27 @@ pub fn parse_elf(b: &[u8]) -> Result<Elf, String> {
     for i in 0..phnum.min(1024) {
         let o = phoff + i * phentsize;
         let seg = if w {
-            (r.u32(o), r.u32(o + 4), r.word(o + 16, true), r.word(o + 24, true), r.word(o + 32, true), r.word(o + 40, true))
+            (
+                r.u32(o),
+                r.u32(o + 4),
+                r.word(o + 16, true),
+                r.word(o + 24, true),
+                r.word(o + 32, true),
+                r.word(o + 40, true),
+                r.word(o + 8, true),
+            )
         } else {
-            (r.u32(o), r.u32(o + 24), r.word(o + 8, false), r.word(o + 12, false), r.word(o + 16, false), r.word(o + 20, false))
+            (
+                r.u32(o),
+                r.u32(o + 24),
+                r.word(o + 8, false),
+                r.word(o + 12, false),
+                r.word(o + 16, false),
+                r.word(o + 20, false),
+                r.word(o + 4, false),
+            )
         };
-        if let (Some(typ), Some(flags), Some(vaddr), Some(paddr), Some(filesz), Some(memsz)) = seg {
+        if let (Some(typ), Some(flags), Some(vaddr), Some(paddr), Some(filesz), Some(memsz), Some(off)) = seg {
             segments.push(Seg {
                 typ,
                 flags,
@@ -165,6 +185,7 @@ pub fn parse_elf(b: &[u8]) -> Result<Elf, String> {
                 paddr,
                 filesz,
                 memsz,
+                off,
             });
         }
     }
@@ -252,6 +273,27 @@ impl Elf {
         }
         (text, data, bss)
     }
+
+    /// 要烧进去的内容：PT_LOAD 段按加载地址（LMA）放，和 objcopy -O binary 一样
+    pub fn image(&self, b: &[u8]) -> Image {
+        let recs = self
+            .segments
+            .iter()
+            .filter(|s| s.typ == 1 && s.filesz > 0)
+            .filter_map(|s| Some((s.paddr, b.get(s.off as usize..(s.off + s.filesz) as usize)?.to_vec())))
+            .collect();
+        Image::from_records("ELF", recs, 0, Some(self.entry))
+    }
+
+    /// 读某个地址处的内容（按段的运行地址找）
+    pub fn read<'a>(&self, b: &'a [u8], addr: u64, len: usize) -> Option<&'a [u8]> {
+        let s = self
+            .sections
+            .iter()
+            .find(|s| s.typ != SHT_NOBITS && s.flags & SHF_ALLOC != 0 && addr >= s.addr && addr + len as u64 <= s.addr + s.size)?;
+        let o = (s.off + addr - s.addr) as usize;
+        b.get(o..o + len)
+    }
 }
 
 // ------------------------------------------------------------------ HEX / BIN
@@ -315,7 +357,7 @@ impl Image {
     }
 
     /// 把零散的记录合并成连续的段
-    fn from_records(kind: &'static str, mut recs: Vec<(u64, Vec<u8>)>, errors: usize, start: Option<u64>) -> Image {
+    pub fn from_records(kind: &'static str, mut recs: Vec<(u64, Vec<u8>)>, errors: usize, start: Option<u64>) -> Image {
         recs.sort_by_key(|r| r.0);
         let mut segs: Vec<(u64, Vec<u8>)> = vec![];
         for (a, d) in recs {

@@ -35,15 +35,35 @@ pub enum Tool {
     Ascii,
     Can,
     Hid,
+    FwConv,
+    FwPack,
+    SizeDiff,
+    Stack,
+    Vectors,
+    Svd,
+    Project,
+    Ioc,
+    Resistor,
+    Adc,
+    Pwm,
+    I2cPull,
+    Struct,
+    Decode,
+    Vcd,
+    Qr,
 }
 
 /// 工具列表的分组
-pub(super) fn groups() -> [(&'static str, &'static [Tool]); 6] {
+pub(super) fn groups() -> [(&'static str, &'static [Tool]); 10] {
     [
         (t("通信调试"), &[Tool::Tcp, Tool::Udp, Tool::Mqtt, Tool::Ble, Tool::Ws, Tool::Api, Tool::MbSlave]),
         (t("服务器"), &[Tool::Tftp, Tool::Http, Tool::Syslog, Tool::Broker]),
         (t("网络"), &[Tool::Discover, Tool::Ping, Tool::Subnet]),
+        (t("固件"), &[Tool::FwConv, Tool::FwPack, Tool::SizeDiff, Tool::Stack, Tool::Vectors]),
+        (t("芯片和工程"), &[Tool::Svd, Tool::Project, Tool::Ioc]),
         (t("计算"), &[Tool::Convert, Tool::Baud, Tool::Checksum, Tool::Timestamp, Tool::Regex]),
+        (t("硬件计算"), &[Tool::Resistor, Tool::Adc, Tool::Pwm, Tool::I2cPull]),
+        (t("数据和协议"), &[Tool::Struct, Tool::Decode, Tool::Vcd, Tool::Qr]),
         (t("显示"), &[Tool::Font, Tool::Color, Tool::Ascii]),
         (t("总线"), &[Tool::Can, Tool::Hid]),
     ]
@@ -95,6 +115,8 @@ pub struct ToolboxCfg {
     pub favs: Vec<Tool>,
     /// v1.4 新工具的设置
     pub x: super::toolbox2::Cfg2,
+    /// v1.6 嵌入式工具的设置
+    pub z: super::toolbox3::Cfg3,
 }
 
 impl Default for ToolboxCfg {
@@ -125,6 +147,7 @@ impl Default for ToolboxCfg {
             hid_feature_len: 64,
             favs: vec![],
             x: Default::default(),
+            z: Default::default(),
         }
     }
 }
@@ -147,6 +170,7 @@ pub struct ToolboxUi {
     /// 工具列表的搜索
     filter: String,
     pub(super) x: super::toolbox2::Ui2,
+    pub(super) z: super::toolbox3::Ui3,
 }
 
 impl Default for ToolboxUi {
@@ -167,6 +191,7 @@ impl Default for ToolboxUi {
             hid_all: false,
             filter: String::new(),
             x: Default::default(),
+            z: Default::default(),
         }
     }
 }
@@ -238,19 +263,23 @@ impl App {
         );
         ui.add_space(10.0);
         let q = self.tb.filter.trim().to_lowercase();
+        // 多个词都要命中（名字、说明、分组名、内部名任意一处），比如“firmware pack”
+        let all_groups = groups();
         let matches = |tool: Tool| {
             if q.is_empty() {
                 return true;
             }
             let (a, b) = tool_text(tool);
-            a.to_lowercase().contains(&q) || b.to_lowercase().contains(&q) || format!("{tool:?}").to_lowercase().contains(&q)
+            let g = all_groups.iter().find(|(_, ts)| ts.contains(&tool)).map_or("", |(g, _)| *g);
+            let hay = format!("{a} {b} {g} {tool:?}").to_lowercase();
+            q.split_whitespace().all(|w| hay.contains(w))
         };
         let favs: Vec<Tool> = self.s.tb.favs.iter().copied().filter(|t| matches(*t)).collect();
         let mut list: Vec<(&str, Vec<Tool>)> = vec![];
         if !favs.is_empty() {
             list.push((t("收藏"), favs));
         }
-        for (g, tools) in groups() {
+        for (g, tools) in all_groups.iter() {
             let v: Vec<Tool> = tools.iter().copied().filter(|t| matches(*t) && (!q.is_empty() || !self.s.tb.favs.contains(t))).collect();
             if !v.is_empty() {
                 list.push((g, v));

@@ -1,5 +1,28 @@
 # Changelog
 
+## 1.6.0
+
+Sixteen embedded tools in four new Toolbox groups: *Firmware*, *Chip & project*, *Hardware calculators* and *Data & protocols*.
+
+- **Firmware convert / merge**: HEX, BIN, S-record and ELF in any combination. One file converts the format; several are merged in order (later files win) with an address map, overlap warnings, a load address for BIN files and an offset for the others. Fill gaps, keep only a range, pad the end to 4 / 256 / 4096 bytes, or split the result at given addresses. The CRC32 of the output is shown before saving.
+- **Update package**: adds a header (or trailer, or writes at an address) made of fields you define: constants, version `1.2.3`, firmware length, CRC32 / CRC16 / sum, build time, text, reserved bytes and a CRC of the header itself. Three templates to start from, your own templates are saved, and every field is shown with its offset and bytes.
+- **Size diff**: two `.map` (GCC, Keil armlink or LLVM lld) or two `.elf` files; ROM and RAM totals with the change, and every function and variable that grew or shrank, by symbol or by object file. Renamed files are matched by symbol name. Copy as CSV.
+- **Stack usage**: reads the `.su` files from `-fstack-usage` and the call graph from `-fcallgraph-info=su`, or from the ELF itself on Cortex-M. Shows the worst-case stack of every entry point and interrupt with the deepest call chain, and flags recursion, function pointers and dynamic stack.
+- **Vector table**: reads the Cortex-M vector table from an ELF, names each exception and IRQ (from the SVD when one is loaded) and highlights the IRQs that still point at `Default_Handler`.
+- **SVD registers**: browse a chip's peripherals, registers and bit fields from its SVD file, search across all of them, type or click a register value to split it into fields with their enumerated values. When an SVD is loaded, hovering `USART1->CR1` in the code editor shows the register and its fields.
+- **Keil / IAR project**: reads `.uvprojx` / `.uvproj` / `.ewp` targets: device, defines, include paths and source files (missing paths are flagged), and writes a `compile_commands.json` so clangd and the code page understand the project. *Open in code page* opens the project folder.
+- **CubeMX pin table**: lists every configured pin of an `.ioc` file with its function, user label, mode, pull and speed; search, export CSV or copy `#define`s for the labels.
+- **Resistors**: divider pairs from E12 / E24 / E96 for a target voltage (with error and current and a small schematic), LED series resistor, and the 4- or 5-band color code of a value.
+- **ADC / NTC**: raw ↔ voltage with an input divider; NTC temperature from the B value or an R-T table, a curve, and a generated C lookup table.
+- **Timer / PWM**: prescaler, reload and compare values for a timer clock, frequency and duty cycle (16- or 32-bit counter), with the exact error, duty resolution, a wave preview, alternatives and the STM32 HAL lines.
+- **I2C pull-ups**: minimum and maximum pull-up from supply, bus capacitance and speed (100 k / 400 k / 1 MHz) with a suggested E24 value.
+- **Struct parser**: paste a C struct and some HEX; fields are split with GCC / ARM alignment, `#pragma pack`, `__attribute__((packed))`, bit fields, nested structs, unions, arrays and enums, in either byte order. Right-click a struct in the code editor → *Edit → Parse struct (Toolbox)* to send it there.
+- **CBOR / MessagePack / Protobuf**: decode HEX or Base64 into a tree with offsets, auto-detecting the format; Protobuf without a `.proto`. Copy as JSON.
+- **VCD waveforms**: open `.vcd` files from logic analyzers (PulseView / sigrok, Saleae export) and simulators; zoom, pan, two cursors with the time and frequency between them, and edge jumping with the arrow keys.
+- **QR code**: text, URL or Wi-Fi setup codes (the password is never saved) with four error-correction levels; save as PNG or copy as a C array for a display.
+- Toolbox search now matches several words anywhere in a tool's name, description or group, e.g. `firmware pack`.
+- Update check: certificate problems on the update server are explained in plain words (for example a certificate that does not include the domain) instead of the raw TLS error. See the troubleshooting section of [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
+
 ## 1.5.0
 
 A built-in compare and merge page, and QCCOM in the system right-click menu.

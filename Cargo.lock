@@ -2831,7 +2831,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qccom"
-version = "1.5.0"
+version = "1.6.0"
 dependencies = [
  "ab_glyph",
  "btleplug",
@@ -2844,9 +2844,11 @@ dependencies = [
  "memmap2",
  "native-tls",
  "portable-pty",
+ "qrcode",
  "regex-lite",
  "rfd",
  "rhai",
+ "roxmltree",
  "rustls",
  "serde",
  "serde_json",
@@ -2860,6 +2862,12 @@ dependencies = [
  "webpki-roots 0.26.11",
  "winresource",
 ]
+
+[[package]]
+name = "qrcode"
+version = "0.14.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d68782463e408eb1e668cf6152704bd856c78c5b6417adaee3203d8f4c1fc9ec"
 
 [[package]]
 name = "quick-error"
@@ -3049,6 +3057,12 @@ dependencies = [
  "serde",
  "serde_derive",
 ]
+
+[[package]]
+name = "roxmltree"
+version = "0.20.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c20b6793b5c2fa6553b250154b78d6d0db37e72700ae35fad9387a46f487c97"
 
 [[package]]
 name = "rustc-hash"

@@ -74,7 +74,20 @@ fn agent() -> Result<ureq::Agent, String> {
 fn http_err(e: ureq::Error) -> String {
     match e {
         ureq::Error::Status(code, _) => tf("服务器返回 {}", &[&code]),
-        ureq::Error::Transport(t) => tf("网络错误：{}", &[&t]),
+        ureq::Error::Transport(t) => {
+            // 证书问题给一句看得懂的说明（Windows 的原文是“证书中的 CN 名称与传递的值不匹配”之类）
+            let raw = t.to_string();
+            let low = raw.to_lowercase();
+            let cert_name = ["cn", "principal name", "notvalidforname", "not valid for", "hostname mismatch", "0x800b010f", "主体名称"];
+            let cert_any = ["certificate", "证书", "untrusted", "unknownissuer", "expired", "0x800b01"];
+            if cert_name.iter().any(|k| low.contains(k)) && cert_any.iter().any(|k| low.contains(k)) || raw.contains("CN 名称") {
+                tf("服务器的 HTTPS 证书和域名不匹配：证书要包含更新地址里的域名（{}）", &[&raw])
+            } else if cert_any.iter().any(|k| low.contains(k)) {
+                tf("服务器的 HTTPS 证书无效（过期、自签或缺少证书链）：{}", &[&raw])
+            } else {
+                tf("网络错误：{}", &[&raw])
+            }
+        }
     }
 }
 

@@ -348,6 +348,40 @@ The *Communication* tools (TCP, UDP, MQTT, Bluetooth LE, WebSocket, HTTP API) ar
 
 ![CAN in the toolbox](screenshot-toolbox.png)
 
+## Embedded tools
+
+Version 1.6 adds four groups to the Toolbox. Most tools take files: click *Choose…*, type a path, or drop the file on the page. Paths and options are remembered.
+
+### Firmware
+
+- **Firmware convert / merge**: add HEX, BIN, S-record or ELF files (ELF loads the program segments at their load address). With one file, pick the output format and save; with several, they are merged in list order and later files overwrite earlier ones. Each BIN needs a *Load at* address; other files can be shifted with an *Address offset*. The address map shows where every file lands, and overlaps are reported. Output options: *Fill gaps* with a byte (refused when the result would be over 16 MB, which usually means a BIN has no load address), *Range only*, *Pad end to* a multiple of 4…4096 bytes, and *Split at* a list of addresses to write one file per part. The CRC32 of the output is shown before you save.
+- **Update package**: pick the firmware and a *Format template*. A template is a list of fields: *Constant* (magic numbers), *Version* (`1.2.3` packed into the field), *Firmware length*, *CRC32*, *CRC16*, *Sum*, *Timestamp*, *Text*, *Reserved* and *Header CRC32* (computed over the header bytes before it). Choose byte order, *Header* / *Trailer* / *At address*, the padded header size, firmware alignment and fill byte. *Save as template* keeps your own layouts; *Restore built-in templates* brings back the three examples. The result lists every field with its offset and bytes.
+- **Size diff**: choose the old and new build: two `.map` files (GNU ld, Keil armlink or LLVM lld) or two `.elf` files. The cards show ROM and RAM totals with the change; the table lists every function and variable whose size changed, largest change first. With map files the *File* tab totals by object file. Symbols are matched by name and file, and a symbol whose file was renamed is still matched. *Copy as CSV* copies the table.
+- **Stack usage**: build with `-fstack-usage` (and ideally `-fcallgraph-info=su`, GCC 10+), then choose the build folder; `.su` and `.ci` files are found in all subfolders. Without `.ci` files, choose the ELF and the calls are read from the Cortex-M code (`BL` / `B.W`). *Entry points* lists the functions nobody calls (main, tasks, interrupts) with their worst-case stack; click one to see the deepest chain. Recursion, calls through function pointers and dynamic stack (`alloca`, VLAs) are flagged, because the real usage can be higher. On Cortex-M an interrupt also pushes 32 bytes (104 with the FPU context).
+- **Vector table**: choose an ELF. The table is found by symbol (`g_pfnVectors`, `__Vectors`…) or section (`.isr_vector`, `RESET`…). Each slot shows the exception or IRQ, the entry address and the handler; slots still pointing at `Default_Handler` are highlighted, and *Unimplemented only* hides the rest. Load the chip's SVD in *SVD registers* to see IRQ names.
+
+### Chip & project
+
+- **SVD registers**: choose the chip's `.svd` file (in the Keil device pack or the cmsis-svd repository). The tree lists peripherals and their registers; the search box matches peripherals, registers and fields. Selecting a register shows its address, access and reset value, a 32-bit grid (click a bit to toggle it) and the fields with their values and enumerations; type a value read from the debugger to decode it. While an SVD is loaded, hovering `USART1->CR1` or `USART1.CR1` in the code editor shows the same information.
+- **Keil / IAR project**: choose a `.uvprojx` / `.uvproj` (Keil MDK) or `.ewp` (IAR EWARM). Pick the target to see its device, defines, include paths and source groups; paths that do not exist are marked (usually a moved project). *Generate compile_commands.json* writes the file next to the project so clangd and go to definition use the real defines and include paths; *Open in code page* opens the project folder.
+- **CubeMX pin table**: choose an `.ioc` file to list every configured pin with its function, user label, mode, pull and speed. Search, *Copy as CSV*, *Export CSV…*, or *Copy #defines* for the user labels.
+
+### Hardware calculators
+
+Values accept SI suffixes: `4k7`, `4.7k`, `100n`, `72M`.
+
+- **Resistors**: *Divider* finds R1 / R2 pairs from E12, E24 or E96 for an input and a target voltage within a resistance range, with the error and the current. *LED resistor* gives the exact and nearest standard value and the power. *Color bands* shows the 4- or 5-band code for a value.
+- **ADC / NTC**: raw reading ↔ voltage for any resolution and reference, with an optional input divider. The NTC part converts raw readings and temperatures both ways from R25 and the B value (or a pasted R-T table), with the NTC to GND or to Vref, draws the curve, and generates a C lookup table for a temperature range and step.
+- **Timer / PWM**: from the timer clock, frequency and duty, finds PSC / ARR / CCR with the best resolution and the exact error (16-bit counter unless *32-bit counter* is on), shows the waveform and other combinations, and prints the STM32 HAL lines.
+- **I2C pull-ups**: minimum and maximum pull-up resistance from the supply voltage, bus capacitance and mode, and a suggested E24 value.
+
+### Data & protocols
+
+- **Struct parser**: paste a C struct (typedefs, nested structs, unions, enums, arrays, bit fields, `#pragma pack`, `__attribute__((packed))`, `#define` constants) and the received bytes in HEX. Choose the struct if there are several; every field is listed with its offset, raw bytes and value. Options: byte order, *Pack everything*, 64-bit pointers. In the code editor, select a struct (or put the cursor in it) and right-click → *Edit → Parse struct (Toolbox)*.
+- **CBOR / MsgPack / Protobuf**: paste HEX or Base64 (toggle *Base64*); the format is detected automatically or chosen by hand. The tree shows keys, types, offsets and values; Protobuf fields show the field number and wire type, and length-delimited fields are tried as nested messages and strings. *Copy as JSON*.
+- **VCD waveforms**: choose a `.vcd` file from PulseView / sigrok, Saleae (export as VCD) or a Verilog / VHDL simulator. Scroll to zoom, drag to pan, left-click to set cursor A and right-click for cursor B; the time between them and the matching frequency appear at the top. Select a signal and press `←` / `→` to jump to its previous / next edge. Buses are shown as hex values.
+- **QR code**: *Text / URL* or *Wi-Fi* (network name, password, security, hidden). Choose the error-correction level, then *Save PNG…* or *Copy as C array* (one bit per module, row by row) for a display. The Wi-Fi password is kept only while the app is open.
+
 ## Terminal panel
 
 `` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.

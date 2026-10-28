@@ -1133,6 +1133,55 @@ impl CodeView {
 
     // ------------------------------------------------------------ 右键菜单
 
+    /// 光标所在（或选中）的结构体定义，连同文件里它前面的内容（里面可能有用到的其他类型）
+    fn struct_source(&self) -> Option<String> {
+        let d = self.tabs.get(self.active)?;
+        let text = &d.buf.text;
+        let sel = d.ed.primary_sel();
+        let (a, b) = (sel.a.min(sel.h), sel.a.max(sel.h));
+        if b > a && text[a..b].contains('{') {
+            return Some(text[..b].to_string());
+        }
+        // 往外找包住光标的 struct / union 花括号，取最外层
+        let bytes = text.as_bytes();
+        let (mut depth, mut i, mut open) = (0, a.min(bytes.len()), None);
+        while i > 0 {
+            i -= 1;
+            match bytes[i] {
+                b'}' => depth += 1,
+                b'{' if depth > 0 => depth -= 1,
+                b'{' => {
+                    let from = text[..i].rfind([';', '}', '{']).map_or(0, |p| p + 1);
+                    let head = &text[from..i];
+                    if head.contains("struct") || head.contains("union") {
+                        open = Some(i);
+                    } else {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let open = open?;
+        let mut depth = 0;
+        let mut close = None;
+        for (k, c) in text[open..].bytes().enumerate() {
+            match c {
+                b'{' => depth += 1,
+                b'}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(open + k);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let end = close.and_then(|c| text[c..].find(';').map(|p| c + p + 1))?;
+        Some(text[..end].to_string())
+    }
+
     pub(super) fn editor_menu(&mut self, ui: &mut Ui, km: &dyn Fn(Act) -> String) -> Option<Act> {
         let mut pick = None;
         let mut item = |ui: &mut Ui, a: Act, label: &str| {
@@ -1179,6 +1228,14 @@ impl CodeView {
             item(ui, Act::CaseConvert, t("切换命名风格（snake / camel / Pascal / 大写）"));
             item(ui, Act::MatchIf, t("跳到配对的 #if / #else / #endif"));
             item(ui, Act::SwitchHeader, t("切换头文件 / 源文件"));
+            ui.separator();
+            if menu_item(ui, t("解析结构体（工具箱）"), "") {
+                match self.struct_source() {
+                    Some(s) => self.events.push(CodeEvt::Struct(s)),
+                    None => self.toast(t("把光标放在结构体定义里，或者选中它"), TEXT3()),
+                }
+                ui.close_menu();
+            }
         });
         ui.menu_button(t("按键宏"), |ui| {
             ui.set_min_width(260.0);

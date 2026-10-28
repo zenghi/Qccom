@@ -11,6 +11,8 @@ mod cindex;
 mod cmds;
 mod codegen;
 mod codeview;
+mod compare;
+mod compareview;
 mod cpp;
 mod editor;
 mod git;
@@ -26,6 +28,7 @@ mod pattern;
 mod script;
 mod serial;
 mod shell;
+mod shellint;
 mod snippets;
 mod term;
 mod termview;
@@ -69,6 +72,16 @@ pub fn instance() -> u16 {
         .0
 }
 
+/// 转发请求时抢到了第 1 个窗口的端口
+pub fn claim_instance(l: std::net::TcpListener) {
+    let _ = INSTANCE.set((1, Some(l)));
+}
+
+/// 第 1 个窗口的监听端口（收其他进程转来的打开请求）
+pub fn instance_listener() -> Option<&'static std::net::TcpListener> {
+    INSTANCE.get().and_then(|(n, l)| if *n == 1 { l.as_ref() } else { None })
+}
+
 fn persistence_path() -> Option<std::path::PathBuf> {
     let n = instance();
     if n == 1 {
@@ -84,6 +97,11 @@ fn persistence_path() -> Option<std::path::PathBuf> {
 }
 
 fn main() -> eframe::Result {
+    // 系统右键「用 QCCOM 打开 / 比较」：已经有窗口开着就交给它，不再开新窗口
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if shellint::forward(&shellint::parse_args(&args)) {
+        return Ok(());
+    }
     let n = instance();
     let title = if n == 1 { "QCCOM".to_string() } else { format!("QCCOM ({n})") };
     let options = eframe::NativeOptions {

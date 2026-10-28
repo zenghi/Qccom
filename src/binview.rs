@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use eframe::egui::{self, pos2, vec2, Align2, Color32, FontFamily, FontId, Rect, RichText, Sense, Ui};
 
 use crate::app::human_bytes;
-use crate::highlight::{self, Lang};
+use crate::highlight;
 use crate::i18n::{t, tf};
 use crate::theme::*;
 use parse::*;
@@ -16,8 +16,6 @@ use parse::*;
 pub enum BinEvt {
     /// 跳到这个符号的定义
     Symbol(String),
-    /// 打开文件的某一行（差异视图里双击）
-    Open(PathBuf, usize),
     Toast(String, Color32),
 }
 
@@ -25,7 +23,6 @@ pub enum Special {
     Hex(Box<HexView>),
     Elf(Box<ElfView>),
     Map(Box<MapView>),
-    Diff(Box<DiffView>),
 }
 
 const BIN_EXT: &[&str] = &["bin", "hex", "ihex", "ihx", "s19", "s28", "s37", "srec", "mot", "sx", "img", "dfu", "fw"];
@@ -59,7 +56,6 @@ impl Special {
             Special::Hex(_) => t("十六进制"),
             Special::Elf(_) => "ELF",
             Special::Map(_) => t("内存占用"),
-            Special::Diff(_) => t("比较"),
         }
     }
 
@@ -68,7 +64,6 @@ impl Special {
             Special::Hex(v) => v.ui(ui),
             Special::Elf(v) => v.ui(ui),
             Special::Map(v) => v.ui(ui),
-            Special::Diff(v) => v.ui(ui),
         }
     }
 }
@@ -666,10 +661,6 @@ pub struct HexView {
 }
 
 impl HexView {
-    pub fn from_image(img: Image) -> HexView {
-        HexView::new(img)
-    }
-
     fn new(img: Image) -> HexView {
         HexView {
             rows: img.rows(),
@@ -1033,215 +1024,5 @@ impl HexView {
                 }
             }
         });
-    }
-}
-
-// ================================================================== 文本差异
-
-pub struct DiffView {
-    pub a: PathBuf,
-    pub b: PathBuf,
-    la: Vec<String>,
-    lb: Vec<String>,
-    rows: Vec<DiffRow>,
-    /// 每处改动的第一行
-    hunks: Vec<usize>,
-    cur: Option<usize>,
-    scroll_to: Option<usize>,
-    lang: Lang,
-    adds: usize,
-    dels: usize,
-}
-
-fn read_lines(p: &Path) -> Result<Vec<String>, String> {
-    let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-    let (text, _) = crate::cindex::decode(&bytes).ok_or_else(|| t("这是二进制文件，无法以文本方式查看").to_string())?;
-    Ok(text.replace("\r\n", "\n").split('\n').map(str::to_string).collect())
-}
-
-impl DiffView {
-    pub fn new(a: &Path, b: &Path) -> Result<DiffView, String> {
-        let la = read_lines(a)?;
-        let lb = read_lines(b)?;
-        let mut v = DiffView {
-            a: a.to_path_buf(),
-            b: b.to_path_buf(),
-            la,
-            lb,
-            rows: vec![],
-            hunks: vec![],
-            cur: None,
-            scroll_to: None,
-            lang: Lang::from_path(a),
-            adds: 0,
-            dels: 0,
-        };
-        v.compute();
-        Ok(v)
-    }
-
-    fn compute(&mut self) {
-        let a: Vec<&str> = self.la.iter().map(String::as_str).collect();
-        let b: Vec<&str> = self.lb.iter().map(String::as_str).collect();
-        self.rows = side_by_side(&a, &b);
-        self.hunks.clear();
-        self.adds = 0;
-        self.dels = 0;
-        let mut prev_same = true;
-        for (i, r) in self.rows.iter().enumerate() {
-            let same = r.kind == RowKind::Same;
-            if !same && prev_same {
-                self.hunks.push(i);
-            }
-            if r.kind != RowKind::Same {
-                if r.l.is_some() {
-                    self.dels += 1;
-                }
-                if r.r.is_some() {
-                    self.adds += 1;
-                }
-            }
-            prev_same = same;
-        }
-        self.cur = None;
-    }
-
-    fn step(&mut self, next: bool) {
-        let n = self.hunks.len();
-        if n == 0 {
-            return;
-        }
-        let i = match (self.cur, next) {
-            (None, true) => 0,
-            (None, false) => n - 1,
-            (Some(i), true) => (i + 1) % n,
-            (Some(i), false) => (i + n - 1) % n,
-        };
-        self.cur = Some(i);
-        self.scroll_to = Some(self.hunks[i]);
-    }
-
-    fn ui(&mut self, ui: &mut Ui) -> Option<BinEvt> {
-        let mut evt = None;
-        let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        ui.add_space(8.0);
-        ui.horizontal(|ui| {
-            ui.add_space(6.0);
-            ui.label(RichText::new(name(&self.a)).color(TEXT()).strong()).on_hover_text(self.a.display().to_string());
-            ui.label(RichText::new("↔").color(TEXT3()));
-            ui.label(RichText::new(name(&self.b)).color(TEXT()).strong()).on_hover_text(self.b.display().to_string());
-            ui.add_space(10.0);
-            if self.hunks.is_empty() {
-                ui.label(RichText::new(t("内容完全相同")).color(OK()));
-            } else {
-                ui.label(RichText::new(format!("−{}", self.dels)).font(FontId::new(12.0, FontFamily::Monospace)).color(ERR()));
-                ui.label(RichText::new(format!("+{}", self.adds)).font(FontId::new(12.0, FontFamily::Monospace)).color(OK()));
-                ui.label(RichText::new(tf("{} 处改动", &[&self.hunks.len()])).small().color(TEXT3()));
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.add_space(8.0);
-                if ui.button(t("重新比较")).clicked() {
-                    match (read_lines(&self.a), read_lines(&self.b)) {
-                        (Ok(a), Ok(b)) => {
-                            self.la = a;
-                            self.lb = b;
-                            self.compute();
-                        }
-                        (Err(e), _) | (_, Err(e)) => evt = Some(BinEvt::Toast(e, ERR())),
-                    }
-                }
-                if ui.button(t("交换左右")).clicked() {
-                    std::mem::swap(&mut self.a, &mut self.b);
-                    std::mem::swap(&mut self.la, &mut self.lb);
-                    self.compute();
-                }
-                let has = !self.hunks.is_empty();
-                if ui.add_enabled(has, egui::Button::new("↓")).on_hover_text(t("下一处改动  F7")).clicked() || (has && ui.input(|i| i.key_pressed(egui::Key::F7) && !i.modifiers.shift)) {
-                    self.step(true);
-                }
-                if ui.add_enabled(has, egui::Button::new("↑")).on_hover_text(t("上一处改动  Shift+F7")).clicked() || (has && ui.input(|i| i.key_pressed(egui::Key::F7) && i.modifiers.shift)) {
-                    self.step(false);
-                }
-            });
-        });
-        ui.add_space(6.0);
-        let mono = FontId::new(12.5, FontFamily::Monospace);
-        let row_h = 19.0;
-        let full_w = ui.available_width();
-        let half = (full_w - 14.0) / 2.0;
-        let num_w = 46.0;
-        let cur_row = self.cur.map(|i| self.hunks[i]);
-        // 右侧概览条：改动的位置
-        let avail = ui.available_rect_before_wrap();
-        let ov = Rect::from_min_max(pos2(avail.right() - 8.0, avail.top()), avail.max);
-        let n = self.rows.len().max(1) as f32;
-        for (i, r) in self.rows.iter().enumerate() {
-            if r.kind != RowKind::Same {
-                let y = ov.top() + ov.height() * i as f32 / n;
-                let c = match r.kind {
-                    RowKind::Add => OK(),
-                    RowKind::Del => ERR(),
-                    _ => WARN(),
-                };
-                ui.painter()
-                    .rect_filled(Rect::from_min_size(pos2(ov.left() + 2.0, y), vec2(5.0, (ov.height() / n).max(2.0))), 0.0, c.gamma_multiply(0.8));
-            }
-        }
-        let mut sa = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt("diff");
-        if let Some(i) = self.scroll_to.take() {
-            sa = sa.vertical_scroll_offset((i as f32 * row_h - 100.0).max(0.0));
-        }
-        let mut open = None;
-        let mut ui2 = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_max(avail.min, pos2(ov.left() - 2.0, avail.bottom()))));
-        sa.show_rows(&mut ui2, row_h, self.rows.len(), |ui, range| {
-            for i in range {
-                let row = &self.rows[i];
-                let (r, resp) = ui.allocate_exact_size(vec2(full_w - 12.0, row_h), Sense::click());
-                let p = ui.painter_at(r);
-                for (side, ln, lines) in [(0, row.l, &self.la), (1, row.r, &self.lb)] {
-                    let x = r.left() + side as f32 * (half + 4.0);
-                    let cell = Rect::from_min_size(pos2(x, r.top()), vec2(half, row_h));
-                    let bg = match (row.kind, side, ln.is_some()) {
-                        (RowKind::Same, _, _) => None,
-                        (_, _, false) => Some(tint(5)),
-                        (RowKind::Del | RowKind::Mod, 0, _) => Some(ERR().gamma_multiply(0.13)),
-                        (RowKind::Add | RowKind::Mod, 1, _) => Some(OK().gamma_multiply(0.13)),
-                        _ => None,
-                    };
-                    if let Some(c) = bg {
-                        p.rect_filled(cell, 0.0, c);
-                    }
-                    if Some(i) == cur_row {
-                        p.rect_filled(Rect::from_min_size(cell.min, vec2(2.0, row_h)), 0.0, WARN());
-                    }
-                    let Some(l) = ln else { continue };
-                    p.text(
-                        pos2(cell.left() + num_w - 8.0, cell.center().y),
-                        Align2::RIGHT_CENTER,
-                        (l + 1).to_string(),
-                        FontId::new(11.0, FontFamily::Monospace),
-                        TEXT3(),
-                    );
-                    let job = highlight::layout(&lines[l], self.lang, mono.clone());
-                    let g = ui.fonts(|f| f.layout_job(job));
-                    p.with_clip_rect(cell.intersect(r)).galley(pos2(cell.left() + num_w, cell.center().y - g.size().y / 2.0), g, TEXT());
-                }
-                p.vline(r.left() + half + 2.0, r.y_range(), st(1.0, LINE()));
-                if resp.double_clicked() {
-                    let right = resp.interact_pointer_pos().is_some_and(|pp| pp.x > r.left() + half);
-                    match (right, row.l, row.r) {
-                        (true, _, Some(l)) => open = Some((self.b.clone(), l)),
-                        (_, Some(l), _) => open = Some((self.a.clone(), l)),
-                        (_, None, Some(l)) => open = Some((self.b.clone(), l)),
-                        _ => {}
-                    }
-                }
-            }
-        });
-        ui.allocate_rect(avail, Sense::hover());
-        if let Some((p, l)) = open {
-            evt = Some(BinEvt::Open(p, l));
-        }
-        evt
     }
 }

@@ -150,6 +150,8 @@ pub struct Settings {
     pub mb: dbgtools::MbCfg,
     /// 工具箱页的配置
     pub tb: toolbox::ToolboxCfg,
+    /// 比较页
+    pub cmp: crate::compareview::CompareSettings,
     /// HEX 发送时自动追加的校验
     pub send_check: crate::checksum::Check,
     /// 命令栏多行模式；逐行发送时每行之间的间隔
@@ -224,6 +226,7 @@ impl Default for Settings {
             api: Default::default(),
             mb: Default::default(),
             tb: Default::default(),
+            cmp: Default::default(),
             send_check: Default::default(),
             multiline: false,
             line_by_line: false,
@@ -244,6 +247,7 @@ enum Page {
     Debug,
     Code,
     Git,
+    Compare,
     Tools,
     Settings,
 }
@@ -371,6 +375,11 @@ pub struct App {
     page: Page,
     code: CodeView,
     gitv: GitView,
+    cmpv: crate::compareview::CompareView,
+    /// 其他进程转来的打开 / 比较请求（系统右键菜单）
+    fwd: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::shellint::Req>>>>,
+    /// 比较页有未保存修改时第一次关窗口被拦下，再关一次就直接退出
+    close_anyway: bool,
     /// 底部的命令行终端面板
     shells: Shells,
     upd: Upd,
@@ -449,12 +458,18 @@ impl App {
         let mut extra_port = None;
         // 参数是文件夹：在代码页打开这个工程（qccom ~/fw）
         let mut open_dir = None;
+        // --file / --project / --compare 和已有文件的参数交给 shellint 处理（系统右键菜单）
+        let startup = crate::shellint::parse_args(&args);
         let mut it = args.into_iter();
+        let mut in_req = false;
         while let Some(a) = it.next() {
             match a.as_str() {
                 "--open" | "--replay" => open_log = it.next().map(|p| (PathBuf::from(p), a == "--replay")),
-                _ if !a.starts_with("--") && std::path::Path::new(&a).is_dir() => open_dir = Some(PathBuf::from(&a)),
-                _ if !a.starts_with("--") && extra_port.is_none() => extra_port = Some(a),
+                "--file" | "--project" | "--compare" => in_req = true,
+                _ if a.starts_with("--") => in_req = false,
+                _ if in_req || std::path::Path::new(&a).is_file() => {}
+                _ if std::path::Path::new(&a).is_dir() => open_dir = Some(PathBuf::from(&a)),
+                _ if extra_port.is_none() => extra_port = Some(a),
                 _ => {}
             }
         }
@@ -470,6 +485,7 @@ impl App {
         let (upd_tx, upd_rx) = mpsc::channel();
         let code = CodeView::new(std::mem::take(&mut s.code));
         let gitv = GitView::new(std::mem::take(&mut s.git), cc.egui_ctx.clone());
+        let cmpv = crate::compareview::CompareView::new(std::mem::take(&mut s.cmp));
         let mut shell_s = std::mem::take(&mut s.shell);
         shell_s.open = false; // 启动时不自动开 shell
         let shells = Shells::new(shell_s);
@@ -555,6 +571,9 @@ impl App {
             page: Page::Debug,
             code,
             gitv,
+            cmpv,
+            close_anyway: false,
+            fwd: None,
             shells,
             upd: Upd::Idle,
             upd_tx,
@@ -596,6 +615,12 @@ impl App {
         if let Some(d) = open_dir {
             app.code.open_root(std::fs::canonicalize(&d).unwrap_or(d));
             app.set_page(Page::Code);
+        }
+        if let Some(l) = crate::instance_listener() {
+            app.fwd = Some(crate::shellint::listen(l, cc.egui_ctx.clone()));
+        }
+        for r in startup {
+            app.handle_req(r, false);
         }
         if just_updated {
             app.toast(tf("已更新到 v{}", &[&env!("CARGO_PKG_VERSION")]), OK());
@@ -3315,6 +3340,7 @@ impl App {
                 Act::PageCode if self.page != Page::Code => self.set_page(Page::Code),
                 Act::PageGit => self.set_page(Page::Git),
                 Act::PageTools => self.set_page(Page::Tools),
+                Act::PageCompare => self.set_page(Page::Compare),
                 Act::ThemeToggle => {
                     let light = !is_light();
                     self.set_theme(ctx, if light { "light" } else { "dark" });
@@ -3485,7 +3511,75 @@ impl App {
                 self.gitv.activate(root.as_deref());
             }
             Page::Debug => self.tv.focus_req = self.s.terminal,
-            Page::Tools | Page::Settings => {}
+            Page::Tools | Page::Settings | Page::Compare => {}
+        }
+    }
+
+    /// 系统右键菜单 / 命令行的请求；forwarded = 从别的进程转来的，要把窗口提到前面
+    fn handle_req(&mut self, r: crate::shellint::Req, forwarded: bool) {
+        use crate::shellint::Req;
+        match r {
+            Req::Open(p) => {
+                let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+                if ext == "log" {
+                    self.set_page(Page::Debug);
+                    self.load_log_path(&p, false);
+                } else {
+                    self.set_page(Page::Code);
+                    self.code.open_file(&p, None);
+                }
+            }
+            Req::Project(p) => {
+                self.code.open_root(std::fs::canonicalize(&p).unwrap_or(p));
+                self.set_page(Page::Code);
+            }
+            Req::Compare(p) => {
+                let first = self.cmpv.pending_left().is_none();
+                self.cmpv.drop_files(vec![p.clone()]);
+                if first {
+                    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    self.toast(tf("已选为左侧：{}，再选一个「用 QCCOM 比较」", &[&name]), ACCENT());
+                }
+                self.set_page(Page::Compare);
+            }
+            Req::Pair(a, b) => {
+                self.cmpv.open(&a, &b, None);
+                self.set_page(Page::Compare);
+            }
+        }
+        self.compare_events();
+        if forwarded {
+            self.ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+            self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        }
+    }
+
+    /// 打开比较页比较两边；带名字的一边是只读的临时文件
+    fn compare_sides(&mut self, a: PathBuf, la: Option<String>, b: PathBuf, lb: Option<String>) {
+        use crate::compareview::Side;
+        if la.is_none() && lb.is_none() {
+            self.cmpv.open(&a, &b, None);
+        } else {
+            let mode = crate::compare::guess_mode(&a, &b);
+            let side = |p: &PathBuf, l: Option<String>| match l {
+                Some(l) => Side::labeled(p, &l),
+                None => Side::file(p),
+            };
+            self.cmpv.open_sides(side(&a, la), side(&b, lb), mode);
+        }
+        self.set_page(Page::Compare);
+        self.compare_events();
+    }
+
+    fn compare_events(&mut self) {
+        for e in std::mem::take(&mut self.cmpv.events) {
+            match e {
+                crate::compareview::CmpEvt::Toast(m, c) => self.toast(m, c),
+                crate::compareview::CmpEvt::OpenFile(p, line) => {
+                    self.set_page(Page::Code);
+                    self.code.open_file(&p, Some((line, None)));
+                }
+            }
         }
     }
 
@@ -3513,6 +3607,7 @@ impl App {
                     (Page::Debug, Icon::Pulse, t("调试：串口 / TCP / UDP / MQTT")),
                     (Page::Code, Icon::Code, t("代码查看：打开工程、跳转定义、宏展开")),
                     (Page::Git, Icon::Branch, t("Git：分支、提交图谱、差异")),
+                    (Page::Compare, Icon::Compare, t("比较与合并：文件夹、文本、十六进制、三方合并")),
                     (Page::Tools, Icon::Toolbox, t("工具箱：文件服务、设备发现、数据转换、CAN、HID")),
                 ] {
                     let dot = (pg == Page::Debug && live).then_some(OK());
@@ -3936,6 +4031,7 @@ impl eframe::App for App {
         self.code.snapshot();
         self.s.code = self.code.s.clone();
         self.s.git = self.gitv.s.clone();
+        self.s.cmp = self.cmpv.s.clone();
         self.s.shell = self.shells.s.clone();
         eframe::set_value(storage, eframe::APP_KEY, &self.s);
     }
@@ -3964,6 +4060,16 @@ impl eframe::App for App {
         if matches!(self.page, Page::Debug | Page::Tools) {
             self.s.api_mode = self.page == Page::Tools && self.s.tb.tool == toolbox::Tool::Api;
         }
+        if ctx.input(|i| i.viewport().close_requested()) && self.cmpv.has_unsaved() && !self.close_anyway {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.close_anyway = true;
+            self.set_page(Page::Compare);
+            self.toast(t("比较页有未保存的修改；再关一次会直接退出"), WARN());
+        }
+        let reqs: Vec<crate::shellint::Req> = self.fwd.as_ref().map(|q| std::mem::take(&mut *q.lock().unwrap())).unwrap_or_default();
+        for r in reqs {
+            self.handle_req(r, true);
+        }
         self.tick_background();
         self.handle_events();
         self.tick();
@@ -3974,6 +4080,7 @@ impl eframe::App for App {
             Page::Debug | Page::Tools | Page::Settings => Scope::Debug,
             Page::Code => Scope::Code,
             Page::Git => Scope::Git,
+            Page::Compare => Scope::Global,
         };
         let term_focused = (self.page == Page::Debug && self.s.terminal && ctx.memory(|m| m.has_focus(self.tv.id()))) || self.shells.focused(ctx);
         let acts = if self.prefs.recording.is_some() || self.palette.is_some() {
@@ -4030,6 +4137,7 @@ impl eframe::App for App {
                             self.set_page(Page::Settings);
                         }
                         CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
+                        CodeEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
                     }
                 }
             }
@@ -4045,11 +4153,21 @@ impl eframe::App for App {
                             self.set_page(Page::Code);
                             self.code.open_file(&p, Some((line, None)));
                         }
+                        GitEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
+                        GitEvt::Conflict(root, rel) => {
+                            self.cmpv.open_conflict(&root, &rel);
+                            self.set_page(Page::Compare);
+                            self.compare_events();
+                        }
                     }
                 }
             }
             Page::Debug => self.debug_page(ctx),
             Page::Tools => self.toolbox_page(ctx),
+            Page::Compare => {
+                self.cmpv.ui(ctx);
+                self.compare_events();
+            }
             Page::Settings => self.settings_page(ctx),
         }
         if let Some((p, replay)) = self.open_log.take() {
@@ -4060,6 +4178,7 @@ impl eframe::App for App {
         for p in dropped {
             match self.page {
                 Page::Code => self.code.open_file(&p, None),
+                Page::Compare => self.cmpv.drop_files(vec![p]),
                 _ => self.load_log_path(&p, false),
             }
         }
@@ -4513,6 +4632,8 @@ pub(crate) enum Icon {
     Filter,
     More,
     Toolbox,
+    Compare,
+    Swap,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -4579,6 +4700,21 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
             p.add(Shape::line(vec![pt(-3.0, -5.0), pt(-7.0, 0.0), pt(-3.0, 5.0)], s));
             p.add(Shape::line(vec![pt(3.0, -5.0), pt(7.0, 0.0), pt(3.0, 5.0)], s));
             p.line_segment([pt(1.2, -6.5), pt(-1.2, 6.5)], s);
+        }
+        Icon::Compare => {
+            // 比较：左右两页，中间一对箭头
+            p.rect_stroke(Rect::from_min_max(pt(-7.0, -6.0), pt(-1.5, 6.0)), 1.2 * u, s, egui::StrokeKind::Middle);
+            p.rect_stroke(Rect::from_min_max(pt(1.5, -6.0), pt(7.0, 6.0)), 1.2 * u, s, egui::StrokeKind::Middle);
+            p.line_segment([pt(-5.0, -2.5), pt(-3.5, -2.5)], s);
+            p.line_segment([pt(-5.0, 0.5), pt(-3.5, 0.5)], s);
+            p.line_segment([pt(3.5, -2.5), pt(5.0, -2.5)], s);
+            p.line_segment([pt(3.5, 3.0), pt(5.0, 3.0)], s);
+        }
+        Icon::Swap => {
+            p.line_segment([pt(-6.0, -3.0), pt(6.0, -3.0)], s);
+            p.add(Shape::line(vec![pt(3.0, -6.0), pt(6.0, -3.0), pt(3.0, 0.0)], s));
+            p.line_segment([pt(-6.0, 3.5), pt(6.0, 3.5)], s);
+            p.add(Shape::line(vec![pt(-3.0, 0.5), pt(-6.0, 3.5), pt(-3.0, 6.5)], s));
         }
         Icon::Toolbox => {
             // 工具箱：箱体 + 提手 + 中间的扣

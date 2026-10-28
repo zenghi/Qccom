@@ -62,6 +62,10 @@ pub enum GitEvt {
     OpenFile(PathBuf, usize),
     /// 在 Git 页打开了别的文件夹：代码页跟着换工程
     Project(PathBuf),
+    /// 在比较页比较；带名字的一边是只读的临时文件
+    Compare(PathBuf, Option<String>, PathBuf, Option<String>),
+    /// 三方合并解决冲突：(仓库根, 相对路径)
+    Conflict(PathBuf, String),
 }
 
 enum Msg {
@@ -925,6 +929,7 @@ impl GitView {
         let now = now_secs();
         let mut open: Option<(String, Option<String>)> = None;
         let mut jump: Option<String> = None;
+        let mut cmp: Option<git::FileChange> = None;
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             egui::Frame::new()
                 .inner_margin(egui::Margin {
@@ -1005,17 +1010,35 @@ impl GitView {
             });
             ui.add_space(4.0);
             ui.spacing_mut().item_spacing.y = 0.0;
-            for f in &info.files {
+            for f in info.files.iter() {
                 let active = self.file_sel.as_deref() == Some(f.path.as_str());
                 let r = file_row(ui, f.status, &f.path, f.adds, f.dels, active);
                 if r.clicked() {
                     open = Some((f.path.clone(), f.old_path.clone()));
                 }
-                if let Some(o) = &f.old_path {
-                    r.on_hover_text(format!("{o} → {}", f.path));
-                }
+                let r = match &f.old_path {
+                    Some(o) => r.on_hover_text(format!("{o} → {}", f.path)),
+                    None => r,
+                };
+                r.context_menu(|ui| {
+                    if ui.button(t("在比较页中比较")).clicked() {
+                        cmp = Some(f.clone());
+                        ui.close_menu();
+                    }
+                });
             }
         });
+        if let (Some(f), Some(root)) = (cmp, self.root.clone()) {
+            // 父提交的版本 ↔ 这个提交的版本；新增 / 删除的一边是空文件
+            let name = f.path.rsplit('/').next().unwrap_or(&f.path).to_string();
+            let short = &c.hash[..c.hash.len().min(8)];
+            let old = f.old_path.clone().unwrap_or_else(|| f.path.clone());
+            let a = crate::compareview::git_blob(&root, &format!("{}^:{old}", c.hash)).unwrap_or_default();
+            let b = crate::compareview::git_blob(&root, &format!("{}:{}", c.hash, f.path)).unwrap_or_default();
+            let pa = crate::compareview::temp_file(&name, &a);
+            let pb = crate::compareview::temp_file(&name, &b);
+            self.events.push(GitEvt::Compare(pa, Some(format!("{name} ({short}^)")), pb, Some(format!("{name} ({short})"))));
+        }
         if let Some(h) = jump {
             if self.commits.iter().any(|c| c.hash == h) {
                 self.select_commit(&h);
@@ -1037,6 +1060,7 @@ impl GitView {
     fn work_panel(&mut self, ui: &mut Ui) {
         let mut open: Option<StatusFile> = None;
         let mut to_code: Option<String> = None;
+        let mut work_cmp: Option<(String, bool)> = None;
         egui::Frame::new()
             .inner_margin(egui::Margin {
                 left: 16,
@@ -1068,9 +1092,10 @@ impl GitView {
         }
         egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let groups: [(String, Box<dyn Fn(&StatusFile) -> bool>); 3] = [
-                (t("已暂存"), Box::new(|f: &StatusFile| f.x != ' ' && f.x != '?')),
-                (t("未暂存"), Box::new(|f: &StatusFile| f.y != ' ' && f.x != '?')),
+            let groups: [(String, Box<dyn Fn(&StatusFile) -> bool>); 4] = [
+                (t("合并冲突"), Box::new(is_conflict)),
+                (t("已暂存"), Box::new(|f: &StatusFile| f.x != ' ' && f.x != '?' && !is_conflict(f))),
+                (t("未暂存"), Box::new(|f: &StatusFile| f.y != ' ' && f.x != '?' && !is_conflict(f))),
                 (t("未跟踪"), Box::new(|f: &StatusFile| f.x == '?')),
             ];
             for (title, pred) in groups.iter() {
@@ -1090,10 +1115,25 @@ impl GitView {
                     };
                     let active = self.file_sel.as_deref() == Some(f.path.as_str());
                     let r = file_row(ui, code, &f.path, None, None, active);
+                    let conflict = is_conflict(f);
                     if r.clicked() {
-                        open = Some(f.clone());
+                        // 冲突文件单击直接进三方合并
+                        if conflict {
+                            work_cmp = Some((f.path.clone(), true));
+                        } else {
+                            open = Some(f.clone());
+                        }
                     }
+                    let r = if conflict { r.on_hover_text(t("单击用三方合并解决冲突")) } else { r };
                     r.context_menu(|ui| {
+                        if conflict && ui.button(t("解决冲突（三方合并）")).clicked() {
+                            work_cmp = Some((f.path.clone(), true));
+                            ui.close_menu();
+                        }
+                        if f.x != '?' && !conflict && ui.button(t("与 HEAD 比较")).clicked() {
+                            work_cmp = Some((f.path.clone(), false));
+                            ui.close_menu();
+                        }
                         if ui.button(t("在代码查看中打开")).clicked() {
                             to_code = Some(f.path.clone());
                             ui.close_menu();
@@ -1112,6 +1152,16 @@ impl GitView {
         }
         if let (Some(p), Some(root)) = (to_code, &self.root) {
             self.events.push(GitEvt::OpenFile(root.join(p), 0));
+        }
+        if let (Some((p, conflict)), Some(root)) = (work_cmp, self.root.clone()) {
+            if conflict {
+                self.events.push(GitEvt::Conflict(root, p));
+            } else {
+                let name = p.rsplit('/').next().unwrap_or(&p).to_string();
+                let head = crate::compareview::git_blob(&root, &format!("HEAD:{p}")).unwrap_or_default();
+                let ph = crate::compareview::temp_file(&name, &head);
+                self.events.push(GitEvt::Compare(ph, Some(format!("{name} (HEAD)")), root.join(&p), None));
+            }
         }
     }
 
@@ -1532,6 +1582,11 @@ fn branch_row(ui: &mut Ui, b: &Branch, active: bool) -> egui::Response {
     }
     let tip = format!("{}\n{} · {}\n{}", b.name, b.hash, absolute(b.time), b.subject);
     resp.on_hover_text(format!("{tip}\n\n{}", t("单击：只看这个分支的提交  ·  双击：切换到此分支")))
+}
+
+/// 合并冲突中的文件（porcelain 的 UU / AA / DD / AU / UA / DU / UD）
+fn is_conflict(f: &StatusFile) -> bool {
+    f.x == 'U' || f.y == 'U' || (f.x == 'A' && f.y == 'A') || (f.x == 'D' && f.y == 'D')
 }
 
 fn file_row(ui: &mut Ui, status: char, path: &str, adds: Option<u32>, dels: Option<u32>, active: bool) -> egui::Response {

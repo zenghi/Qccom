@@ -113,6 +113,8 @@ pub struct Settings {
     pub theme: String,
     /// 用户改过的快捷键
     pub keys: Overrides,
+    /// 快捷键方案
+    pub key_scheme: crate::keymap::Scheme,
     /// 复制日志时带上时间戳
     pub copy_ts: bool,
     /// 界面缩放（1.0 = 100%）
@@ -197,6 +199,7 @@ impl Default for Settings {
             skip_version: String::new(),
             theme: "system".into(),
             keys: Overrides::new(),
+            key_scheme: Default::default(),
             copy_ts: false,
             ui_scale: 1.0,
             recent_cmds: Vec::new(),
@@ -375,6 +378,8 @@ pub struct App {
     km: Keymap,
     palette: Option<palette::Palette>,
     prefs: prefs::Prefs,
+    /// 上一次的工程文件夹（共享目录是否跟着换用）
+    last_project: String,
     /// 打开设置前所在的页面（关闭设置时回去）
     prev_page: Page,
     /// 命令面板选中后、需要下一帧在对应页面执行的命令
@@ -454,7 +459,7 @@ impl App {
         shell_s.open = false; // 启动时不自动开 shell
         let shells = Shells::new(shell_s);
         let auto_update = s.auto_update;
-        let km = Keymap::new(&s.keys);
+        let km = Keymap::with_scheme(&s.keys, s.key_scheme);
         if (s.ui_scale - 1.0).abs() > 0.01 {
             cc.egui_ctx.set_zoom_factor(s.ui_scale);
         }
@@ -545,6 +550,7 @@ impl App {
             km,
             palette: None,
             prefs: prefs::Prefs::default(),
+            last_project: String::new(),
             prev_page: Page::Debug,
             pending_acts: Vec::new(),
             bitcalc: Default::default(),
@@ -3234,6 +3240,10 @@ impl App {
                 Act::Palette => self.open_palette(),
                 Act::Settings => self.open_settings(prefs::Cat::General),
                 Act::Keymap => self.open_settings(prefs::Cat::Keys),
+                Act::OpenProject => {
+                    self.set_page(Page::Code);
+                    self.code.pick_project();
+                }
                 Act::PageDebug => self.set_page(Page::Debug),
                 Act::PageCode if self.page != Page::Code => self.set_page(Page::Code),
                 Act::PageGit => self.set_page(Page::Git),
@@ -3271,6 +3281,19 @@ impl App {
         if self.s.theme == "system" && resolve("system", ctx) != is_light() {
             apply(ctx, self.s.font_size, !is_light());
             self.parse_keywords();
+        }
+    }
+
+    /// 代码页换了工程：Git 页、HTTP / TFTP 共享目录跟着换（终端新开时也在工程目录）
+    fn project_changed(&mut self, p: &std::path::Path) {
+        self.gitv.follow_project(p);
+        let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
+        let ps = p.to_string_lossy().to_string();
+        let prev = std::mem::replace(&mut self.last_project, ps.clone());
+        for r in [&mut self.s.tb.tftp_root, &mut self.s.tb.http_root] {
+            if r.is_empty() || *r == home || (!prev.is_empty() && *r == prev) {
+                *r = ps.clone();
+            }
         }
     }
 
@@ -3405,6 +3428,7 @@ impl App {
         self.code
             .root()
             .map(|p| p.to_path_buf())
+            .or_else(|| Some(PathBuf::from(&self.code.s.root)).filter(|p| !p.as_os_str().is_empty() && p.is_dir()))
             .or_else(|| std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from))
             .unwrap_or_else(|| PathBuf::from("."))
     }
@@ -3446,7 +3470,7 @@ impl App {
                         ui.set_min_width(230.0);
                         for a in [Act::Palette, Act::Settings, Act::Keymap] {
                             let keys = self.km.label(a);
-                            if menu_item(ui, t(keymap::def(a).label), &keys) {
+                            if menu_item(ui, &keymap::act_label(a), &keys) {
                                 pick = Some(a);
                             }
                         }
@@ -3842,6 +3866,7 @@ impl eframe::App for App {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.code.snapshot();
         self.s.code = self.code.s.clone();
         self.s.git = self.gitv.s.clone();
         self.s.shell = self.shells.s.clone();
@@ -3900,12 +3925,29 @@ impl eframe::App for App {
                 }
             }
         }
+        // 换了工程：不管在哪一页都要同步（命令行打开文件夹时代码页还没显示）
+        let mut projs = vec![];
+        self.code.events.retain(|e| match e {
+            CodeEvt::Project(p) => {
+                projs.push(p.clone());
+                false
+            }
+            _ => true,
+        });
+        for p in projs {
+            self.project_changed(&p);
+        }
         match self.page {
             Page::Code => {
-                self.code.ui(ctx, &acts);
+                self.code.ui(ctx, &acts, &self.km);
                 for e in std::mem::take(&mut self.code.events) {
                     match e {
                         CodeEvt::Toast(m, c) => self.toast(m, c),
+                        CodeEvt::Project(p) => self.project_changed(&p),
+                        CodeEvt::OpenSettings => {
+                            self.prefs.cat = prefs::Cat::Editor;
+                            self.set_page(Page::Settings);
+                        }
                         CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
                     }
                 }
@@ -3915,6 +3957,9 @@ impl eframe::App for App {
                 for e in std::mem::take(&mut self.gitv.events) {
                     match e {
                         GitEvt::Toast(m, c) => self.toast(m, c),
+                        GitEvt::Project(p) => {
+                            self.code.open_root(p);
+                        }
                         GitEvt::OpenFile(p, line) => {
                             self.set_page(Page::Code);
                             self.code.open_file(&p, Some((line, None)));
@@ -4762,7 +4807,7 @@ fn shortcuts_help(ui: &mut egui::Ui, km: &Keymap) {
             Act::TogglePlot,
         ]
         .iter()
-        .map(|a| (km.label(*a), t(keymap::def(*a).label).to_string()))
+        .map(|a| (km.label(*a), keymap::act_label(*a)))
         .collect();
         for (k, v) in [
             ("Alt+1…9", t("发送第 1–9 条快捷命令")),

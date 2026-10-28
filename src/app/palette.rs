@@ -33,11 +33,7 @@ impl App {
         match it {
             Item::Act(a) => {
                 let d = keymap::def(a);
-                (
-                    d.scope.label().to_string(),
-                    t(d.label).to_string(),
-                    self.km.bindings(a).first().map(|c| chord_str(c)).unwrap_or_default(),
-                )
+                (d.scope.label().to_string(), keymap::act_label(a), self.km.bindings(a).first().map(|c| chord_str(c)).unwrap_or_default())
             }
             Item::Theme(m) => (
                 t("界面主题").to_string(),
@@ -56,7 +52,12 @@ impl App {
     }
 
     fn palette_items(&self) -> Vec<Item> {
-        let mut v: Vec<Item> = ACTIONS.iter().filter(|d| d.act != Act::Palette).map(|d| Item::Act(d.act)).collect();
+        let n_macros = self.code.s.macros.len();
+        let mut v: Vec<Item> = ACTIONS
+            .iter()
+            .filter(|d| d.act != Act::Palette && !matches!(d.act, Act::Macro(i) if i as usize >= n_macros))
+            .map(|d| Item::Act(d.act))
+            .collect();
         v.extend(["dark", "light", "system"].map(Item::Theme));
         v.push(Item::LangAuto);
         v.extend((0..i18n::LANGS.len()).map(Item::Lang));

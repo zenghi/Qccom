@@ -257,13 +257,15 @@ pub fn load_fonts(ctx: &egui::Context) {
     add("inter-semibold", include_bytes!("../assets/Inter-SemiBold.ttf"));
     add("jbmono", include_bytes!("../assets/JetBrainsMono-Regular.ttf"));
     add("jbmono-bold", include_bytes!("../assets/JetBrainsMono-Bold.ttf"));
+    // egui 子菜单的箭头 ⏵：从 JetBrains Mono 里取 ▸ 做成的 1 KB 小字体
+    add("symbols", include_bytes!("../assets/qccom-symbols.ttf"));
 
     // 回退顺序：界面字体 → 等宽字体（符号多）→ 系统中文字体
     let fam = |names: &[&str]| names.iter().map(|n| n.to_string()).collect::<Vec<_>>();
-    fonts.families.insert(FontFamily::Proportional, fam(&["inter", "jbmono"]));
-    fonts.families.insert(bold(), fam(&["inter-semibold", "jbmono-bold"]));
-    fonts.families.insert(FontFamily::Monospace, fam(&["jbmono", "inter"]));
-    fonts.families.insert(mono_bold(), fam(&["jbmono-bold", "jbmono"]));
+    fonts.families.insert(FontFamily::Proportional, fam(&["inter", "jbmono", "symbols"]));
+    fonts.families.insert(bold(), fam(&["inter-semibold", "jbmono-bold", "symbols"]));
+    fonts.families.insert(FontFamily::Monospace, fam(&["jbmono", "inter", "symbols"]));
+    fonts.families.insert(mono_bold(), fam(&["jbmono-bold", "jbmono", "symbols"]));
 
     // 中文：用系统字体做后备（不内置，保持体积小）。
     // 用内存映射而不是整个读进内存：只有真正用到的字形所在的页才会占内存，

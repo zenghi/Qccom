@@ -263,6 +263,33 @@ pub enum Act {
     PrevBookmark,
     ToggleContext,
     ToggleRelations,
+    // 导航与代码生成（v1.3）
+    NavHistory,
+    LastEdit,
+    SwitchHeader,
+    MatchIf,
+    PrevFunc,
+    NextFunc,
+    GotoDecl,
+    DefToSide,
+    HlToggle,
+    HlRemove,
+    HlClear,
+    HlNext,
+    HlPrev,
+    BlockComment,
+    IfZero,
+    AlignSel,
+    CaseConvert,
+    EnumSwitch,
+    DeclToHeader,
+    RemoveDebug,
+    RecToggle,
+    RecPlay,
+    RecSave,
+    OpenProject,
+    /// 代码生成动作（设置里可以编辑），下标对应动作列表
+    Macro(u8),
 }
 
 pub struct ActDef {
@@ -375,6 +402,143 @@ acts! {
     Act::PrevBookmark, "bookmark.prev", "上一个书签", Code, ["Shift+F2"];
     Act::ToggleContext, "code.context", "显示 / 隐藏上下文窗口", Code, ["Ctrl+Shift+Y"];
     Act::ToggleRelations, "code.relations", "显示 / 隐藏调用关系", Code, ["Ctrl+Shift+R"];
+    Act::NavHistory, "nav.history", "导航历史", Code, ["Ctrl+Alt+-"];
+    Act::LastEdit, "nav.last_edit", "跳到上次编辑的位置", Code, ["Ctrl+Q"];
+    Act::SwitchHeader, "code.switch_header", "切换头文件 / 源文件", Code, ["Alt+O"];
+    Act::MatchIf, "edit.match_if", "跳到配对的 #if / #else / #endif", Code, ["Ctrl+Alt+]"];
+    Act::PrevFunc, "nav.prev_func", "上一个函数", Code, ["Alt+PageUp"];
+    Act::NextFunc, "nav.next_func", "下一个函数", Code, ["Alt+PageDown"];
+    Act::GotoDecl, "code.goto_decl", "跳转到声明", Code, ["Ctrl+F12"];
+    Act::DefToSide, "code.def_side", "在侧边打开定义", Code, ["Ctrl+K F12"];
+    Act::HlToggle, "hl.toggle", "高亮当前词（再按换颜色）", Code, ["F8"];
+    Act::HlRemove, "hl.remove", "取消当前词的高亮", Code, ["Shift+F8"];
+    Act::HlClear, "hl.clear", "清除全部高亮", Code, ["Ctrl+Shift+F8"];
+    Act::HlNext, "hl.next", "下一个高亮词", Code, ["F3"];
+    Act::HlPrev, "hl.prev", "上一个高亮词", Code, ["Shift+F3"];
+    Act::BlockComment, "edit.block_comment", "切换块注释", Code, ["Ctrl+Shift+/", "Ctrl+Shift+?", "Shift+Alt+A"];
+    Act::IfZero, "edit.if0", "用 #if 0 包裹 / 取消", Code, ["Ctrl+Alt+/"];
+    Act::AlignSel, "edit.align", "按 = 或 , 对齐选中的行", Code, [];
+    Act::CaseConvert, "edit.case", "切换命名风格（snake / camel / Pascal / 大写）", Code, ["Ctrl+Alt+U"];
+    Act::EnumSwitch, "gen.enum_switch", "由枚举生成 switch", Code, [];
+    Act::DeclToHeader, "gen.decl", "在头文件加声明 / 在源文件加定义", Code, [];
+    Act::RemoveDebug, "gen.remove_debug", "删除插入的调试打印", Code, ["Ctrl+Shift+Alt+P"];
+    Act::RecToggle, "rec.toggle", "开始 / 停止录制按键", Code, ["Shift+Alt+R"];
+    Act::RecPlay, "rec.play", "回放录制的按键", Code, ["Shift+Alt+P"];
+    Act::RecSave, "rec.save", "把录制的按键保存为宏", Code, [];
+    Act::OpenProject, "project.open", "打开工程文件夹", Global, [], true;
+    Act::Macro(0), "macro.1", "代码生成动作", Code, ["Ctrl+Alt+I"];
+    Act::Macro(1), "macro.2", "代码生成动作", Code, [];
+    Act::Macro(2), "macro.3", "代码生成动作", Code, ["Ctrl+Alt+P"];
+    Act::Macro(3), "macro.4", "代码生成动作", Code, [];
+    Act::Macro(4), "macro.5", "代码生成动作", Code, ["Ctrl+Alt+D"];
+    Act::Macro(5), "macro.6", "代码生成动作", Code, ["Ctrl+Alt+H"];
+    Act::Macro(6), "macro.7", "代码生成动作", Code, [];
+    Act::Macro(7), "macro.8", "代码生成动作", Code, [];
+    Act::Macro(8), "macro.9", "代码生成动作", Code, [];
+    Act::Macro(9), "macro.10", "代码生成动作", Code, [];
+    Act::Macro(10), "macro.11", "代码生成动作", Code, [];
+    Act::Macro(11), "macro.12", "代码生成动作", Code, [];
+    Act::Macro(12), "macro.13", "代码生成动作", Code, [];
+    Act::Macro(13), "macro.14", "代码生成动作", Code, [];
+    Act::Macro(14), "macro.15", "代码生成动作", Code, [];
+    Act::Macro(15), "macro.16", "代码生成动作", Code, [];
+}
+
+/// 代码生成动作的槽位数
+pub const MACRO_SLOTS: usize = 16;
+
+static MACRO_NAMES: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// 代码页把动作名字告诉这里，命令面板、快捷键设置就能显示真实名字
+pub fn set_macro_names(v: Vec<String>) {
+    if let Ok(mut m) = MACRO_NAMES.lock() {
+        *m = v;
+    }
+}
+
+/// 命令显示的名字（已翻译）
+pub fn act_label(a: Act) -> String {
+    if let Act::Macro(i) = a {
+        let name = MACRO_NAMES.lock().ok().and_then(|m| m.get(i as usize).cloned()).filter(|n| !n.is_empty());
+        return match name {
+            Some(n) => format!("{}：{}", t("代码生成"), n),
+            None => format!("{} {}", t("代码生成动作"), i + 1),
+        };
+    }
+    t(def(a).label).to_string()
+}
+
+/// 快捷键方案：在默认键位上换掉一部分，用户的单独修改仍然优先
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default, serde::Serialize, serde::Deserialize)]
+pub enum Scheme {
+    #[default]
+    Qccom,
+    VsCode,
+    SourceInsight,
+    Keil,
+}
+
+impl Scheme {
+    pub const ALL: [Scheme; 4] = [Scheme::Qccom, Scheme::VsCode, Scheme::SourceInsight, Scheme::Keil];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Scheme::Qccom => t("QCCOM 默认"),
+            Scheme::VsCode => "VS Code",
+            Scheme::SourceInsight => "Source Insight",
+            Scheme::Keil => "Keil µVision",
+        }
+    }
+
+    /// 这个方案里和默认不同的键位
+    pub fn keys(self, id: &str) -> Option<&'static [&'static str]> {
+        let table: &[(&str, &[&str])] = match self {
+            Scheme::Qccom => &[],
+            Scheme::VsCode => &[
+                ("hl.toggle", &["Ctrl+K Ctrl+H"]),
+                ("hl.remove", &[]),
+                ("hl.clear", &["Ctrl+K Ctrl+Shift+H"]),
+                ("hl.next", &["Ctrl+K Ctrl+N"]),
+                ("hl.prev", &["Ctrl+K Ctrl+B"]),
+                ("nav.last_edit", &["Ctrl+K Ctrl+Q"]),
+                ("edit.block_comment", &["Shift+Alt+A"]),
+                ("nav.history", &["Ctrl+Alt+-"]),
+                ("code.goto_decl", &[]),
+                ("edit.case", &[]),
+            ],
+            Scheme::SourceInsight => &[
+                ("nav.back", &["Alt+,", "Alt+←"]),
+                ("nav.forward", &["Alt+.", "Alt+→"]),
+                ("code.goto_def", &["Ctrl+=", "F12"]),
+                ("code.refs", &["Ctrl+/", "Shift+F12"]),
+                ("edit.comment", &["Ctrl+K Ctrl+C"]),
+                ("code.zoom_in", &["Ctrl++"]),
+                ("hl.toggle", &["Shift+F8", "F8"]),
+                ("hl.remove", &[]),
+                ("hl.next", &["F4"]),
+                ("hl.prev", &["F3"]),
+                ("code.line", &["F5", "Ctrl+G"]),
+                ("code.symbol", &["Alt+F8", "Ctrl+Shift+O"]),
+                ("code.symbol_ws", &["F7", "Ctrl+T"]),
+                ("code.context", &["Ctrl+Shift+Y", "Alt+F7"]),
+                ("bookmark.toggle", &["Ctrl+M", "Ctrl+F2"]),
+                ("edit.select_line", &["Shift+F6", "Ctrl+L"]),
+            ],
+            Scheme::Keil => &[
+                ("nav.back", &["Ctrl+-", "Alt+←"]),
+                ("nav.forward", &["Ctrl+Shift+-", "Alt+→"]),
+                ("code.zoom_out", &["Ctrl+Alt+-"]),
+                ("nav.history", &["Ctrl+Alt+H"]),
+                ("macro.6", &[]),
+                ("edit.goto_bracket", &["Ctrl+E", "Ctrl+Shift+\\"]),
+                ("hl.next", &["F3"]),
+                ("hl.prev", &["Shift+F3"]),
+                ("code.goto_def", &["F12"]),
+                ("code.refs", &["Shift+F12"]),
+            ],
+        };
+        table.iter().find(|(i, _)| *i == id).map(|(_, k)| *k)
+    }
 }
 
 pub fn def(a: Act) -> &'static ActDef {
@@ -388,13 +552,20 @@ pub struct Keymap {
     /// (命令, 绑定) 的当前生效表
     table: Vec<(Act, Chord)>,
     pending: Option<(Combo, Instant)>,
+    pub scheme: Scheme,
 }
 
 impl Keymap {
-    pub fn new(ov: &Overrides) -> Keymap {
-        let mut k = Keymap { table: vec![], pending: None };
+    pub fn with_scheme(ov: &Overrides, scheme: Scheme) -> Keymap {
+        let mut k = Keymap { table: vec![], pending: None, scheme };
         k.rebuild(ov);
         k
+    }
+
+    /// 当前方案下这个命令的默认键位
+    pub fn defaults(&self, a: Act) -> &'static [&'static str] {
+        let d = def(a);
+        self.scheme.keys(d.id).unwrap_or(d.keys)
     }
 
     pub fn rebuild(&mut self, ov: &Overrides) {
@@ -402,7 +573,10 @@ impl Keymap {
         for d in ACTIONS {
             match ov.get(d.id) {
                 Some(list) => self.table.extend(list.iter().filter_map(|s| parse_chord(s)).map(|c| (d.act, c))),
-                None => self.table.extend(d.keys.iter().filter_map(|s| parse_chord(s)).map(|c| (d.act, c))),
+                None => {
+                    let keys = self.scheme.keys(d.id).unwrap_or(d.keys);
+                    self.table.extend(keys.iter().filter_map(|s| parse_chord(s)).map(|c| (d.act, c)))
+                }
             }
         }
     }
@@ -445,8 +619,16 @@ impl Keymap {
         let mut out = vec![];
         let table = &self.table;
         let pending = &mut self.pending;
+        // Alt / Shift+Alt 组合键在有些系统上还会跟一个文字事件（如 Shift+Alt+R 打出 R），一起吃掉
+        let mut eat_text = false;
         ctx.input_mut(|i| {
             i.events.retain(|e| {
+                if let egui::Event::Text(t) = e {
+                    if std::mem::take(&mut eat_text) && t.chars().count() == 1 {
+                        return false;
+                    }
+                    return true;
+                }
                 let egui::Event::Key { key, pressed: true, modifiers, .. } = e else { return true };
                 if matches!(key, Key::Escape) && pending.is_some() {
                     *pending = None;
@@ -481,6 +663,7 @@ impl Keymap {
                 }
                 if let Some(a) = single {
                     out.push(a);
+                    eat_text = combo.alt && !combo.ctrl;
                     return false;
                 }
                 !starts_chord
@@ -508,7 +691,11 @@ mod tests {
         assert_eq!(Combo::parse("Alt+←").unwrap().key, Key::ArrowLeft);
         assert_eq!(Combo::parse("F12").unwrap().key, Key::F12);
         for d in ACTIONS {
-            for k in d.keys {
+            let mut all: Vec<&str> = d.keys.to_vec();
+            for sc in Scheme::ALL {
+                all.extend(sc.keys(d.id).unwrap_or(&[]));
+            }
+            for k in all {
                 let c = parse_chord(k).unwrap_or_else(|| panic!("bad default {k}"));
                 assert!(c.iter().all(|x| x.usable()), "{k}");
                 if !cfg!(target_os = "macos") {
@@ -527,11 +714,26 @@ mod tests {
     }
 
     #[test]
+    fn scheme_ids_exist() {
+        for sc in Scheme::ALL {
+            let k = Keymap::with_scheme(&Overrides::new(), sc);
+            assert!(!k.table.is_empty());
+        }
+        // 方案表里的 id 都要真实存在
+        for id in ["hl.toggle", "nav.back", "macro.6", "edit.goto_bracket", "code.context", "edit.select_line", "bookmark.toggle"] {
+            assert!(ACTIONS.iter().any(|d| d.id == id), "{id}");
+        }
+        let si = Keymap::with_scheme(&Overrides::new(), Scheme::SourceInsight);
+        assert_eq!(si.label(Act::NavBack), "Alt+,");
+        assert_eq!(si.label(Act::FindRefs), "Ctrl+/");
+    }
+
+    #[test]
     fn overrides() {
         let mut ov = Overrides::new();
         ov.insert("log.clear".into(), vec!["Ctrl+Shift+L".into()]);
         ov.insert("log.save".into(), vec![]);
-        let k = Keymap::new(&ov);
+        let k = Keymap::with_scheme(&ov, Scheme::Qccom);
         assert_eq!(k.label(Act::LogClear), "Ctrl+Shift+L");
         assert!(k.bindings(Act::LogSave).is_empty());
         assert_eq!(k.label(Act::Palette), "Ctrl+Shift+P");

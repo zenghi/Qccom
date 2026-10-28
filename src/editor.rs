@@ -313,6 +313,10 @@ pub struct Out {
     pub vim_cmd: Option<String>,
     /// 要放进系统剪贴板的文字（Vim 的 y）
     pub copy: Option<String>,
+    /// 右键：外层在这个响应上挂菜单
+    pub menu: Option<egui::Response>,
+    /// 在只有 /** 的行上按了回车：外层生成函数说明（行号）
+    pub doc_comment: Option<usize>,
 }
 
 /// 外层传进来的显示参数
@@ -332,6 +336,13 @@ pub struct View<'a> {
     pub ghost: Option<(usize, &'a str)>,
     /// 用 Vim 键位
     pub vim: bool,
+    /// F8 高亮的词和颜色
+    pub marks: &'a [(String, Color32)],
+    /// 不生效的 #if 分支（行范围，含首尾）
+    pub inactive: &'a [(usize, usize)],
+    /// 光标所在函数体、#if 块的行范围（画淡色底）
+    pub scope: Option<(usize, usize)>,
+    pub if_block: Option<(usize, usize)>,
 }
 
 pub struct Editor {
@@ -363,6 +374,11 @@ pub struct Editor {
     /// 小地图拖动中
     mm_drag: bool,
     m: Metrics,
+    /// 在 /** 行上回车时交给外层生成说明（C 系语言打开）
+    pub doc_hook: bool,
+    doc_req: Option<usize>,
+    /// 高亮词在整个文件里的位置（滚动条标记用）：(文本版本, 高亮表的指纹, 行和颜色)
+    mark_cache: (u64, u64, Vec<(usize, Color32)>),
 }
 
 impl Editor {
@@ -391,6 +407,9 @@ impl Editor {
             vim: None,
             mm_drag: false,
             m: Metrics::default(),
+            doc_hook: false,
+            doc_req: None,
+            mark_cache: (u64::MAX, 0, vec![]),
         }
     }
 
@@ -594,6 +613,187 @@ impl Editor {
         self.apply(buf, reps, EK::Other, now);
     }
 
+    /// 把一段换成新文字，光标放在新文字里的 `cursor` 处（None = 末尾）；可以撤销
+    pub fn replace_at(&mut self, buf: &mut Buf, r: Range<usize>, ins: String, cursor: Option<usize>, now: f64) {
+        let c = cursor.unwrap_or(ins.len()).min(ins.len());
+        self.apply(buf, vec![Rep::new(r, ins, c)], EK::Other, now);
+        self.reveal = Some(-1.0);
+    }
+
+    /// 选区覆盖的行（第一个选区），没有选中时是光标所在行：(首行, 末行)
+    pub fn sel_line_span(&self, buf: &Buf) -> (usize, usize) {
+        let s = self.primary_sel();
+        let a = buf.line_of(s.min());
+        let mut b = buf.line_of(s.max());
+        if b > a && s.max() == buf.start(b) {
+            b -= 1;
+        }
+        (a, b)
+    }
+
+    /// 切换块注释：选区已经被 /* */ 包住就去掉，否则包上（没选中时包当前行的内容）
+    pub fn toggle_block_comment(&mut self, buf: &mut Buf, lang: Lang, now: f64) {
+        let Some((open, close)) = lang.block_comment() else {
+            return self.toggle_comment(buf, lang, now);
+        };
+        let mut reps = vec![];
+        for s in &self.sels {
+            let (mut a, mut b) = (s.min(), s.max());
+            if s.empty() {
+                // 光标在某个 /* */ 里：去掉它
+                let l = buf.line_of(a);
+                let (ls, le) = (buf.start(l), buf.end(l));
+                let line = &buf.text[ls..le];
+                let col = a - ls;
+                let o = line[..col.min(line.len())].rfind(open).or_else(|| line.find(open));
+                if let Some(o) = o {
+                    if let Some(c) = line[o + open.len()..].find(close).map(|c| c + o + open.len()) {
+                        let inner = line[o + open.len()..c].trim_matches(' ').to_string();
+                        let n = inner.len();
+                        reps.push(Rep::new(ls + o..ls + c + close.len(), inner, n));
+                        continue;
+                    }
+                }
+                let ind = leading_ws(line).len();
+                a = ls + ind;
+                b = le;
+                if a >= b {
+                    continue;
+                }
+            }
+            let text = &buf.text[a..b];
+            let t = text.trim();
+            if t.starts_with(open) && t.ends_with(close) && t.len() >= open.len() + close.len() {
+                let inner = t[open.len()..t.len() - close.len()].trim_matches(' ').to_string();
+                let lead = text.len() - text.trim_start().len();
+                let n = inner.len();
+                reps.push(Rep {
+                    r: a + lead..a + lead + t.len(),
+                    ins: inner,
+                    sels: vec![(0, n)],
+                });
+            } else {
+                let ins = format!("{open} {text} {close}");
+                let n = ins.len();
+                reps.push(Rep { r: a..b, ins, sels: vec![(0, n)] });
+            }
+        }
+        self.apply(buf, reps, EK::Other, now);
+    }
+
+    /// 用 #if 0 / #endif 包住选中的行；光标所在块已经是 #if 0 时去掉这两行
+    pub fn toggle_if0(&mut self, buf: &mut Buf, now: f64) {
+        let (a, b) = self.sel_line_span(buf);
+        let p = self.primary_sel();
+        let groups = crate::cpp::groups(&buf.text);
+        let is_if0 = |l: usize| {
+            let head = buf.line(l).trim_start().trim_start_matches('#').trim_start();
+            head == "if 0" || head.starts_with("if 0 ") || head.starts_with("if 0/")
+        };
+        // 选中的正好是一整个 #if 0 … #endif，或者光标在一个 #if 0 块里：去掉
+        let target = groups
+            .iter()
+            .find(|g| g.lines.len() == 2 && g.first() == a && g.last() == b && is_if0(a))
+            .map(|g| (g.first(), g.last()))
+            .or_else(|| {
+                if !(p.empty() || a == b) {
+                    return None;
+                }
+                let l = buf.line_of(p.h);
+                let probe = if buf.line(l).trim_start().starts_with('#') { l + 1 } else { l };
+                let (ia, ib) = crate::cpp::enclosing(&buf.text, probe.min(buf.lines().saturating_sub(1)))?;
+                let simple = groups.iter().find(|g| g.first() == ia).is_some_and(|g| g.lines.len() == 2);
+                (simple && is_if0(ia) && ia <= l && l <= ib).then_some((ia, ib))
+            });
+        if let Some((ia, ib)) = target {
+            // #if 0 那一行和 #endif 那一行一起删掉（#endif 在最后一行时连同前面的换行）
+            let end_r = if ib + 1 < buf.lines() {
+                buf.start(ib)..buf.start(ib + 1)
+            } else {
+                buf.end(ib - 1)..buf.text.len()
+            };
+            let head_r = buf.start(ia)..buf.start(ia + 1);
+            self.apply(
+                buf,
+                vec![
+                    Rep {
+                        r: head_r,
+                        ins: String::new(),
+                        sels: vec![(0, 0)],
+                    },
+                    Rep {
+                        r: end_r,
+                        ins: String::new(),
+                        sels: vec![],
+                    },
+                ],
+                EK::Other,
+                now,
+            );
+            return;
+        }
+        let (s, e) = (buf.start(a), buf.end(b));
+        let body = buf.text[s..e].to_string();
+        let ins = format!("#if 0\n{body}\n#endif");
+        let n = ins.len();
+        self.apply(buf, vec![Rep { r: s..e, ins, sels: vec![(0, n)] }], EK::Other, now);
+    }
+
+    /// 把 (首行, 末行) 换成新的几行
+    pub fn replace_lines(&mut self, buf: &mut Buf, a: usize, b: usize, lines: &[String], now: f64) {
+        let (s, e) = (buf.start(a), buf.end(b));
+        let ins = lines.join("\n");
+        let n = ins.len();
+        self.apply(buf, vec![Rep { r: s..e, ins, sels: vec![(0, n)] }], EK::Other, now);
+    }
+
+    /// 删掉含某个标记的所有行，返回删了几行
+    pub fn delete_marked_lines(&mut self, buf: &mut Buf, mark: &str, now: f64) -> usize {
+        let n = buf.lines();
+        let mut reps = vec![];
+        for l in 0..n {
+            if buf.line(l).contains(mark) {
+                let s = buf.start(l);
+                let e = if l + 1 < n { buf.start(l + 1) } else { buf.text.len() };
+                let (s, e) = if l + 1 >= n && l > 0 { (buf.end(l - 1), e) } else { (s, e) };
+                reps.push(Rep {
+                    r: s..e,
+                    ins: String::new(),
+                    sels: vec![],
+                });
+            }
+        }
+        let k = reps.len();
+        if k > 0 {
+            let keep = self.sels.clone();
+            self.apply(buf, reps, EK::Other, now);
+            if self.sels.is_empty() {
+                self.sels = keep;
+            }
+            self.clamp(buf);
+        }
+        k
+    }
+
+    /// 对当前的每个光标/选区执行文字替换（命名风格转换用）：选区为空时作用于光标处的词
+    pub fn map_words(&mut self, buf: &mut Buf, f: impl Fn(&str) -> String, now: f64) {
+        let mut reps = vec![];
+        for s in &self.sels {
+            let r = if s.empty() {
+                match buf.word_at(s.h) {
+                    Some((a, b)) => a..b,
+                    None => continue,
+                }
+            } else {
+                s.range()
+            };
+            let ins = f(&buf.text[r.clone()]);
+            let n = ins.len();
+            reps.push(Rep { r, ins, sels: vec![(0, n)] });
+        }
+        self.apply(buf, reps, EK::Other, now);
+    }
+
     // ---------------------------------------------------- 输入
 
     pub(crate) fn insert_text(&mut self, buf: &mut Buf, s: &str, lang: Lang, now: f64) {
@@ -660,6 +860,15 @@ impl Editor {
     }
 
     pub(crate) fn newline(&mut self, buf: &mut Buf, now: f64) {
+        if self.doc_hook && self.sels.len() == 1 && self.sels[0].empty() {
+            let h = self.sels[0].h;
+            let l = buf.line_of(h);
+            let (ls, le) = (buf.start(l), buf.end(l));
+            if buf.text[ls..h].trim() == "/**" && buf.text[h..le].trim().is_empty() {
+                self.doc_req = Some(l);
+                return;
+            }
+        }
         let mut reps = vec![];
         for sel in &self.sels {
             let r = sel.range();
@@ -1763,6 +1972,18 @@ impl Editor {
         let middle = ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
         let in_text = pointer.is_some_and(|p| text_rect.contains(p) && p.x < text_rect.right() - sb_w && p.y < text_rect.bottom() - if content_w > text_rect.width() { sb_w } else { 0.0 });
         let in_gutter = pointer.is_some_and(|p| gutter.contains(p));
+        if resp.secondary_clicked() && in_text {
+            // 右键：点在选区外时先把光标移过去，菜单由外层挂
+            if let Some(p) = pointer {
+                let (b, _) = pos_to_byte(p);
+                if !self.sels.iter().any(|s| s.min() <= b && b <= s.max()) {
+                    self.sels = vec![Sel::at(b)];
+                    self.primary = 0;
+                }
+            }
+            resp.request_focus();
+        }
+        out.menu = Some(resp.clone());
         if pressed && (in_text || in_gutter) && resp.hovered() {
             resp.request_focus();
             self.blink = now;
@@ -1947,6 +2168,20 @@ impl Editor {
             }
         }
 
+        // ---- 光标所在的函数体、#if 块：很淡的底色，左边一条细线
+        for (range, c, x0) in [(v.scope, ACCENT(), 0.0), (v.if_block, VIOLET(), 3.0)] {
+            let Some((a, b)) = range else { continue };
+            let (da, db) = (line_di(a), line_di(b));
+            if db < first || da >= last {
+                continue;
+            }
+            let y0 = row_y(da.max(first));
+            let y1 = row_y((db + 1).min(last));
+            let r = Rect::from_min_max(pos2(text_rect.left(), y0), pos2(text_rect.right(), y1));
+            tp.rect_filled(r, 0.0, c.gamma_multiply(if is_light() { 0.035 } else { 0.03 }));
+            tp.rect_filled(Rect::from_min_max(pos2(text_rect.left() + x0, y0), pos2(text_rect.left() + x0 + 2.0, y1)), 0.0, c.gamma_multiply(0.35));
+        }
+
         // ---- 行尾附注
         if let Some((l, g)) = v.ghost {
             let di = line_di(l);
@@ -1982,6 +2217,32 @@ impl Editor {
                 tp.rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.45 } else { 0.2 }));
                 if cur {
                     tp.rect_stroke(r, 2.0, st(1.0, WARN()), egui::StrokeKind::Outside);
+                }
+            }
+        }
+
+        // ---- F8 高亮的词
+        if !v.marks.is_empty() {
+            for di in first..last {
+                let l = disp[di];
+                let line = buf.line(l);
+                let ls = buf.start(l);
+                for (w, c) in v.marks {
+                    if w.is_empty() {
+                        continue;
+                    }
+                    let mut from = 0;
+                    while let Some(k) = line[from..].find(w.as_str()) {
+                        let s = from + k;
+                        from = s + w.len();
+                        let ok = !line[..s].chars().next_back().is_some_and(is_ident) && !line[s + w.len()..].chars().next().is_some_and(is_ident);
+                        if ok {
+                            let y = row_y(di);
+                            let r = Rect::from_min_max(pos2(x_of(ls + s) - 1.0, y + 1.0), pos2(x_of(ls + s + w.len()) + 1.0, y + row_h - 1.0));
+                            tp.rect_filled(r, 3.0, c.gamma_multiply(if is_light() { 0.32 } else { 0.30 }));
+                            tp.hline(r.x_range(), r.bottom() - 0.5, st(1.5, *c));
+                        }
+                    }
                 }
             }
         }
@@ -2105,6 +2366,8 @@ impl Editor {
             if line.is_empty() {
                 continue;
             }
+            let ii = v.inactive.partition_point(|r| r.1 < l);
+            let dim = v.inactive.get(ii).is_some_and(|r| r.0 <= l);
             // 只画横向可见部分附近的字
             let min_x = (self.scroll.x - 40.0).max(0.0);
             let max_x = self.scroll.x + text_rect.width() + 40.0;
@@ -2149,6 +2412,9 @@ impl Editor {
                             color = kind_color(*k);
                         }
                     }
+                }
+                if dim {
+                    color = color.gamma_multiply(0.42);
                 }
                 let italic = tok == Tok::Comment;
                 let w = m.adv(ch, col);
@@ -2426,6 +2692,35 @@ impl Editor {
             for &bm in &self.bookmarks {
                 mark(bm, VIOLET(), 0.0, 4.0);
             }
+            if !v.marks.is_empty() {
+                let key = v.marks.iter().fold(v.marks.len() as u64, |h, (w, c)| {
+                    w.bytes().fold(h.wrapping_mul(31).wrapping_add(c.r() as u64), |h, b| h.wrapping_mul(131).wrapping_add(b as u64))
+                });
+                if self.mark_cache.0 != buf.ver || self.mark_cache.1 != key {
+                    let mut hits = vec![];
+                    for (w, c) in v.marks {
+                        if w.is_empty() {
+                            continue;
+                        }
+                        let mut from = 0;
+                        while let Some(k) = buf.text[from..].find(w.as_str()) {
+                            let s = from + k;
+                            from = s + w.len();
+                            let ok = !buf.text[..s].chars().next_back().is_some_and(is_ident) && !buf.text[s + w.len()..].chars().next().is_some_and(is_ident);
+                            if ok {
+                                hits.push((buf.line_of(s), *c));
+                                if hits.len() > 5000 {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    self.mark_cache = (buf.ver, key, hits);
+                }
+                for &(l, c) in &self.mark_cache.2 {
+                    mark(l, c, sb_w - 4.0, 4.0);
+                }
+            }
             mark(prim_line, ACCENT(), 0.0, sb_w);
         }
         if content_w > text_rect.width() {
@@ -2509,6 +2804,7 @@ impl Editor {
         }
 
         self.disp.1 = disp;
+        out.doc_comment = self.doc_req.take();
         out
     }
 }
@@ -2783,6 +3079,34 @@ mod tests {
         e.sels = vec![Sel::at(0)];
         e.insert_line(&mut b, true, 0.0);
         assert!(e.bookmarks.contains(&5));
+    }
+
+    #[test]
+    fn if0_and_block_comment() {
+        let (mut e, mut b) = ed("a();\nb();\nc();");
+        e.select(5, 5);
+        e.toggle_if0(&mut b, 0.0);
+        assert_eq!(b.text, "a();\n#if 0\nb();\n#endif\nc();");
+        // 选中整块再按一次：去掉
+        e.toggle_if0(&mut b, 1.0);
+        assert_eq!(b.text, "a();\nb();\nc();");
+        // 光标在块里也能去掉
+        e.select(5, 5);
+        e.toggle_if0(&mut b, 2.0);
+        e.select(12, 12);
+        e.toggle_if0(&mut b, 3.0);
+        assert_eq!(b.text, "a();\nb();\nc();");
+        e.select(0, 0);
+        e.toggle_block_comment(&mut b, Lang::C, 4.0);
+        assert_eq!(b.text, "/* a(); */\nb();\nc();");
+        e.select(3, 3);
+        e.toggle_block_comment(&mut b, Lang::C, 5.0);
+        assert_eq!(b.text, "a();\nb();\nc();");
+        e.select(0, 0);
+        e.map_words(&mut b, crate::codegen::cycle_case, 6.0);
+        assert_eq!(b.text, "A();\nb();\nc();");
+        let n = e.delete_marked_lines(&mut b, "b()", 7.0);
+        assert_eq!((n, b.text.as_str()), (1, "A();\nc();"));
     }
 
     #[test]

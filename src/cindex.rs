@@ -711,7 +711,7 @@ enum T {
 }
 
 fn lex(s: &str) -> Option<Vec<T>> {
-    const OPS: &[&str] = &["<<", ">>", "+", "-", "*", "/", "%", "&", "|", "^", "~", "!"];
+    const OPS: &[&str] = &["<<", ">>", "<=", ">=", "==", "!=", "&&", "||", "<", ">", "+", "-", "*", "/", "%", "&", "|", "^", "~", "!", "?", ":"];
     let b = s.as_bytes();
     let mut v = vec![];
     let mut i = 0;
@@ -772,12 +772,17 @@ struct Parser {
 impl Parser {
     fn prec(op: &str) -> u8 {
         match op {
-            "|" => 1,
-            "^" => 2,
-            "&" => 3,
-            "<<" | ">>" => 4,
-            "+" | "-" => 5,
-            "*" | "/" | "%" => 6,
+            "?" => 1,
+            "||" => 2,
+            "&&" => 3,
+            "|" => 4,
+            "^" => 5,
+            "&" => 6,
+            "==" | "!=" => 7,
+            "<" | ">" | "<=" | ">=" => 8,
+            "<<" | ">>" => 9,
+            "+" | "-" => 10,
+            "*" | "/" | "%" => 11,
             _ => 0,
         }
     }
@@ -806,6 +811,14 @@ impl Parser {
                 break;
             }
             self.i += 1;
+            if op == "?" {
+                // 条件运算：右结合
+                let a = self.expr(0)?;
+                (self.t.get(self.i) == Some(&T::Op(":"))).then(|| self.i += 1)?;
+                let b = self.expr(p - 1)?;
+                lhs = if lhs != 0 { a } else { b };
+                continue;
+            }
             let rhs = self.expr(p)?;
             lhs = match op {
                 "+" => lhs.checked_add(rhs)?,
@@ -818,6 +831,14 @@ impl Parser {
                 "&" => lhs & rhs,
                 "|" => lhs | rhs,
                 "^" => lhs ^ rhs,
+                "&&" => (lhs != 0 && rhs != 0) as i128,
+                "||" => (lhs != 0 || rhs != 0) as i128,
+                "==" => (lhs == rhs) as i128,
+                "!=" => (lhs != rhs) as i128,
+                "<" => (lhs < rhs) as i128,
+                ">" => (lhs > rhs) as i128,
+                "<=" => (lhs <= rhs) as i128,
+                ">=" => (lhs >= rhs) as i128,
                 _ => return None,
             };
         }
@@ -987,6 +1008,11 @@ int main(void) {
         assert_eq!(eval("(1UL << 5) | 0x3"), Some(0x23));
         assert_eq!(eval("~0x0F & 0xFF"), Some(0xF0));
         assert_eq!(eval("foo + 1"), None);
+        assert_eq!(eval("1 && (2 > 1) || 0"), Some(1));
+        assert_eq!(eval("3 == 4"), Some(0));
+        assert_eq!(eval("1 + 2 * 3 >= 7 && 5 != 4"), Some(1));
+        assert_eq!(eval("0 ? 5 : 1 ? 6 : 7"), Some(6));
+        assert_eq!(eval("!0 && 1 << 2 == 4"), Some(1));
     }
 
     #[test]

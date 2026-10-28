@@ -275,6 +275,9 @@ mod serialx;
 mod sess;
 mod toolbox;
 mod toolbox2;
+mod toolbox3;
+mod toolbox4;
+mod toolbox5;
 
 /// 日志里按字选择的范围：(行号, 字符位置)，字符位置按这一行显示出来的文字计（含时间戳等前缀）
 #[derive(Clone, Copy, PartialEq)]
@@ -4125,6 +4128,8 @@ impl eframe::App for App {
         for p in projs {
             self.project_changed(&p);
         }
+        // 设置里记着 SVD 路径时，启动后代码页的寄存器悬停不用先打开工具也能用（路径没变就只是比较一下字符串）
+        self.svd_sync();
         match self.page {
             Page::Code => {
                 self.code.ui(ctx, &acts, &self.km);
@@ -4137,6 +4142,7 @@ impl eframe::App for App {
                             self.set_page(Page::Settings);
                         }
                         CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
+                        CodeEvt::Struct(src) => self.open_struct(src),
                         CodeEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
                     }
                 }
@@ -4174,11 +4180,20 @@ impl eframe::App for App {
             self.load_log_path(&p, replay);
         }
         // 拖进窗口的文件：调试页当日志打开，代码页在编辑器里打开
-        let dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        let mut dropped: Vec<PathBuf> = ctx.input(|i| i.raw.dropped_files.iter().filter_map(|f| f.path.clone()).collect());
+        // 测试用：环境变量 QCCOM_DROP 指向一个文件，里面每行一个路径，当作拖进来的文件（xdotool 模拟不了拖放）
+        if let Some(f) = std::env::var_os("QCCOM_DROP") {
+            if let Ok(s) = std::fs::read_to_string(&f) {
+                let _ = std::fs::remove_file(&f);
+                dropped.extend(s.lines().filter(|l| !l.trim().is_empty()).map(|l| PathBuf::from(l.trim())));
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
         for p in dropped {
             match self.page {
                 Page::Code => self.code.open_file(&p, None),
                 Page::Compare => self.cmpv.drop_files(vec![p]),
+                Page::Tools => self.tool_drop(p),
                 _ => self.load_log_path(&p, false),
             }
         }

@@ -45,6 +45,7 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 - **Compare & merge** (`Ctrl+Shift+M`). Built-in, Beyond Compare-style: text compare with inline changes, editing on both sides and block copy; folder compare with sync; hex compare that re-aligns inserted bytes and compares HEX files by address; three-way merge for Git conflicts; CSV and map symbol-table compare; HTML reports. Available from right-click menus everywhere, including the system file manager (*Open with QCCOM*, *Compare with QCCOM*).
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
 - **Toolbox** (`Ctrl+Shift+B`). All the communication tools (TCP, UDP, MQTT, BLE, WebSocket, HTTP API, Modbus slave) plus TFTP / HTTP file servers, a local MQTT broker, a Syslog receiver, LAN device discovery, ping and port check, a subnet calculator, a data converter, checksums with custom CRC, timestamps, a regex tester, font / image to C arrays, a color converter, an ASCII table, a UART baud-rate calculator, CAN over SLCAN adapters and USB HID. Searchable, with favorites, and every tool is in the command palette.
+- **Embedded tools.** Firmware convert / merge (HEX, BIN, S-record, ELF), update-package headers with CRC, size diff between two builds (GCC, Keil and LLVM map files), worst-case stack usage, the vector table with unimplemented IRQs, an SVD register browser (also on hover in the editor), Keil / IAR project import to `compile_commands.json`, CubeMX pin tables, resistor / divider / NTC / PWM / I2C pull-up calculators, a C struct parser, CBOR / MessagePack / Protobuf decoding, a VCD waveform viewer and QR codes.
 - **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
 - **Self-update** from your own server, with SHA-256 verification. See [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
 - **Dark and light themes** (or follow the system), a searchable **command palette** (`Ctrl+Shift+P`), a settings page, and **fully customizable keyboard shortcuts** including two-step sequences.
@@ -69,6 +70,10 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 | Toolbox: CAN | Compare |
 |---|---|
 | ![CAN in the toolbox](docs/screenshot-toolbox.png) | ![Text compare](docs/screenshot-compare.png) |
+
+| Size diff | VCD waveforms |
+|---|---|
+| ![Size diff of two builds](docs/screenshot-sizediff.png) | ![VCD waveform viewer](docs/screenshot-vcd.png) |
 
 ## See it in action
 

@@ -45,6 +45,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **比较与合并**（`Ctrl+Shift+M`）：内置 Beyond Compare 式比较。文本比较带行内差异，两边都能直接改、一键把一段推到另一边；文件夹比较和同步；十六进制比较能自动对齐插入的字节，HEX 按地址比较；Git 冲突三方合并；CSV 和 map 符号表比较；HTML 报告。到处都能右键比较，包括系统文件管理器（「用 QCCOM 打开」「用 QCCOM 比较」）。
 - **Git 查看器**：本地 / 远程分支和标签、所有分支的提交图、提交详情、带行号的差异对比、工作区状态、切换分支、拉取。
 - **工具箱**（`Ctrl+Shift+B`）：所有通信调试工具（TCP、UDP、MQTT、BLE、WebSocket、HTTP 接口、Modbus 从站）排在最前，另有 TFTP / HTTP 文件服务器、本地 MQTT 服务器、Syslog 接收、局域网设备发现、Ping 和端口检测、子网计算、数据转换、校验计算（含自定义 CRC）、时间戳、正则测试、字模 / 图片取模、颜色转换、ASCII 表、UART 波特率计算、SLCAN CAN 调试和 USB HID。可搜索、可收藏，每个工具都能从命令面板直接打开。
+- **嵌入式工具**：固件转换 / 合并（HEX、BIN、S-record、ELF）、带 CRC 的升级包头、两次编译的体积对比（支持 GCC、Keil、LLVM 的 map）、最坏栈深度分析、中断向量表（标出没实现的中断）、SVD 寄存器查看（编辑器里悬停也能看）、Keil / IAR 工程导入生成 `compile_commands.json`、CubeMX 引脚表、电阻 / 分压 / NTC / PWM / I2C 上拉计算、C 结构体解析、CBOR / MessagePack / Protobuf 解码、VCD 波形查看和二维码。
 - **录制与导出**：保存或复制日志；也可以把之后的每一行实时写入文件（可按大小或时长分卷），适合长时间挂机抓日志。
 - **自动更新**：从你自己的服务器检查新版本，下载后做 SHA-256 校验再替换。格式见 [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md)。
 - **深色 / 浅色主题**（或跟随系统）、可搜索的**命令面板**（`Ctrl+Shift+P`）、设置中心，以及**完全可自定义的快捷键**（支持 Ctrl+K Ctrl+S 这类序列键）。
@@ -69,6 +70,10 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 | 工具箱：CAN 调试 | 比较 |
 |---|---|
 | ![工具箱里的 CAN 调试](docs/screenshot-toolbox.png) | ![文本比较](docs/screenshot-compare.png) |
+
+| 体积对比 | VCD 波形 |
+|---|---|
+| ![两次编译的体积对比](docs/screenshot-sizediff.png) | ![VCD 波形查看](docs/screenshot-vcd.png) |
 
 ## 动图演示
 

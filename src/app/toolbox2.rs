@@ -171,7 +171,7 @@ pub(super) fn tool_text2(tool: Tool) -> (&'static str, &'static str) {
         Tool::Font => (t("字模 / 取模"), t("文字和图片转成点阵或 RGB565 数组，给 LCD、OLED 用")),
         Tool::Color => (t("颜色转换"), t("RGB888、RGB565、HSV 互相转换")),
         Tool::Ascii => (t("ASCII 码表"), t("字符、十进制、十六进制、八进制和控制字符的含义")),
-        _ => ("", ""),
+        other => super::toolbox3::tool_text3(other),
     }
 }
 
@@ -209,7 +209,7 @@ impl App {
             Tool::Font => self.tb_font(ui),
             Tool::Color => self.tb_color(ui),
             Tool::Ascii => self.tb_ascii(ui),
-            _ => {}
+            other => self.tb_v16(ui, other),
         }
     }
 
@@ -1322,7 +1322,7 @@ impl App {
             code.push_str("    },\n");
         }
         code.push_str("};\n");
-        code_block(ui, &code);
+        code_block(ui, &code, t("C 数组"), "font.h");
     }
 
     fn tb_image(&mut self, ui: &mut egui::Ui) {
@@ -1457,7 +1457,7 @@ impl App {
         }
         code.push_str("};\n");
         ui.add_space(8.0);
-        code_block(ui, &code);
+        code_block(ui, &code, t("C 数组"), "font.h");
     }
 
     // ------------------------------------------------------------ 颜色
@@ -1615,12 +1615,12 @@ fn draw_mono(ui: &mut egui::Ui, m: &Mono, px: f32) {
     p.rect_stroke(rect, 2.0, st(1.0, LINE()), egui::StrokeKind::Inside);
 }
 
-fn code_block(ui: &mut egui::Ui, code: &str) {
+pub(super) fn code_block(ui: &mut egui::Ui, code: &str, title: &str, file: &str) {
     ui.horizontal(|ui| {
-        ui.label(RichText::new(t("C 数组")).font(FontId::new(11.0, bold())).color(TEXT3()).extra_letter_spacing(1.5));
+        ui.label(RichText::new(title).font(FontId::new(11.0, bold())).color(TEXT3()).extra_letter_spacing(1.5));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if ui.button(t("另存为…")).clicked() {
-                if let Some(p) = rfd::FileDialog::new().set_file_name("font.h").save_file() {
+                if let Some(p) = rfd::FileDialog::new().set_file_name(file).save_file() {
                     let _ = std::fs::write(p, code);
                 }
             }

@@ -11,7 +11,7 @@ use std::time::Instant;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontFamily, FontId, Key, Modifiers, Rect, RichText, Sense, Shape, Ui};
 use serde::{Deserialize, Serialize};
 
-use crate::app::{draw_icon, hgrad_line, icon_button, Icon};
+use crate::app::{draw_icon, hgrad_line, icon_button, truncate, Icon};
 use crate::binview::{BinEvt, Special};
 use crate::cindex::{self, Hit, Index, Kind, Progress, Sym};
 use crate::editor::{Buf, Editor, View};
@@ -443,6 +443,8 @@ pub enum CodeEvt {
     BitCalc(String, Option<i128>),
     /// 在比较页比较两个文件或文件夹；带名字的一边是只读的临时文件（已保存版本、Git HEAD、未保存的内容）
     Compare(PathBuf, Option<String>, PathBuf, Option<String>),
+    /// 右键「解析结构体」：结构体定义的源码
+    Struct(String),
 }
 
 pub struct CodeView {
@@ -486,6 +488,8 @@ pub struct CodeView {
     fwd: Vec<(PathBuf, usize)>,
     pick: Option<(String, Vec<(PathBuf, u32, &'static str, String)>, egui::Pos2)>,
     hover: Option<Hover>,
+    /// 工具箱里载入的 SVD：悬停 USART1->CR1 时显示寄存器
+    pub svd: Option<Arc<crate::toolbox::svd::Device>>,
     outline_filter: String,
     pub events: Vec<CodeEvt>,
     sem: Option<Arc<HashMap<String, Kind>>>,
@@ -564,6 +568,7 @@ impl CodeView {
             fwd: vec![],
             pick: None,
             hover: None,
+            svd: None,
             outline_filter: String::new(),
             events: vec![],
             sem: None,
@@ -3318,7 +3323,27 @@ impl CodeView {
                 ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
             }
         } else if let Some(h) = &self.hover {
-            if lang.is_code() && now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down() || i.modifiers.command) {
+            let reg = self.svd.as_ref().filter(|_| lang.is_code()).and_then(|dev| {
+                let before = &self.tabs[active].buf.text[..h.at];
+                let b = before.trim_end();
+                let b = b.strip_suffix("->").or_else(|| b.strip_suffix('.'))?.trim_end();
+                let start = b.rfind(|c: char| !(c.is_alphanumeric() || c == '_')).map_or(0, |p| p + 1);
+                let (p, r) = dev.find(&b[start..], &h.word)?;
+                Some((p.clone(), r.clone()))
+            });
+            if let Some((p, r)) = reg {
+                if now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down()) {
+                    egui::show_tooltip_at(
+                        ui.ctx(),
+                        egui::LayerId::new(egui::Order::Foreground, egui::Id::new("hover-layer")),
+                        egui::Id::new(("svd-hover", h.at)),
+                        h.rect.left_bottom() + vec2(0.0, 4.0),
+                        |ui| svd_card(ui, &p, &r),
+                    );
+                } else {
+                    ui.ctx().request_repaint_after(std::time::Duration::from_millis(120));
+                }
+            } else if lang.is_code() && now - h.since > 0.35 && !ui.input(|i| i.pointer.any_down() || i.modifiers.command) {
                 if let Some(go) = hover_card(ui.ctx(), &h.word, h.rect, idx.as_deref(), &self.tabs[active]) {
                     let b = (go == h.word).then_some(h.at);
                     hover_def = Some((go, h.rect.left_bottom(), b));
@@ -3871,6 +3896,35 @@ impl CodeView {
 // ---------------------------------------------------------------- 悬浮卡片
 
 /// 显示符号信息；宏会展开并尽量算出数值。返回 Some(word) 表示用户点了"跳转"
+/// 悬停寄存器时的卡片：地址、复位值、说明和位域
+fn svd_card(ui: &mut Ui, p: &crate::toolbox::svd::Periph, r: &crate::toolbox::svd::Reg) {
+    ui.set_max_width(560.0);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new(format!("{}->{}", p.name, r.name)).font(FontId::new(13.0, FontFamily::Monospace)).color(TEXT()).strong());
+        ui.label(RichText::new(format!("0x{:08X}", p.base + r.offset)).font(FontId::new(12.5, FontFamily::Monospace)).color(ACCENT()));
+        ui.label(RichText::new(&r.access).small().color(TEXT3()));
+    });
+    if !r.desc.is_empty() {
+        ui.label(RichText::new(&r.desc).small().color(TEXT2()));
+    }
+    ui.label(RichText::new(tf("复位值 0x{}", &[&format!("{:X}", r.reset)])).small().color(TEXT3()));
+    if !r.fields.is_empty() {
+        ui.add_space(4.0);
+        egui::Grid::new("svd_hover_fields").num_columns(3).spacing([12.0, 1.0]).show(ui, |ui| {
+            for f in r.fields.iter().take(24) {
+                let bits = if f.width == 1 { f.lsb.to_string() } else { format!("{}:{}", f.lsb + f.width - 1, f.lsb) };
+                ui.label(RichText::new(bits).font(FontId::new(11.0, FontFamily::Monospace)).color(TEXT3()));
+                ui.label(RichText::new(&f.name).font(FontId::new(11.5, FontFamily::Monospace)).color(VIOLET()));
+                ui.label(RichText::new(truncate(&f.desc, 60)).small().color(TEXT2()));
+                ui.end_row();
+            }
+        });
+        if r.fields.len() > 24 {
+            ui.label(RichText::new(tf("等 {} 个位域", &[&r.fields.len()])).small().color(TEXT3()));
+        }
+    }
+}
+
 fn hover_card(ctx: &egui::Context, word: &str, at: Rect, idx: Option<&Index>, doc: &Doc) -> Option<String> {
     let mut syms: Vec<Sym> = idx.map(|i| i.lookup(word).into_iter().take(3).cloned().collect()).unwrap_or_default();
     if syms.is_empty() {

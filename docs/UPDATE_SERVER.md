@@ -147,3 +147,9 @@ QCCOM_UPDATE_URL=http://127.0.0.1:8000/1.json ./qccom
 ```
 
 用户可以右键下载图标，或用更新卡片上的开关关闭自动检查；手动检查始终可用。
+
+## Troubleshooting
+
+- **"The server's HTTPS certificate does not match the domain"** (on Windows the raw text is *"The target principal name is incorrect"* or, in Chinese, *"证书中的 CN 名称与传递的值不匹配"*): the certificate served for the update host does not list that host name. Issue one that covers every name you use, e.g. `certbot --nginx -d example.com -d www.example.com`, make sure that site uses it with the full chain, and check with `openssl s_client -connect example.com:443 -servername example.com </dev/null | openssl x509 -noout -subject -ext subjectAltName`. The `url` of the download in the JSON must also be covered.
+- **"The server's HTTPS certificate is invalid"**: expired, self-signed or missing intermediate certificates. Opening the JSON URL in a browser shows the same problem.
+- To test against another address without rebuilding, set the environment variable `QCCOM_UPDATE_URL` to the JSON URL.

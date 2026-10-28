@@ -1,4 +1,4 @@
-//! 网络连接：TCP 客户端、TCP 服务器、UDP、MQTT。
+//! 网络连接：TCP 客户端、TCP 服务器、UDP、MQTT、WebSocket（见 ws.rs）。
 //!
 //! 和串口一样各开一个后台线程，通过同一套 Cmd / Evt 和界面通信，
 //! 所以日志、终端、快捷命令、录制这些功能对网络连接全都能用。
@@ -24,6 +24,7 @@ pub enum Transport {
     Udp,
     Mqtt,
     Ble,
+    Ws,
 }
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -73,6 +74,7 @@ pub struct NetConfig {
     pub udp_port: u16,
     pub mqtt: MqttConfig,
     pub ble: crate::ble::BleConfig,
+    pub ws: crate::ws::WsConfig,
 }
 
 impl Default for NetConfig {
@@ -86,6 +88,7 @@ impl Default for NetConfig {
             udp_port: 9000,
             mqtt: MqttConfig::default(),
             ble: Default::default(),
+            ws: Default::default(),
         }
     }
 }
@@ -99,6 +102,7 @@ impl NetConfig {
             Transport::TcpServer => tf("tcp 监听 :{}", &[&self.server_port]),
             Transport::Udp => format!("udp :{} → {}:{}", self.udp_local, self.udp_host.trim(), self.udp_port),
             Transport::Ble => self.ble.label(),
+            Transport::Ws => self.ws.url.trim().to_string(),
             Transport::Mqtt => {
                 let scheme = if self.mqtt.tls { "mqtts" } else { "mqtt" };
                 format!("{scheme}://{}:{}", self.mqtt.host.trim(), self.mqtt.port)
@@ -120,6 +124,7 @@ pub fn open(gen: u64, kind: Transport, cfg: NetConfig, tx: Sender<Evt>, ctx: egu
                 Transport::TcpServer => tcp_server(&io, &cfg, &label),
                 Transport::Udp => udp(&io, &cfg, &label),
                 Transport::Mqtt => mqtt::run(&io, &cfg.mqtt, &label),
+                Transport::Ws => crate::ws::run(&io, &cfg.ws, &label),
                 Transport::Serial | Transport::Ble => Err(t("内部错误").into()),
             };
             io.closed(r.err());
@@ -142,27 +147,27 @@ pub(crate) enum Next {
 }
 
 impl Io {
-    fn send(&self, e: Evt) {
+    pub(crate) fn send(&self, e: Evt) {
         let _ = self.tx.send(e);
         self.ctx.request_repaint_after(Duration::from_millis(33));
     }
-    fn opened(&self, label: &str) {
+    pub(crate) fn opened(&self, label: &str) {
         self.send(Evt::Opened(self.gen, label.to_string()));
     }
-    fn data(&self, d: &[u8]) {
+    pub(crate) fn data(&self, d: &[u8]) {
         self.send(Evt::Data(d.to_vec()));
     }
-    fn packet(&self, tag: String, d: &[u8]) {
+    pub(crate) fn packet(&self, tag: String, d: &[u8]) {
         self.send(Evt::Packet(tag, d.to_vec()));
     }
-    fn sys(&self, s: impl Into<String>) {
+    pub(crate) fn sys(&self, s: impl Into<String>) {
         self.send(Evt::Sys(s.into()));
     }
-    fn closed(&self, err: Option<String>) {
+    pub(crate) fn closed(&self, err: Option<String>) {
         let _ = self.tx.send(Evt::Closed(self.gen, err));
         self.ctx.request_repaint();
     }
-    fn next(&self) -> Next {
+    pub(crate) fn next(&self) -> Next {
         match self.cmd.try_recv() {
             Ok(Cmd::Close) | Err(TryRecvError::Disconnected) => Next::Quit,
             Ok(c) => Next::Cmd(c),
@@ -194,7 +199,7 @@ pub(crate) fn connect_tcp(host: &str, port: u16) -> Result<TcpStream, String> {
     Ok(s)
 }
 
-fn is_timeout(e: &io::Error) -> bool {
+pub(crate) fn is_timeout(e: &io::Error) -> bool {
     matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted)
 }
 

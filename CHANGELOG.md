@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.4.0
+
+The network tools move into the Toolbox, and every connection can be open at the same time.
+
+- **All connections at once**: the serial port, TCP, UDP, MQTT, BLE and WebSocket each keep their own connection, log, terminal, statistics and recording. Background connections keep receiving and reconnecting; the status bar lists every live connection (a dot flashes on new data) and a click jumps to it.
+- **Toolbox reorganized**: a *Communication* group at the top with TCP (client / server), UDP, MQTT, Bluetooth LE, WebSocket, HTTP API and Modbus slave; the Debug page is now just the serial port. Search the tool list (Enter opens the first match), right-click a tool to pin it to *Favorites*, and open any tool from the command palette.
+- **WebSocket client**: `ws://` and `wss://`, text or binary frames, keep-alive pings, extra headers (e.g. `Authorization`).
+- **Modbus slave**: simulate a Modbus TCP or RTU device; edit holding / input registers, coils and discrete inputs in a grid and see every request from the master.
+- **MQTT broker**: run a broker on this computer (MQTT 3.1.1, wildcards, retained messages, last will, optional user name / password). Lists clients and their subscriptions, shows every message, publishes from the page, and connects the MQTT tool to it with one click.
+- **Syslog receiver**: RFC 3164 / 5424 over UDP with severity colors, host and program filters.
+- **Ping / ports**: continuous ping with a latency chart and loss rate; TCP port check over lists and ranges.
+- **Subnet calculator**, **timestamp converter**, **regex tester** (highlighting, groups, replace), **color converter** (RGB888 / RGB565 / HSV), **ASCII table**.
+- **Checksums**: SUM / XOR / LRC and 14 CRC presets at once, plus a fully custom CRC (width, polynomial, init, reflect in / out, xor out).
+- **Font & image to C**: text in any TTF / TTC font or an image (PNG / JPG / BMP / GIF) to a monochrome bitmap or RGB565 / RGB888 / gray array, with row, column and page (SSD1306) scan modes, bit order, inverse, dithering and a live preview.
+
 ## 1.3.0
 
 Code editor upgrades for reading and writing firmware, and one shared project folder.

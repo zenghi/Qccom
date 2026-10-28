@@ -14,6 +14,7 @@ pub(super) enum Item {
     Lang(usize),
     LangAuto,
     Prefs(prefs::Cat),
+    Tool(toolbox::Tool),
 }
 
 #[derive(Default)]
@@ -48,6 +49,7 @@ impl App {
             Item::Lang(i) => (t("语言").to_string(), i18n::LANGS[i].1.to_string(), String::new()),
             Item::LangAuto => (t("语言").to_string(), t("跟随系统").to_string(), String::new()),
             Item::Prefs(c) => (t("设置").to_string(), c.label().to_string(), String::new()),
+            Item::Tool(tool) => (t("工具箱").to_string(), toolbox::tool_text(tool).0.to_string(), String::new()),
         }
     }
 
@@ -62,6 +64,7 @@ impl App {
         v.push(Item::LangAuto);
         v.extend((0..i18n::LANGS.len()).map(Item::Lang));
         v.extend(prefs::Cat::ALL.iter().map(|c| Item::Prefs(*c)));
+        v.extend(toolbox::groups().iter().flat_map(|g| g.1.iter()).map(|t| Item::Tool(*t)));
         v
     }
 
@@ -213,6 +216,7 @@ impl App {
                 i18n::apply("auto");
             }
             Item::Prefs(c) => self.open_settings(c),
+            Item::Tool(tool) => self.open_tool(tool),
         }
     }
 }
@@ -224,6 +228,7 @@ fn item_key(it: Item) -> String {
         Item::Lang(i) => format!("lang.{}", i18n::LANGS[i].0),
         Item::LangAuto => "lang.auto".into(),
         Item::Prefs(c) => format!("prefs.{}", c.id()),
+        Item::Tool(tool) => format!("tool.{tool:?}"),
     }
 }
 

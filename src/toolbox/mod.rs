@@ -1,12 +1,20 @@
-//! 工具箱的后台部分：TFTP / HTTP 文件服务器、局域网发现、数据转换、波特率计算、SLCAN、USB HID。
+//! 工具箱的后台部分：TFTP / HTTP 文件服务器、Syslog、MQTT 服务器、Modbus 从站、局域网发现、Ping、
+//! 数据转换、波特率 / CRC / 子网计算、取模、SLCAN、USB HID。
 //! 界面在 app/toolbox.rs。
 
 pub mod baud;
+pub mod bitmap;
+pub mod broker;
 pub mod conv;
+pub mod crc;
 pub mod discover;
 pub mod hid;
 pub mod httpd;
+pub mod mbslave;
+pub mod netcalc;
+pub mod ping;
 pub mod slcan;
+pub mod syslog;
 pub mod tftp;
 
 use std::path::{Component, Path, PathBuf};

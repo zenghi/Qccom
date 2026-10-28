@@ -22,7 +22,7 @@
 
 ![QCCOM log view](docs/screenshot.png)
 
-QCCOM is a single portable executable (about 4 MB on Windows) written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
+QCCOM is a single portable executable (about 8 MB on Windows) written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
 
 ## Highlights
 
@@ -31,7 +31,7 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Linux-terminal style logs.** ANSI colors (16 / 256 / true color), automatic level coloring for `[ERROR]`, `E (123) tag:`, `E/tag:`, `<err>` and similar formats, millisecond timestamps, keyword highlighting, search, level filter, text / HEX / mixed views.
 - **Encodings:** UTF-8, GBK / GB2312, ASCII and Latin-1. Switching re-decodes the existing history instantly.
 - **Full terminal mode.** VT100 / xterm emulation for U-Boot and Linux shells. vi, top, less and menuconfig all render correctly, with scrollback, mouse selection and copy / paste.
-- **Network transports.** TCP client, TCP server (multiple clients), UDP and MQTT 3.1.1 (TLS, user / password, QoS 0–2, retain, multiple subscriptions). Every log, terminal and quick-command feature works the same over the network.
+- **Network transports, all at once.** TCP client, TCP server (multiple clients), UDP, MQTT 3.1.1 (TLS, user / password, QoS 0–2, retain, multiple subscriptions) and WebSocket. The serial port and every network connection can be open at the same time, each with its own log; the status bar shows what is online. Every log, terminal and quick-command feature works the same over the network.
 - **Bluetooth LE.** Scan nearby devices with signal bars, connect, browse services and characteristics, subscribe to notifications, read values and write from the command bar. Nordic UART, HM-10 (FFE0) and similar serial-over-BLE modules are picked up automatically.
 - **HTTP API testing.** A Postman-style **API** tab for the REST endpoints on your board: methods, params, headers, JSON / form / text bodies, Bearer / Basic auth, `{{variables}}`, saved requests and history, colored JSON responses, and cURL import / export (paste a "Copy as cURL" straight into the URL bar).
 - **Quick commands.** Groups of one-click commands (text or HEX) with per-command line endings, `Alt+1…9` hotkeys and "send the whole group" sequencing.
@@ -43,7 +43,7 @@ QCCOM is a single portable executable (about 4 MB on Windows) written in Rust wi
 - **Built-in terminal, find / replace, split view.** A terminal panel (PowerShell, cmd, Git Bash, bash…) with clickable `file:line`, regex find and replace in a file or across the project with preview, split editor, Git change bars and inline blame, auto-reload, crash recovery and portable mode.
 - **Firmware tools.** Map / ELF / HEX / BIN viewers with memory-usage bars and a byte inspector, text and binary file compare, a bit calculator with field extraction, number hovers, code snippets, a TODO panel, Kconfig / device tree / linker-script highlighting and optional Vim keys.
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
-- **Toolbox** (`Ctrl+Shift+B`). TFTP and HTTP file servers, LAN device discovery (mDNS + port scan), a data converter (HEX / text / Base64 / C array / numbers), a UART baud-rate calculator, CAN over SLCAN adapters and USB HID reports.
+- **Toolbox** (`Ctrl+Shift+B`). All the communication tools (TCP, UDP, MQTT, BLE, WebSocket, HTTP API, Modbus slave) plus TFTP / HTTP file servers, a local MQTT broker, a Syslog receiver, LAN device discovery, ping and port check, a subnet calculator, a data converter, checksums with custom CRC, timestamps, a regex tester, font / image to C arrays, a color converter, an ASCII table, a UART baud-rate calculator, CAN over SLCAN adapters and USB HID. Searchable, with favorites, and every tool is in the command palette.
 - **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
 - **Self-update** from your own server, with SHA-256 verification. See [docs/UPDATE_SERVER.md](docs/UPDATE_SERVER.md).
 - **Dark and light themes** (or follow the system), a searchable **command palette** (`Ctrl+Shift+P`), a settings page, and **fully customizable keyboard shortcuts** including two-step sequences.
@@ -135,7 +135,8 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/net.rs` | TCP client / server, UDP, a small MQTT 3.1.1 client |
 | `src/ble.rs`, `src/app/blex.rs` | Bluetooth LE (btleplug): scanning, GATT, notifications; BLE sidebar |
 | `src/api.rs`, `src/app/apiview.rs` | HTTP requests, variables, cURL import / export, JSON formatting; API tab |
-| `src/toolbox/`, `src/app/toolbox.rs` | TFTP / HTTP servers, discovery, converter, baud calculator, SLCAN, HID; Toolbox page |
+| `src/toolbox/`, `src/app/toolbox.rs`, `src/app/toolbox2.rs` | TFTP / HTTP servers, discovery, converter, baud calculator, SLCAN, HID, CRC, subnet, Syslog, ping, MQTT broker, Modbus slave, bitmap encoding; Toolbox page |
+| `src/app/sess.rs`, `src/ws.rs` | Simultaneous connections (one session per transport); WebSocket client |
 | `src/logbuf.rs` | Line splitting, decoding, ANSI parsing, log-level detection |
 | `src/term.rs` | VT100 / xterm terminal emulator |
 | `src/cmds.rs` | Quick-command panel |

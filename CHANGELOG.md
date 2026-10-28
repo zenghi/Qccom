@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.7.0
+
+SSH / Telnet, a much stronger terminal panel, faster log navigation, and appearance options.
+
+- **SSH / Telnet** (Toolbox → Communication): type `pi@192.168.1.5`, `root@10.0.0.2:2222` or `telnet://192.168.1.1` and press Enter; the host is saved on the left. Several sessions stay open as tabs. SSH uses the system OpenSSH, so keys, `ssh-agent` and `~/.ssh/config` all work, and passwords are typed in the terminal and never stored. Drop files or folders on an SSH terminal to upload them (scp, falls back to the legacy protocol on servers without SFTP); *Download…* fetches a remote path. Each host can have a key, an upload folder, extra arguments and commands to run after login. Saved hosts are also in the command palette. Telnet negotiates terminal type and window size.
+- **Terminal panel**
+  - **Tasks**: buttons in the panel header run a command in the current terminal (defaults: build `make -j8`, flash `make flash`, clean `make clean`; right-click to edit).
+  - **Problems**: GCC / Clang, Keil / MSVC and IAR errors and warnings in the output are counted in a badge; click it for the list and click an item to open the file at that line.
+  - **Command blocks**: every command you run gets a mark in the margin. Click a mark to copy that command and its output, `Ctrl+↑ / ↓` jump between commands.
+  - **Find** (`Ctrl+F`) in the terminal output, *Save output…*, and `Ctrl+wheel` zoom.
+  - **Tabs**: double-click to rename, right-click for a color, and split two terminals side by side.
+  - A notification when a long command finishes while QCCOM is in the background.
+  - Files dropped on the panel are inserted as paths (quoted when they contain spaces).
+  - **Chinese text no longer garbled**: the shell starts with a UTF-8 locale (`LANG`, `LESSCHARSET`, `chcp 65001` / UTF-8 console in PowerShell and cmd, `git core.quotepath=false`).
+- **Log navigation**: `Alt+wheel` scrolls 10× faster; `PgUp / PgDn` and `Ctrl+Home / End` work in the log; middle-click starts auto-scrolling; the scrollbar shows where errors, warnings, search hits and bookmarks are (click to jump); `Ctrl+G` jumps to a time such as `12:30:05`; *Back to latest* shows how many lines arrived meanwhile.
+- **Merged log**: with more than one connection online, **⋯ → Merged log (all connections)** shows the recent lines of all of them in one time-ordered view with a colored source tag.
+- **Quick commands** can be pinned to a connection (serial, TCP, UDP, MQTT…), so they go to the right place when several are open.
+- **Sidebar groups** (Device, Baud rate, Link, Display) collapse with a click and show a one-line summary; right-click to collapse or expand all.
+- **Background images** for the code editor, the terminal panel and the serial terminal (Settings → Appearance): one image for all or one each, opacity, fill / fit / tile / corner / fade-from-left. *Hide / show background image* is in the command palette.
+- **Title bar follows the theme** on Windows 10 / 11 (dark title bar; on Windows 11 the caption, text and border use the theme colors).
+- **Updates** now come from `https://www.zenghi.com/`. When a check fails, the full error is copied to the clipboard for reporting.
+
 ## 1.6.0
 
 Sixteen embedded tools in four new Toolbox groups: *Firmware*, *Chip & project*, *Hardware calculators* and *Data & protocols*.

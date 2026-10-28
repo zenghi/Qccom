@@ -118,7 +118,7 @@ fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mu
 fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
         Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "系统右键菜单", "命令面板"],
-        Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号"],
+        Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号", "背景图片", "不透明度", "显示方式"],
         Cat::Log => &[
             "时间戳",
             "行号",
@@ -373,6 +373,82 @@ impl App {
                 });
             }
         });
+        self.prefs_background(ui, q);
+    }
+
+    /// 背景图片：编辑器、底部终端、串口终端
+    fn prefs_background(&mut self, ui: &mut egui::Ui, q: &str) {
+        use crate::bgimg::Fit;
+        let mut toast = None;
+        let pick = |path: &mut String, toast: &mut Option<(String, Color32)>| {
+            if let Some(f) = rfd::FileDialog::new().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
+                match crate::bgimg::import(&f) {
+                    Ok(p) => *path = p.to_string_lossy().into_owned(),
+                    Err(e) => *toast = Some((e, ERR())),
+                }
+            }
+        };
+        let img_row = |ui: &mut egui::Ui, path: &mut String, toast: &mut Option<(String, Color32)>| {
+            // 这一行是从右往左排的：按钮在最右，文件名在左
+            ui.horizontal(|ui| {
+                if ui.button(if path.is_empty() { t("选择图片…") } else { t("更换…") }).clicked() {
+                    pick(path, toast);
+                }
+                if !path.is_empty() {
+                    if ui.small_button("×").on_hover_text(t("移除")).clicked() {
+                        path.clear();
+                        return;
+                    }
+                    let name = std::path::Path::new(path.as_str()).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+                    // 导入时加了时间戳前缀，显示时去掉
+                    let name = name.split_once('-').map(|(_, n)| n.to_string()).unwrap_or(name);
+                    ui.label(RichText::new(truncate(&name, 24)).monospace().size(12.0).color(TEXT2()));
+                }
+            });
+        };
+        let bg = &mut self.s.bg;
+        row(ui, q, t("背景图片"), t("给代码编辑器和终端加一张背景图，文字照常清晰"), |ui| {
+            switch(ui, &mut bg.on);
+        });
+        if bg.on {
+            row(ui, q, t("三处共用一张"), t("关掉后可以给编辑器、底部终端、串口终端分别选图"), |ui| {
+                switch(ui, &mut bg.same);
+            });
+            if bg.same {
+                row(ui, q, t("图片"), "", |ui| img_row(ui, &mut bg.editor, &mut toast));
+            } else {
+                row(ui, q, t("代码编辑器"), "", |ui| img_row(ui, &mut bg.editor, &mut toast));
+                row(ui, q, t("底部终端"), "", |ui| img_row(ui, &mut bg.shell, &mut toast));
+                row(ui, q, t("串口终端"), "", |ui| img_row(ui, &mut bg.serial, &mut toast));
+            }
+            row(ui, q, t("不透明度"), t("越低文字越清楚，一般 10%–25%"), |ui| {
+                let mut pct = (bg.opacity * 100.0).round() as i32;
+                if ui.add(egui::Slider::new(&mut pct, 3..=60).suffix("%")).changed() {
+                    bg.opacity = pct as f32 / 100.0;
+                }
+            });
+            row(ui, q, t("显示方式"), "", |ui| {
+                egui::ComboBox::from_id_salt("bg_fit")
+                    .selected_text(match bg.fit {
+                        Fit::Cover => t("铺满"),
+                        Fit::Contain => t("居中完整显示"),
+                        Fit::Tile => t("平铺"),
+                        Fit::Corner => t("右下角"),
+                    })
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut bg.fit, Fit::Cover, t("铺满"));
+                        ui.selectable_value(&mut bg.fit, Fit::Contain, t("居中完整显示"));
+                        ui.selectable_value(&mut bg.fit, Fit::Tile, t("平铺"));
+                        ui.selectable_value(&mut bg.fit, Fit::Corner, t("右下角"));
+                    });
+            });
+            row(ui, q, t("左侧渐隐"), t("从左往右渐渐露出图片，代码所在的左侧更干净"), |ui| {
+                switch(ui, &mut bg.fade);
+            });
+        }
+        if let Some((m, c)) = toast {
+            self.toast(m, c);
+        }
     }
 
     fn prefs_log(&mut self, ui: &mut egui::Ui, q: &str) {

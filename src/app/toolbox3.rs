@@ -233,6 +233,9 @@ impl App {
 
     /// 拖进工具箱页的文件交给当前工具
     pub(super) fn tool_drop(&mut self, p: PathBuf) {
+        if self.s.tb.tool == Tool::Ssh {
+            return self.ssh_drop(vec![p]);
+        }
         let s = p.to_string_lossy().into_owned();
         let c = &mut self.s.tb.z;
         match self.s.tb.tool {

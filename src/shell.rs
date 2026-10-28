@@ -63,7 +63,54 @@ pub fn detect() -> Vec<ShellKind> {
     v
 }
 
-fn which(exe: &str) -> Option<PathBuf> {
+/// 终端按 UTF-8 显示，shell 和里面的程序也要输出 UTF-8，否则 less（git log 的分页器）
+/// 会把中文显示成 <E4><B8><AD>，git 会把中文文件名转义成 \346\226\207
+fn utf8_env(cmd: &mut CommandBuilder) {
+    let utf8 = |k: &str| std::env::var(k).map(|v| v.to_ascii_uppercase().replace('-', "").contains("UTF8")).unwrap_or(false);
+    // LC_ALL 优先级最高，设了但不是 UTF-8 时要盖掉
+    if std::env::var_os("LC_ALL").is_some() && !utf8("LC_ALL") {
+        cmd.env("LC_ALL", "C.UTF-8");
+    }
+    if !utf8("LANG") {
+        // Git Bash（MSYS）和大多数 Linux 发行版都认 C.UTF-8；中文环境用 zh_CN.UTF-8 让程序输出中文提示
+        let lang = match crate::i18n::current() {
+            0 if cfg!(windows) => "zh_CN.UTF-8",
+            2 if cfg!(windows) => "zh_TW.UTF-8",
+            _ => "C.UTF-8",
+        };
+        cmd.env("LANG", lang);
+    }
+    if std::env::var_os("LC_CTYPE").is_some() && !utf8("LC_CTYPE") {
+        cmd.env("LC_CTYPE", "C.UTF-8");
+    }
+    cmd.env("LESSCHARSET", "utf-8");
+    // git 的中文文件名不转义（不改用户的 git 配置，只对这个终端生效；git 2.31 起支持）
+    if std::env::var_os("GIT_CONFIG_COUNT").is_none() {
+        cmd.env("GIT_CONFIG_COUNT", "1");
+        cmd.env("GIT_CONFIG_KEY_0", "core.quotepath");
+        cmd.env("GIT_CONFIG_VALUE_0", "false");
+    }
+}
+
+/// Windows 的 cmd / PowerShell 默认用系统代码页（中文系统是 936），先切到 UTF-8（65001）
+fn utf8_args(cmd: &mut CommandBuilder, program: &str) {
+    let exe = Path::new(program).file_name().map(|f| f.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
+    match exe.as_str() {
+        "cmd.exe" | "cmd" => {
+            cmd.args(["/K", "chcp 65001 >nul"]);
+        }
+        "powershell.exe" | "pwsh.exe" | "powershell" | "pwsh" => {
+            cmd.args([
+                "-NoExit",
+                "-Command",
+                "chcp 65001 > $null; [Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false",
+            ]);
+        }
+        _ => {}
+    }
+}
+
+pub fn which(exe: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
     std::env::split_paths(&path).map(|d| d.join(exe)).find(|p| p.is_file())
 }
@@ -77,6 +124,14 @@ pub struct Shell {
     rx: Receiver<Vec<u8>>,
     pub exited: Option<u32>,
     pub cwd: PathBuf,
+    /// SSH 会话：退出提示改成「重新连接」
+    pub remote: bool,
+    /// 标签颜色（TAB_COLORS 的下标，0 = 不着色）
+    pub color: usize,
+    /// 后台标签里的长命令跑完了，标签上亮一个点
+    pub attn: bool,
+    /// 启动用的 shell 类型名（标签可以改名，重启时按这个找）
+    kind: String,
 }
 
 impl Shell {
@@ -92,9 +147,11 @@ impl Shell {
             .map_err(|e| e.to_string())?;
         let mut cmd = CommandBuilder::new(&kind.program);
         cmd.args(&kind.args);
+        utf8_args(&mut cmd, &kind.program);
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
+        utf8_env(&mut cmd);
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -121,6 +178,8 @@ impl Shell {
             .map_err(|e| e.to_string())?;
         let mut tv = TermView::new(("shell", n), cols as usize, rows as usize);
         tv.focus_req = true;
+        tv.bg = crate::bgimg::Slot::Shell;
+        tv.blocks = true;
         Ok(Shell {
             title: kind.name.clone(),
             tv,
@@ -130,10 +189,14 @@ impl Shell {
             rx,
             exited: None,
             cwd: cwd.to_path_buf(),
+            remote: false,
+            color: 0,
+            attn: false,
+            kind: kind.name.clone(),
         })
     }
 
-    fn poll(&mut self) {
+    pub fn poll(&mut self) {
         while let Ok(d) = self.rx.try_recv() {
             let reply = self.tv.feed(&d);
             if !reply.is_empty() {
@@ -147,18 +210,23 @@ impl Shell {
                 while let Ok(d) = self.rx.try_recv() {
                     self.tv.feed(&d);
                 }
-                let msg = format!("\r\n\x1b[2m[{}]\x1b[0m\r\n", tf("进程已退出，代码 {}。按回车重新启动", &[&st.exit_code()]));
+                let msg = if self.remote {
+                    tf("连接已断开（代码 {}）。按回车重新连接", &[&st.exit_code()])
+                } else {
+                    tf("进程已退出，代码 {}。按回车重新启动", &[&st.exit_code()])
+                };
+                let msg = format!("\r\n\x1b[2m[{msg}]\x1b[0m\r\n");
                 self.tv.feed(msg.as_bytes());
             }
         }
     }
 
-    fn write(&mut self, d: &[u8]) {
+    pub fn write(&mut self, d: &[u8]) {
         let _ = self.writer.write_all(d);
         let _ = self.writer.flush();
     }
 
-    fn sync_size(&mut self) {
+    pub fn sync_size(&mut self) {
         let s = &self.tv.term.s;
         let want = (s.cols as u16, s.rows as u16);
         if let Ok(cur) = self.master.get_size() {
@@ -189,20 +257,99 @@ pub struct ShellSettings {
     pub height: f32,
     /// 默认 shell 的名字（空 = 检测到的第一个）
     pub default: String,
+    /// 面板头部的任务按钮（编译、烧录、清理…）
+    pub tasks: Vec<Task>,
+}
+
+#[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
+#[serde(default)]
+pub struct Task {
+    pub name: String,
+    pub cmd: String,
 }
 
 impl Default for ShellSettings {
     fn default() -> Self {
+        let task = |n: &str, c: &str| Task { name: n.into(), cmd: c.into() };
         Self {
             open: false,
             height: 260.0,
             default: String::new(),
+            tasks: vec![task("编译", "make -j8"), task("烧录", "make flash"), task("清理", "make clean")],
         }
     }
 }
 
+/// 编译输出里的一条错误 / 警告
+#[derive(Clone, PartialEq, Debug)]
+pub struct Problem {
+    pub file: String,
+    pub line: usize,
+    pub error: bool,
+    pub msg: String,
+}
+
+/// 从编译输出里找错误和警告：GCC / Clang / armclang、Keil armcc、IAR、MSVC
+pub fn parse_problems(text: &str) -> Vec<Problem> {
+    use std::sync::OnceLock;
+    static RE: OnceLock<[regex_lite::Regex; 3]> = OnceLock::new();
+    let re = RE.get_or_init(|| {
+        [
+            // src/main.c:12:5: error: ...
+            regex_lite::Regex::new(r"^(.+?):(\d+):(?:\d+:)?\s*(fatal error|error|warning):\s*(.*)$").unwrap(),
+            // main.c(42): error: #20: ...   /  main.c(42,7): error C2065: ...
+            regex_lite::Regex::new(r#"^"?(.+?)"?\((\d+)(?:,\d+)?\)\s*:\s*(fatal error|error|warning)\s*[A-Z]*\d*\s*:?\s*(.*)$"#).unwrap(),
+            // "main.c",42  Error[Pe020]: ...
+            regex_lite::Regex::new(r#"^"(.+?)",(\d+)\s+(Fatal error|Error|Warning)\[\w+\]:\s*(.*)$"#).unwrap(),
+        ]
+    });
+    let mut out: Vec<Problem> = vec![];
+    for l in text.lines() {
+        let l = l.trim();
+        for r in re.iter() {
+            if let Some(c) = r.captures(l) {
+                let file = c[1].trim().to_string();
+                // 命令行回显（提示符 + 命令）里也会出现「文件:行」，文件名带空白的不算
+                if file.contains(char::is_whitespace) {
+                    break;
+                }
+                let line = c[2].parse().unwrap_or(0);
+                let p = Problem {
+                    file,
+                    line,
+                    error: !c[3].to_ascii_lowercase().starts_with("warning"),
+                    msg: c[4].trim().to_string(),
+                };
+                if line > 0 && !out.contains(&p) {
+                    out.push(p);
+                }
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// 标签可选的颜色
+pub const TAB_COLORS: [(u8, u8, u8); 7] = [
+    (0, 0, 0),
+    (0xf8, 0x71, 0x71),
+    (0xfb, 0x92, 0x3c),
+    (0xfa, 0xcc, 0x15),
+    (0x4a, 0xde, 0x80),
+    (0x60, 0xa5, 0xfa),
+    (0xc0, 0x84, 0xfc),
+];
+
+fn tab_color(i: usize) -> Option<egui::Color32> {
+    let (r, g, b) = *TAB_COLORS.get(i).filter(|_| i > 0)?;
+    Some(egui::Color32::from_rgb(r, g, b))
+}
+
 pub enum ShellEvt {
     Toast(&'static str),
+    /// 后台的长命令跑完了：(标签名, 用时)
+    Done(String, std::time::Duration),
     /// Ctrl+点击了 `文件:行号`
     Open(PathBuf, usize),
 }
@@ -215,6 +362,16 @@ pub struct Shells {
     next_id: usize,
     pub events: Vec<ShellEvt>,
     maximized: bool,
+    /// 右半边显示的标签
+    split: Option<usize>,
+    rename: Option<(usize, String)>,
+    /// 当前标签的编译问题，以及从哪一行开始找（按任务按钮时记下）
+    pub problems: Vec<Problem>,
+    prob_from: Option<(usize, u64)>,
+    prob_at: Option<std::time::Instant>,
+    /// 面板在屏幕上的位置（拖文件进来时判断）
+    pub rect: Option<Rect>,
+    edit_tasks: bool,
 }
 
 impl Shells {
@@ -227,7 +384,61 @@ impl Shells {
             next_id: 0,
             events: vec![],
             maximized: false,
+            split: None,
+            rename: None,
+            problems: vec![],
+            prob_from: None,
+            prob_at: None,
+            rect: None,
+            edit_tasks: false,
         }
+    }
+
+    /// 拖文件到终端面板上：把路径插到命令行里（有空格的加引号）
+    pub fn insert_paths(&mut self, paths: &[PathBuf]) {
+        let Some(sh) = self.tabs.get_mut(self.active) else { return };
+        let text: Vec<String> = paths
+            .iter()
+            .map(|p| {
+                let s = p.to_string_lossy().into_owned();
+                if s.contains(' ') {
+                    format!("\"{s}\"")
+                } else {
+                    s
+                }
+            })
+            .collect();
+        sh.write(format!("{} ", text.join(" ")).as_bytes());
+        sh.tv.focus_req = true;
+    }
+
+    /// 运行任务按钮：在当前终端（没有就新开一个）里输入命令
+    fn run_task(&mut self, ctx: &egui::Context, cwd: &Path, cmd: &str) {
+        if self.tabs.get(self.active).is_none_or(|s| s.exited.is_some()) {
+            self.new_shell(ctx, None, cwd);
+        }
+        let Some(sh) = self.tabs.get_mut(self.active) else { return };
+        self.prob_from = Some((self.active, sh.tv.cursor_row()));
+        self.problems.clear();
+        sh.write(format!("{cmd}\r").as_bytes());
+        sh.tv.focus_req = true;
+        self.s.open = true;
+    }
+
+    fn refresh_problems(&mut self) {
+        if self.prob_at.is_some_and(|t| t.elapsed() < std::time::Duration::from_millis(800)) {
+            return;
+        }
+        self.prob_at = Some(std::time::Instant::now());
+        let Some(sh) = self.tabs.get(self.active) else {
+            self.problems.clear();
+            return;
+        };
+        let from = match self.prob_from {
+            Some((i, row)) if i == self.active => row,
+            _ => 0,
+        };
+        self.problems = parse_problems(&sh.tv.text_since(from));
     }
 
     pub fn kinds(&mut self) -> &[ShellKind] {
@@ -279,6 +490,12 @@ impl Shells {
     fn close(&mut self, i: usize) {
         if i < self.tabs.len() {
             self.tabs.remove(i);
+            self.split = match self.split {
+                Some(j) if j == i => None,
+                Some(j) if j > i => Some(j - 1),
+                x => x,
+            };
+            self.prob_from = None;
             if self.active >= self.tabs.len() {
                 self.active = self.tabs.len().saturating_sub(1);
             }
@@ -289,14 +506,22 @@ impl Shells {
     }
 
     /// 每帧调用：读 shell 输出（面板收起时也要读，避免缓冲区堆满）
-    pub fn poll(&mut self) {
-        for sh in &mut self.tabs {
+    pub fn poll(&mut self, window_focused: bool) {
+        for (i, sh) in self.tabs.iter_mut().enumerate() {
             sh.poll();
+            if let Some(d) = sh.tv.take_done() {
+                let visible = self.s.open && (i == self.active || self.split == Some(i));
+                if !visible || !window_focused {
+                    sh.attn = !visible;
+                    self.events.push(ShellEvt::Done(sh.title.clone(), d));
+                }
+            }
         }
     }
 
     pub fn ui(&mut self, ctx: &egui::Context, cwd: &Path) {
         if !self.s.open {
+            self.rect = None;
             return;
         }
         let avail = ctx.available_rect().height();
@@ -312,38 +537,35 @@ impl Shells {
             .show(ctx, |ui| {
                 ui.set_min_height(ui.available_height());
                 self.header(ui, cwd);
-                let mut restart = false;
-                if let Some(sh) = self.tabs.get_mut(self.active) {
-                    let rect = ui.available_rect_before_wrap().shrink2(vec2(6.0, 4.0));
-                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-                    let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true);
-                    sh.sync_size();
-                    if sh.exited.is_some() {
-                        // 进程退出后按回车重新启动同一个 shell
-                        restart = o.input.contains(&b'\r');
-                    } else if !o.input.is_empty() {
-                        sh.write(&o.input);
-                    }
-                    if let Some(m) = o.toast {
-                        self.events.push(ShellEvt::Toast(m));
-                    }
-                    if let Some((f, line)) = o.open {
-                        let base = self.tabs.get(self.active).map(|s| s.cwd.clone()).unwrap_or_default();
-                        let p = if Path::new(&f).is_absolute() { PathBuf::from(&f) } else { base.join(&f) };
-                        if p.is_file() {
-                            self.events.push(ShellEvt::Open(p, line.saturating_sub(1)));
-                        } else {
-                            self.events.push(ShellEvt::Toast(t("找不到这个文件")));
-                        }
-                    }
+                let rect = ui.available_rect_before_wrap().shrink2(vec2(6.0, 4.0));
+                self.rect = Some(ui.max_rect());
+                if self.split.is_some_and(|j| j == self.active || j >= self.tabs.len()) {
+                    self.split = None;
                 }
-                if restart {
-                    let (title, cwd) = (self.tabs[self.active].title.clone(), self.tabs[self.active].cwd.clone());
-                    if let Some(kind) = self.kinds().iter().find(|k| k.name == title).cloned() {
-                        self.next_id += 1;
-                        match Shell::spawn(ui.ctx(), &kind, &cwd, self.next_id) {
-                            Ok(new) => self.tabs[self.active] = new,
-                            Err(_) => self.events.push(ShellEvt::Toast(t("启动失败"))),
+                let panes: Vec<(usize, Rect)> = match self.split {
+                    Some(j) => {
+                        let mid = rect.center().x;
+                        vec![
+                            (self.active, Rect::from_min_max(rect.min, pos2(mid - 3.0, rect.max.y))),
+                            (j, Rect::from_min_max(pos2(mid + 3.0, rect.min.y), rect.max)),
+                        ]
+                    }
+                    None => vec![(self.active, rect)],
+                };
+                for (i, r) in panes {
+                    if self.show_tab(ui, i, r) {
+                        let old = &self.tabs[i];
+                        let (kname, title, color, cwd) = (old.kind.clone(), old.title.clone(), old.color, old.cwd.clone());
+                        if let Some(kind) = self.kinds().iter().find(|k| k.name == kname).cloned() {
+                            self.next_id += 1;
+                            match Shell::spawn(ui.ctx(), &kind, &cwd, self.next_id) {
+                                Ok(mut new) => {
+                                    new.title = title;
+                                    new.color = color;
+                                    self.tabs[i] = new;
+                                }
+                                Err(_) => self.events.push(ShellEvt::Toast(t("启动失败"))),
+                            }
                         }
                     }
                 }
@@ -353,11 +575,89 @@ impl Shells {
         }
     }
 
+    fn tasks_window(&mut self, ctx: &egui::Context) {
+        if !self.edit_tasks {
+            return;
+        }
+        let mut open = true;
+        let mut del = None;
+        egui::Window::new(t("任务按钮"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_width(460.0);
+                ui.label(
+                    RichText::new(t("终端面板头部的按钮：点一下就在当前终端里执行命令，输出里的错误和警告会列在「问题」里"))
+                        .size(11.5)
+                        .color(TEXT3()),
+                );
+                ui.add_space(6.0);
+                for (k, tk) in self.s.tasks.iter_mut().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.add_sized(vec2(80.0, 24.0), egui::TextEdit::singleline(&mut tk.name).hint_text(t("名称")));
+                        ui.add_sized(vec2(320.0, 24.0), egui::TextEdit::singleline(&mut tk.cmd).hint_text("make -j8").font(egui::TextStyle::Monospace));
+                        if icon_button(ui, Icon::Close, t("删除"), false).clicked() {
+                            del = Some(k);
+                        }
+                    });
+                }
+                if ui.button(t("+ 添加任务")).clicked() {
+                    self.s.tasks.push(Task::default());
+                }
+            });
+        if let Some(k) = del {
+            self.s.tasks.remove(k);
+        }
+        if !open {
+            self.s.tasks.retain(|t| !t.name.trim().is_empty() && !t.cmd.trim().is_empty());
+            self.edit_tasks = false;
+        }
+    }
+
+    /// 画一个标签的终端；返回 true 表示进程已退出、用户按了回车要重启
+    fn show_tab(&mut self, ui: &mut egui::Ui, i: usize, rect: Rect) -> bool {
+        let Some(sh) = self.tabs.get_mut(i) else { return false };
+        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true);
+        sh.sync_size();
+        if o.focused {
+            sh.attn = false;
+            if i != self.active {
+                // 点了右半边：它变成当前标签，原来的当前标签挪到右边
+                self.split = Some(self.active);
+                self.active = i;
+            }
+        }
+        let sh = &mut self.tabs[i];
+        let mut restart = false;
+        if sh.exited.is_some() {
+            restart = o.input.contains(&b'\r');
+        } else if !o.input.is_empty() {
+            sh.write(&o.input);
+        }
+        if let Some(m) = o.toast {
+            self.events.push(ShellEvt::Toast(m));
+        }
+        if let Some((f, line)) = o.open {
+            let base = self.tabs.get(i).map(|s| s.cwd.clone()).unwrap_or_default();
+            let p = if Path::new(&f).is_absolute() { PathBuf::from(&f) } else { base.join(&f) };
+            if p.is_file() {
+                self.events.push(ShellEvt::Open(p, line.saturating_sub(1)));
+            } else {
+                self.events.push(ShellEvt::Toast(t("找不到这个文件")));
+            }
+        }
+        restart
+    }
+
     fn header(&mut self, ui: &mut egui::Ui, cwd: &Path) {
         let ctx = ui.ctx().clone();
         let mut close = None;
         let mut pick = None;
         let mut new_kind: Option<Option<ShellKind>> = None;
+        let mut task_run: Option<String> = None;
         ui.horizontal(|ui| {
             ui.set_height(30.0);
             ui.add_space(10.0);
@@ -371,26 +671,51 @@ impl Shells {
             ui.label(RichText::new(t("终端")).size(12.0).color(TEXT2()).strong());
             ui.add_space(8.0);
             ui.spacing_mut().item_spacing.x = 2.0;
+            let mut rename_start = None;
+            let mut set_color = None;
+            let mut set_split: Option<Option<usize>> = None;
+            let mut rename_done = None;
             for (i, sh) in self.tabs.iter().enumerate() {
                 let on = i == self.active;
-                let name = if sh.exited.is_some() { format!("{} ✕", sh.title) } else { sh.title.clone() };
                 let font = FontId::proportional(12.0);
-                let w = ui.fonts(|f| f.layout_no_wrap(name.clone(), font.clone(), TEXT()).size().x) + 40.0;
+                if let Some((ri, text)) = self.rename.as_mut().filter(|(ri, _)| *ri == i) {
+                    let te = ui.add_sized(vec2(120.0, 24.0), egui::TextEdit::singleline(text).font(font.clone()));
+                    if !te.has_focus() && !te.lost_focus() {
+                        te.request_focus();
+                    }
+                    if te.lost_focus() {
+                        let ok = !ui.input(|i| i.key_pressed(egui::Key::Escape));
+                        rename_done = Some((*ri, ok.then(|| text.trim().to_string())));
+                    }
+                    continue;
+                }
+                let name = if sh.exited.is_some() { format!("{} ✕", sh.title) } else { sh.title.clone() };
+                let bar = tab_color(sh.color);
+                let pad = if bar.is_some() { 16.0 } else { 10.0 };
+                let w = ui.fonts(|f| f.layout_no_wrap(name.clone(), font.clone(), TEXT()).size().x) + 30.0 + pad;
                 let (r, resp) = ui.allocate_exact_size(vec2(w, 24.0), Sense::click());
                 let p = ui.painter();
-                if on {
+                let in_split = self.split == Some(i);
+                if on || in_split {
                     p.rect_filled(r, R_WIDGET, BG2());
-                    p.hline(r.x_range().shrink(6.0), r.bottom() - 0.5, st(1.5, ACCENT()));
+                    p.hline(r.x_range().shrink(6.0), r.bottom() - 0.5, st(1.5, if on { ACCENT() } else { ACCENT().gamma_multiply(0.4) }));
                 } else if resp.hovered() {
                     p.rect_filled(r, R_WIDGET, tint(6));
                 }
-                p.text(pos2(r.left() + 10.0, r.center().y), Align2::LEFT_CENTER, &name, font, if on { TEXT() } else { TEXT3() });
+                if let Some(c) = bar {
+                    p.rect_filled(Rect::from_min_size(pos2(r.left() + 6.0, r.top() + 6.0), vec2(3.0, 12.0)), 1.5, c);
+                }
+                p.text(pos2(r.left() + pad, r.center().y), Align2::LEFT_CENTER, &name, font, if on { TEXT() } else { TEXT3() });
                 let xr = Rect::from_center_size(pos2(r.right() - 13.0, r.center().y), vec2(14.0, 14.0));
                 let hover_x = resp.hovered() && ui.input(|i| i.pointer.hover_pos()).is_some_and(|p| xr.contains(p));
                 if on || resp.hovered() {
                     draw_icon(p, xr.shrink(2.0), Icon::Close, if hover_x { TEXT() } else { TEXT3() });
+                } else if sh.attn {
+                    p.circle_filled(xr.center(), 3.5, ACCENT());
                 }
-                if resp.clicked() {
+                if resp.double_clicked() {
+                    rename_start = Some(i);
+                } else if resp.clicked() {
                     if hover_x {
                         close = Some(i);
                     } else {
@@ -400,6 +725,62 @@ impl Shells {
                 if resp.middle_clicked() {
                     close = Some(i);
                 }
+                let resp = resp.on_hover_text(t("双击改名，右键设置颜色、拆分"));
+                resp.context_menu(|ui| {
+                    if ui.button(t("重命名…")).clicked() {
+                        rename_start = Some(i);
+                        ui.close_menu();
+                    }
+                    ui.horizontal(|ui| {
+                        for k in 0..TAB_COLORS.len() {
+                            let (cr, cresp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
+                            match tab_color(k) {
+                                Some(c) => {
+                                    ui.painter().circle_filled(cr.center(), 6.0, c);
+                                }
+                                None => {
+                                    ui.painter().circle_stroke(cr.center(), 5.5, st(1.0, TEXT3()));
+                                }
+                            }
+                            if sh.color == k {
+                                ui.painter().circle_stroke(cr.center(), 8.5, st(1.0, TEXT()));
+                            }
+                            if cresp.clicked() {
+                                set_color = Some((i, k));
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                    ui.separator();
+                    if !on {
+                        if ui.button(if in_split { t("取消拆分") } else { t("在右侧并排显示") }).clicked() {
+                            set_split = Some(if in_split { None } else { Some(i) });
+                            ui.close_menu();
+                        }
+                    } else if self.split.is_some() && ui.button(t("取消拆分")).clicked() {
+                        set_split = Some(None);
+                        ui.close_menu();
+                    }
+                    if ui.button(t("关闭")).clicked() {
+                        close = Some(i);
+                        ui.close_menu();
+                    }
+                });
+            }
+            if let Some(i) = rename_start {
+                self.rename = Some((i, self.tabs[i].title.clone()));
+            }
+            if let Some((i, v)) = rename_done {
+                if let (Some(v), Some(sh)) = (v.filter(|v| !v.is_empty()), self.tabs.get_mut(i)) {
+                    sh.title = v;
+                }
+                self.rename = None;
+            }
+            if let Some((i, k)) = set_color {
+                self.tabs[i].color = k;
+            }
+            if let Some(v) = set_split {
+                self.split = v;
             }
             ui.add_space(4.0);
             if icon_button(ui, Icon::Plus, t("新建终端"), false).clicked() {
@@ -448,6 +829,69 @@ impl Shells {
                         sh.write(b"\x0c");
                         sh.tv.focus_req = true;
                     }
+                }
+                // 问题列表：最近一次任务（或整个终端）输出里的错误和警告
+                self.refresh_problems();
+                let (ne, nw) = (self.problems.iter().filter(|p| p.error).count(), self.problems.iter().filter(|p| !p.error).count());
+                if ne + nw > 0 {
+                    let label = format!("● {ne}  ▲ {nw}");
+                    let col = if ne > 0 { ERR() } else { WARN() };
+                    let btn = ui
+                        .add(egui::Button::new(RichText::new(label).size(11.5).color(col)).fill(col.gamma_multiply(0.10)).min_size(vec2(0.0, 22.0)))
+                        .on_hover_text(t("编译错误和警告，点一下列出，单击跳到代码"));
+                    let pop = ui.id().with("shell-problems");
+                    if btn.clicked() {
+                        ui.memory_mut(|m| m.toggle_popup(pop));
+                    }
+                    let mut open_p = None;
+                    egui::popup::popup_above_or_below_widget(ui, pop, &btn, egui::AboveOrBelow::Below, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                        ui.set_min_width(520.0);
+                        egui::ScrollArea::vertical().max_height(320.0).show(ui, |ui| {
+                            for p in &self.problems {
+                                let name = Path::new(&p.file).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| p.file.clone());
+                                let r = ui.add(
+                                    egui::Button::new(
+                                        RichText::new(format!("{}  {}:{}  {}", if p.error { "●" } else { "▲" }, name, p.line, p.msg))
+                                            .size(12.0)
+                                            .color(if p.error { ERR() } else { WARN() }),
+                                    )
+                                    .frame(false)
+                                    .wrap_mode(egui::TextWrapMode::Truncate),
+                                );
+                                if r.on_hover_text(&p.file).clicked() {
+                                    open_p = Some((p.file.clone(), p.line));
+                                }
+                            }
+                        });
+                    });
+                    if let Some((f, line)) = open_p {
+                        let base = self.tabs.get(self.active).map(|s| s.cwd.clone()).unwrap_or_default();
+                        let path = if Path::new(&f).is_absolute() { PathBuf::from(&f) } else { base.join(&f) };
+                        if path.is_file() {
+                            self.events.push(ShellEvt::Open(path, line.saturating_sub(1)));
+                        } else {
+                            self.events.push(ShellEvt::Toast(t("找不到这个文件")));
+                        }
+                        ui.memory_mut(|m| m.close_popup());
+                    }
+                }
+                // 任务按钮（右键编辑）
+                for k in (0..self.s.tasks.len()).rev() {
+                    let tk = &self.s.tasks[k];
+                    let r = ui.add(egui::Button::new(RichText::new(format!("▶ {}", tk.name)).size(11.5).color(TEXT2())).min_size(vec2(0.0, 22.0)));
+                    let tip = format!("{}\n{}", tk.cmd, t("右键编辑任务"));
+                    let r = r.on_hover_text(tip);
+                    if r.clicked() {
+                        task_run = Some(tk.cmd.clone());
+                    }
+                    if r.secondary_clicked() {
+                        self.edit_tasks = true;
+                    }
+                }
+                if self.s.tasks.is_empty() && ui.add(egui::Button::new(RichText::new(t("+ 任务")).size(11.5)).frame(false)).clicked() {
+                    self.edit_tasks = true;
+                }
+                if !self.tabs.is_empty() {
                     if let Some(sh) = self.tabs.get(self.active) {
                         let d = sh.cwd.to_string_lossy().to_string();
                         ui.label(RichText::new(d).size(11.0).color(TEXT3()));
@@ -455,8 +899,13 @@ impl Shells {
                 }
             });
         });
+        if let Some(cmd) = task_run {
+            self.run_task(&ctx, cwd, &cmd);
+        }
+        self.tasks_window(&ctx);
         if let Some(i) = pick {
             self.active = i;
+            self.tabs[i].attn = false;
             self.tabs[i].tv.focus_req = true;
         }
         if let Some(i) = close {
@@ -467,5 +916,24 @@ impl Shells {
         }
         let y = ui.cursor().top();
         ui.painter().hline(ui.max_rect().x_range(), y, st(1.0, LINE()));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_problems;
+
+    #[test]
+    fn problems() {
+        let out = "gcc -c main.c\nsrc/main.c:12:5: error: 'x' undeclared\nsrc/main.c:20:1: warning: unused variable 'y'\n\
+main.c(42): error:  #20: identifier \"foo\" is undefined\n\"uart.c\",7  Error[Pe020]: identifier \"bar\" is undefined\n\
+C:\\fw\\a.c(3,9): warning C4101: 'z': unreferenced\ntime 12:30:01 ok\nsrc/main.c:12:5: error: 'x' undeclared\n";
+        let p = parse_problems(out);
+        assert_eq!(p.len(), 5, "{p:?}");
+        assert_eq!((p[0].file.as_str(), p[0].line, p[0].error), ("src/main.c", 12, true));
+        assert!(!p[1].error);
+        assert_eq!((p[2].file.as_str(), p[2].line), ("main.c", 42));
+        assert_eq!((p[3].file.as_str(), p[3].line), ("uart.c", 7));
+        assert_eq!((p[4].file.as_str(), p[4].line, p[4].error), ("C:\\fw\\a.c", 3, false));
     }
 }

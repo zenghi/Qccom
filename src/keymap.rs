@@ -192,6 +192,7 @@ pub enum Act {
     // 调试页
     Connect,
     LogFind,
+    LogGotoTime,
     LogClear,
     LogSave,
     LogPause,
@@ -225,6 +226,7 @@ pub enum Act {
     SplitEditor,
     ToggleBlame,
     BitCalc,
+    ToggleBg,
     InsertSnippet,
     ToggleVim,
     CloseTab,
@@ -327,6 +329,7 @@ acts! {
     Act::NewShell, "shell.new", "新建终端", Global, ["Ctrl+Shift+5"], true;
     Act::Connect, "conn.toggle", "连接 / 断开", Debug, ["F5"], true;
     Act::LogFind, "log.find", "搜索日志", Debug, ["Ctrl+F"];
+    Act::LogGotoTime, "log.goto_time", "跳到时间", Debug, ["Ctrl+G"];
     Act::LogClear, "log.clear", "清屏", Debug, ["Ctrl+L"];
     Act::LogSave, "log.save", "保存日志", Debug, ["Ctrl+S"];
     Act::LogPause, "log.pause", "暂停 / 继续", Debug, ["Ctrl+P"];
@@ -367,6 +370,7 @@ acts! {
     Act::SplitEditor, "code.split", "拆分编辑器", Code, ["Ctrl+\\"];
     Act::ToggleBlame, "code.blame", "显示 / 隐藏行内 Blame", Code, [];
     Act::BitCalc, "tools.bitcalc", "位域计算器", Global, [], true;
+    Act::ToggleBg, "view.background", "隐藏 / 显示背景图片", Global, [];
     Act::InsertSnippet, "code.snippet", "插入代码片段", Code, ["Ctrl+Alt+J"];
     Act::ToggleVim, "code.vim", "打开 / 关闭 Vim 键位", Code, [];
     Act::CloseTab, "code.close_tab", "关闭标签页", Code, ["Ctrl+W"];

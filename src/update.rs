@@ -4,7 +4,7 @@
 //! ```json
 //! {
 //!   "version": "0.5.1",
-//!   "url": "https://zenghi.com/1.exe",
+//!   "url": "https://www.zenghi.com/1.exe",
 //!   "sha256": "下载文件的 SHA-256（64 位十六进制）",
 //!   "size": 3123456,
 //!   "date": "2026-10-27",
@@ -29,13 +29,13 @@ use eframe::egui;
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-pub const VERSION_URL: &str = "https://zenghi.com/1.json";
+pub const VERSION_URL: &str = "https://www.zenghi.com/1.json";
 
 /// 版本文件地址；环境变量 QCCOM_UPDATE_URL 可以临时指向测试服务器
-fn version_url() -> String {
+pub fn version_url() -> String {
     std::env::var("QCCOM_UPDATE_URL").unwrap_or_else(|_| VERSION_URL.into())
 }
-pub const DEFAULT_EXE_URL: &str = "https://zenghi.com/1.exe";
+pub const DEFAULT_EXE_URL: &str = "https://www.zenghi.com/1.exe";
 
 #[derive(Clone, Debug, Deserialize, Default)]
 #[serde(default)]

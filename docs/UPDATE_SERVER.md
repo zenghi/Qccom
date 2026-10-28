@@ -6,7 +6,7 @@
 
 When it starts (and when the user clicks the download icon at the bottom of the activity bar), QCCOM downloads a small JSON **version file**. If the version in it is newer than the running one, a card offers the update. The user can update now, be reminded later, or skip that version. The download is verified, the running executable is swapped for the new one, and the app restarts.
 
-The official builds read `https://zenghi.com/1.json`. Forks should change `VERSION_URL` and `DEFAULT_EXE_URL` in `src/update.rs`.
+The official builds read `https://www.zenghi.com/1.json`. Forks should change `VERSION_URL` and `DEFAULT_EXE_URL` in `src/update.rs`.
 
 ### Version file format
 
@@ -15,13 +15,13 @@ UTF-8 JSON (a BOM is tolerated). Only `version` is required.
 ```json
 {
   "version": "0.5.1",
-  "url": "https://zenghi.com/1.exe",
+  "url": "https://www.zenghi.com/1.exe",
   "sha256": "9f2c...64 hex characters...e1",
   "size": 4012544,
   "date": "2026-11-01",
   "notes": "1. New: ...\n2. Fixed: ...",
   "force": false,
-  "url_linux": "https://zenghi.com/qccom-linux-x64",
+  "url_linux": "https://www.zenghi.com/qccom-linux-x64",
   "sha256_linux": "..."
 }
 ```
@@ -29,7 +29,7 @@ UTF-8 JSON (a BOM is tolerated). Only `version` is required.
 | Field | Type | Meaning |
 |---|---|---|
 | `version` | string, **required** | The new version, e.g. `"0.5.1"`. It is compared numerically part by part (`0.10.0` > `0.9.9`), and a leading `v` is ignored. The update is offered only if it is newer than the running version. |
-| `url` | string | Download link for the **Windows** `.exe`. If empty, it defaults to `https://zenghi.com/1.exe`. |
+| `url` | string | Download link for the **Windows** `.exe`. If empty, it defaults to `https://www.zenghi.com/1.exe`. |
 | `sha256` | string | SHA-256 of that `.exe` as 64 hex characters (either case). **Strongly recommended.** If it is set and does not match, the download is deleted and nothing is replaced. |
 | `size` | number | File size in bytes. It is only used for the progress bar when the server does not send `Content-Length`. |
 | `date` | string | Release date, shown on the card. |
@@ -80,7 +80,7 @@ Users can turn the automatic check off by right-clicking the download icon or us
 
 QCCOM 启动时（以及用户点左侧活动栏底部的下载图标时）会下载一个很小的 JSON **版本文件**。如果里面的版本比当前运行的新，就弹出更新卡片，用户可以选择立即更新、稍后提醒或跳过这个版本。下载完成后会先校验，再替换正在运行的程序并自动重启。
 
-官方版本读取的地址是 `https://zenghi.com/1.json`。如果你 fork 了项目，请修改 `src/update.rs` 里的 `VERSION_URL` 和 `DEFAULT_EXE_URL`。
+官方版本读取的地址是 `https://www.zenghi.com/1.json`。如果你 fork 了项目，请修改 `src/update.rs` 里的 `VERSION_URL` 和 `DEFAULT_EXE_URL`。
 
 ### 版本文件格式
 
@@ -89,13 +89,13 @@ UTF-8 编码的 JSON（带 BOM 也可以），只有 `version` 是必填的。
 ```json
 {
   "version": "0.5.1",
-  "url": "https://zenghi.com/1.exe",
+  "url": "https://www.zenghi.com/1.exe",
   "sha256": "9f2c...64 位十六进制...e1",
   "size": 4012544,
   "date": "2026-11-01",
   "notes": "1. 新增 ...\n2. 修复 ...",
   "force": false,
-  "url_linux": "https://zenghi.com/qccom-linux-x64",
+  "url_linux": "https://www.zenghi.com/qccom-linux-x64",
   "sha256_linux": "..."
 }
 ```
@@ -103,7 +103,7 @@ UTF-8 编码的 JSON（带 BOM 也可以），只有 `version` 是必填的。
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `version` | 字符串，**必填** | 新版本号，如 `"0.5.1"`。逐段按数字比较（`0.10.0` 大于 `0.9.9`），开头的 `v` 会忽略。只有比当前版本新才会提示。 |
-| `url` | 字符串 | **Windows** 版 exe 的下载地址。不填时默认是 `https://zenghi.com/1.exe`。 |
+| `url` | 字符串 | **Windows** 版 exe 的下载地址。不填时默认是 `https://www.zenghi.com/1.exe`。 |
 | `sha256` | 字符串 | 这个 exe 的 SHA-256，64 位十六进制，大小写都可以。**强烈建议填写**：填了而校验不一致时，会删除下载的文件，不做替换。 |
 | `size` | 数字 | 文件字节数。只在服务器没有返回 `Content-Length` 时用来显示进度。 |
 | `date` | 字符串 | 发布日期，显示在更新卡片上。 |

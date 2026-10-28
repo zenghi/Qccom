@@ -44,7 +44,7 @@ Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for exam
 
 The Debug page has three columns:
 
-- **Left sidebar** (`Ctrl+B` hides it): device list, baud rate, the Connect button, a live link monitor (RX / TX bytes and a 60-second rate graph), display settings and advanced settings.
+- **Left sidebar** (`Ctrl+B` hides it): device list, baud rate, the Connect button, a live link monitor (RX / TX bytes and a 60-second rate graph), display settings and advanced settings. Click a group title to collapse it to a one-line summary; right-click a title to collapse or expand all.
 - **Center**: the top bar (Log / Terminal switch, search, level filter, pause, clear, copy, save, record), the log or terminal itself, and the command bar.
 - **Right**: the quick-command panel (`Ctrl+J` shows or hides it).
 
@@ -74,11 +74,13 @@ A port that the scanner cannot see, such as a virtual `/dev/pts/3`, can be passe
 - **Search** (`Ctrl+F`). All matches are highlighted; Enter and Shift+Enter jump between them. **Matches only** hides every other line.
 - **Level filter.** The `ALL` / `ERR` / `WRN` / `INF` / `DBG` chips show live counts. Click one to show that level and above.
 - **Pause** (`Ctrl+P`) freezes the view while data keeps arriving in the background, so nothing is lost.
-- **Scrolling** up stops auto scroll. A **Back to latest** button appears to resume it.
+- **Scrolling** up stops auto scroll. A **Back to latest** button appears to resume it, with the number of lines that arrived meanwhile.
+- **Moving fast.** `Alt+wheel` scrolls 10× faster, `PgUp / PgDn` and `Ctrl+Home / End` work when the command bar is not focused, and a middle-click starts auto-scrolling (move the mouse away from the anchor to set the speed, click again to stop). Marks next to the scrollbar show where errors, warnings, search hits and bookmarks are; click one to jump there. `Ctrl+G` jumps to a time such as `12:30` or `12:30:05.250`.
 - **Selecting.** Drag to select any text, double-click for a word, triple-click for a whole line. Click the line-number gutter to select whole lines (Shift+click for a range). Dragging past the top or bottom edge scrolls. `Ctrl+C` copies without timestamps by default; turn on *Include timestamps when copying* in Settings → Log, or right-click and pick **Copy with timestamps**.
 - **Save** (`Ctrl+S`) writes the current log to a file. **Record** appends every new line to a file as it arrives, which is ideal for overnight captures; Settings → Log can start a new file every N minutes or N MB. *Copy entire log* is in the **⋯** menu.
 - **Time delta** (sidebar → Display) shows the time since the previous line in front of each line; gaps of a second or more turn yellow.
 - **Bookmarks and markers.** `Ctrl+M` inserts a marker line (`Marker 1` with the time), right-click a line to bookmark it (`Ctrl+F2`), and `F2` / `Shift+F2` jump between them.
+- **Merged log.** With more than one connection online (for example serial plus TCP), **⋯ → Merged log (all connections)** shows the recent lines of all of them in one window, ordered by time, each with a colored source tag. *Copy all* copies it.
 - **Clear** with `Ctrl+L`.
 
 ## Sending data
@@ -103,6 +105,7 @@ The right-hand panel holds groups of one-click commands. Three example groups ar
 - Click **+** to add a group. Double-click a group name to rename it, and right-click it to duplicate or delete it.
 - **+ Add command** creates a command. Right-click a command to edit, move or delete it. Each command can be text or HEX and can have its own line ending, or follow the command bar's setting.
 - **Send whole group** sends every command in order, with the interval shown next to it.
+- **Target connection.** When the serial port and network connections are open together, a command can be pinned to one of them (serial, TCP client / server, UDP, MQTT, WebSocket, BLE) in its editor. By default it goes to the current connection.
 
 Everything is saved automatically.
 
@@ -316,6 +319,17 @@ These follow Source Insight and help when reading an unfamiliar project.
 
 ![Map viewer and bit calculator](screenshot-embedded.png)
 
+## SSH and Telnet
+
+Toolbox → *Communication* → **SSH / Telnet** logs in to boards, gateways and servers.
+
+- Type an address in the box at the top and press Enter: `pi@192.168.1.5`, `root@10.0.0.2:2222` or `telnet://192.168.1.1`. The host is saved in the list on the left. Click a saved host to connect (or switch to it if it is already open); right-click to edit, duplicate, copy the address, open another session or delete it. Saved hosts can also be opened from the command palette.
+- Several sessions stay open as tabs at the same time. When a session ends, press Enter in it to reconnect.
+- SSH runs the system OpenSSH client (`ssh` on Linux; on Windows 10 and later, add *OpenSSH Client* under Settings → Apps → Optional features). Your keys, `ssh-agent` and `~/.ssh/config` all work. Passwords are typed in the terminal and QCCOM never stores them.
+- **Edit host** sets a name, private key, upload folder, extra `ssh` arguments and commands to run after login (one per line).
+- **File transfer** (SSH with key login): drop files or folders on the terminal, or click the upload button, to copy them to the host's upload folder. *Download…* fetches a remote file or folder. Transfers use `scp` and fall back to the legacy protocol on servers without SFTP (common on BusyBox / Dropbear boards). For password-only hosts, use `rz` / `sz` or `scp` in the terminal.
+- Telnet negotiates the terminal type and window size, so full-screen programs fit the window. Telnet cannot transfer files.
+
 ## Toolbox
 
 ![Data converter and baud calculator](gif/demo-toolbox.gif)
@@ -324,7 +338,7 @@ The toolbox icon in the activity bar (`Ctrl+Shift+B`) opens a page with all the 
 
 Type in the search box above the list to filter tools (Enter opens the first match). Right-click a tool and choose *Pin to top* to put it in a *Favorites* group. Every tool can also be opened from the command palette (`Ctrl+Shift+P`, then type its name).
 
-The *Communication* tools (TCP, UDP, MQTT, Bluetooth LE, WebSocket, HTTP API) are described in their own sections above. The others:
+The *Communication* tools (TCP, UDP, MQTT, Bluetooth LE, WebSocket, SSH / Telnet, HTTP API) are described in their own sections above. The others:
 
 - **Modbus slave**: simulate a device for a PLC, HMI or Modbus master. Choose Modbus TCP (port: 502 on Windows, 1502 on Linux where ports below 1024 need root) or RTU on a serial port, and the slave ID. Holding registers, input registers, coils and discrete inputs are shown in an editable grid from the start address you choose (HEX toggles the display). Every request is listed with its function, address, count and result. Values written by the master update the grid.
 - **MQTT broker**: an MQTT 3.1.1 broker on this computer, no Mosquitto needed. Wildcard subscriptions, retained messages, last will and keep-alive are supported; set a user name and password to require them. The page lists connected clients with their subscriptions, connection events and every message. Publish from the page, or click *Connect with the MQTT tool* to connect QCCOM's own MQTT tool to it.
@@ -385,6 +399,15 @@ Values accept SI suffixes: `4k7`, `4.7k`, `100n`, `72M`.
 ## Terminal panel
 
 `` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.
+
+- **Tasks.** The buttons in the panel header run a command in the current terminal. The defaults are build (`make -j8`), flash (`make flash`) and clean (`make clean`); right-click a button (or *+ Task*) to edit them.
+- **Problems.** Errors and warnings from GCC / Clang, Keil / MSVC and IAR in the output are counted in a badge. Click it for the list, and click an entry to open the file at that line.
+- **Command blocks.** Every command you type gets a mark in the left margin. Click a mark to copy that command with its output; `Ctrl+↑ / ↓` jump between commands.
+- **Find** (`Ctrl+F`) searches the output and scrollback; Enter and Shift+Enter move between matches. Right-click → *Save output…* writes everything to a file. `Ctrl+wheel` changes the font size (*Reset font size* in the right-click menu).
+- **Tabs.** Double-click a tab to rename it; right-click to give it a color or show it side by side with another terminal. A dot on a tab means new output.
+- When a command that ran for a while finishes and QCCOM is in the background, a notification tells you.
+- Drop files on the panel to insert their paths.
+- The shell starts with a UTF-8 locale (and `chcp 65001` / a UTF-8 console on Windows, `core.quotepath=false` for Git), so Chinese file names and output are shown correctly.
 
 ![Split editor and terminal panel](screenshot-shell.png)
 
@@ -465,6 +488,10 @@ If QCCOM is already running, the file goes to the open window instead of startin
 
 Dark, Light or **System default** (follows the operating system and switches live). Change it in Settings → Appearance, from the gear menu, or with `Ctrl+K Ctrl+T`. Every color, including popups, code highlighting and log levels, is tuned for at least 4.5:1 contrast in both themes. Settings → Appearance also has a UI scale for high-DPI screens.
 
+On Windows 10 / 11 the window title bar follows the theme (dark or light; on Windows 11 its color, text and border match the app).
+
+**Background image** (Settings → Appearance): show a picture behind the code editor, the terminal panel and the serial terminal, either one image for all three or one each. Set the opacity (10–25% keeps text easy to read) and the fit: fill, fit centered, tile, bottom right, or *fade from left*, which keeps the code side clean. *Hide / show background image* in the command palette toggles it.
+
 ## Language
 
 QCCOM follows the system language on first start. To change it, open the gear menu → Language, or search *language* in the command palette. Choosing **Follow system** returns to automatic detection. The change takes effect immediately.
@@ -475,7 +502,7 @@ Supported: English, 简体中文, 繁體中文, 日本語, 한국어, Deutsch, F
 
 A few seconds after start, QCCOM checks for a newer version. If one exists, a card in the bottom-right corner shows the version, date and release notes, with **Update now**, **Later** and **Skip this version**. After the download is verified, **Restart and update** replaces the program and starts the new version. Your settings are kept.
 
-- Gear menu → **Check for updates** checks at any time.
+- Gear menu → **Check for updates** checks at any time. If the check fails, the full error message is copied to the clipboard so you can paste it into a bug report.
 - Settings → General, or the switch on the card, turns the automatic check off.
 - On Linux, an update is downloaded automatically only if the publisher provides a Linux build. Otherwise **Open download page** takes you to the Releases page.
 
@@ -531,7 +558,7 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+P | Quick open |
 | Ctrl+T | Go to a symbol in the workspace |
 | Ctrl+Shift+O | Go to a symbol in the file |
-| Ctrl+G | Go to a line |
+| Ctrl+G | Go to a line (code) / a time (log) |
 | Ctrl+O | Open a file |
 | Ctrl+Shift+F | Search everywhere |
 | Ctrl+Shift+E | Show the explorer |

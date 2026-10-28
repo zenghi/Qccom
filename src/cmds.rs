@@ -16,6 +16,19 @@ pub struct QuickCmd {
     pub hex: bool,
     /// None = 跟随命令栏的换行设置
     pub ending: Option<LineEnding>,
+    /// 发到哪个连接（会话槽位：0 串口、1 TCP、2 UDP、3 MQTT、4 BLE、5 WebSocket）；None = 当前显示的连接
+    pub target: Option<u8>,
+}
+
+/// 快捷命令可选的目标连接
+pub const TARGETS: [&str; 6] = ["串口", "TCP", "UDP", "MQTT", "BLE", "WebSocket"];
+
+pub fn target_name(t: Option<u8>) -> &'static str {
+    match t {
+        None => crate::i18n::t("当前连接"),
+        Some(0) => crate::i18n::t("串口"),
+        Some(k) => TARGETS.get(k as usize).copied().unwrap_or("?"),
+    }
 }
 
 impl Default for QuickCmd {
@@ -25,6 +38,7 @@ impl Default for QuickCmd {
             payload: String::new(),
             hex: false,
             ending: None,
+            target: None,
         }
     }
 }
@@ -54,6 +68,7 @@ fn cmd(name: &str, payload: &str, hex: bool) -> QuickCmd {
         payload: payload.into(),
         hex,
         ending: None,
+        target: None,
     }
 }
 
@@ -301,6 +316,17 @@ impl CmdPanel {
                             }
                         });
                     });
+                    egui::ComboBox::from_id_salt("qc_target")
+                        .width(96.0)
+                        .selected_text(target_name(draft.target))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut draft.target, None, target_name(None));
+                            for k in 0..TARGETS.len() as u8 {
+                                ui.selectable_value(&mut draft.target, Some(k), target_name(Some(k)));
+                            }
+                        })
+                        .response
+                        .on_hover_text(t("发到哪个连接：串口和网络同时连着时，命令可以固定发给其中一个"));
                 });
                 let err = if draft.hex && !draft.payload.trim().is_empty() { parse_hex(&draft.payload).err() } else { None };
                 if let Some(e) = &err {

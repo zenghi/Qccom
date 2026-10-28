@@ -218,6 +218,9 @@ mod tests {
             include_str!("compare/report.rs"),
             include_str!("compare/table.rs"),
             include_str!("shellint.rs"),
+            include_str!("remote.rs"),
+            include_str!("app/sshview.rs"),
+            include_str!("bgimg.rs"),
         ];
         let mut missing = vec![];
         for src in sources {

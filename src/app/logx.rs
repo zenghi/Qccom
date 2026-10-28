@@ -240,6 +240,7 @@ pub(super) struct Wins {
     pub rules: bool,
     pub frame: bool,
     pub stats: bool,
+    pub merged: bool,
 }
 
 impl App {
@@ -477,6 +478,7 @@ impl App {
         if self.wins.stats {
             self.stats_window(ctx);
         }
+        self.merged_window(ctx);
     }
 
     fn rules_window(&mut self, ctx: &egui::Context) {
@@ -725,6 +727,10 @@ impl App {
             let text = self.export_text();
             ui.ctx().copy_text(text);
             self.toast(t("已复制到剪贴板"), OK());
+            ui.close_menu();
+        }
+        if self.live_conns().len() > 1 && menu_item(ui, t("合并日志（所有连接）…"), "") {
+            self.wins.merged = true;
             ui.close_menu();
         }
         ui.separator();

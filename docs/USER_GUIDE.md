@@ -11,6 +11,8 @@ English · [简体中文](USER_GUIDE.zh-CN.md)
 - [TCP, UDP and MQTT](#tcp-udp-and-mqtt)
 - [Code viewer](#code-viewer)
 - [Git viewer](#git-viewer)
+- [Compare and merge](#compare-and-merge)
+- [System right-click menu](#system-right-click-menu)
 - [Language](#language)
 - [Updates](#updates)
 - [Keyboard shortcuts](#keyboard-shortcuts)
@@ -18,13 +20,14 @@ English · [简体中文](USER_GUIDE.zh-CN.md)
 
 ## The window
 
-The thin **activity bar** on the far left switches between the four pages:
+The thin **activity bar** on the far left switches between the pages:
 
 | Icon | Page |
 |---|---|
 | Pulse | **Debug**: the serial port, log, terminal, quick commands. A green dot means a connection is open. |
 | `</>` | **Code**: browse source code next to the log. |
 | Branch | **Git**: branches, commit graph and diffs. |
+| Two panes | **Compare**: folder, text, hex, table compare and three-way merge. |
 | Toolbox | **Toolbox**: TCP, UDP, MQTT, BLE, WebSocket, HTTP API and Modbus slave, plus servers, network tools, calculators, CAN and HID. |
 
 The **gear** at the bottom of the activity bar holds everything you need less often: the command palette, settings, keyboard shortcuts, theme, language, update check and About. A **download arrow** appears above it only while an update needs your attention.
@@ -305,7 +308,7 @@ These follow Source Insight and help when reading an unfamiliar project.
 ## Firmware tools
 
 - **Map, ELF, HEX and BIN files** open in a viewer instead of as text. A Map file shows how full each memory region is, with tables of symbols, object files and output sections that you can sort and filter. An ELF file shows code / data / bss sizes, sections, symbols and segments. HEX, BIN and S-record files show a hex grid: click a byte to see it as u8 to u64, signed, float, little or big endian; drag to select and `Ctrl+C` to copy; type an address to jump; export a HEX file as BIN. The pill on the right of the breadcrumb bar switches back to the raw text.
-- **Compare files**: right-click a tab → *Compare with…*, or right-click a file in the explorer → *Select for Compare*, then *Compare with "…"* on the other one. Text files are shown side by side with changes highlighted; `F7` / `Shift+F7` jump between changes. Binary files are compared byte by byte.
+- **Compare files**: right-click a tab → *Compare with…*, or right-click a file in the explorer → *Select as left side for compare*, then *Compare with "…"* on the other one. The comparison opens on the Compare page; see [Compare and merge](#compare-and-merge).
 - **Numbers**: hover a number (or a macro with a value) to see it in hex, decimal and binary with its set bits. `Ctrl+click` opens the **bit calculator** (also in the command palette): type a value or expression, click bits to toggle them, drag across bits to select a field and get its read expression and mask, and type a new field value.
 - **Snippets**: type a prefix such as `for`, `isr`, `guard` or `reg` and press `Tab`; press `Tab` again to go to the cursor position. `Ctrl+Alt+J` searches all snippets. Settings → Code Editor → Snippets opens the JSON file to add your own.
 - **TODO panel**: the checklist icon in the side bar lists every `TODO`, `FIXME`, `HACK`, `XXX` and `BUG` in the project.
@@ -361,6 +364,69 @@ Click the branch icon in the activity bar. It opens the repository that contains
 - **Branches, remotes and tags** in the sidebar: click one to show only its history, double-click to check it out, and right-click for more actions. Checking out a remote branch creates a local tracking branch. Checking out a tag (or a commit, from its context menu) gives a detached HEAD. QCCOM warns you first when you have uncommitted changes and explains in plain language why a checkout failed.
 - **Commit details**: message, author, date, parent links and changed files with add / delete bars. Click a file for a line-numbered, highlighted diff. Double-click a diff line to open that file at that line in the code viewer.
 
+## Compare and merge
+
+The compare icon in the activity bar (`Ctrl+Shift+M`) opens the **Compare** page. Its home tab takes a left and a right path (type them, use the file / folder buttons, or drop files on the page: two at once compare right away, one at a time fills left then right). *Compare* picks the mode by itself; the buttons next to it force folder, text, hex, table or three-way merge. Recent comparisons are listed below, and any comparison can be kept with **⋯ → Save as session**. Each comparison opens as its own tab; a dot on a tab means unsaved edits.
+
+The same comparisons start from right-click menus:
+
+- **Code page**: in the file tree, *Select as left side for compare* on one file or folder, then *Compare with "…"* on another, or *Compare with Git HEAD*. On an editor tab, *Compare with… → Saved version* (your unsaved edits against the file on disk), *Git HEAD*, another open tab, or any file.
+- **Git page**: in *Working tree changes*, *Compare with HEAD*; in a commit, right-click a file → *Compare in Compare page* (the file before and after that commit). Files with merge conflicts are listed under *Merge conflicts*; a click opens the three-way merge.
+- **System file manager**: see [System right-click menu](#system-right-click-menu).
+
+### Text
+
+Lines are paired side by side. Changed lines are tinted, the changed words inside them are highlighted, and lines that exist on one side only are hatched on the other. When a line was inserted next to a modified one, similar lines are still kept on the same row. The strip on the right shows every change in the file; click it to jump.
+
+- `F7` / `Shift+F7` (or `Alt+↓ / Alt+↑`, or the arrows in the toolbar) go to the next / previous change.
+- The chips **Whitespace**, **Case**, **Comments** and **Blank lines** ignore those differences (they are then shown in a faint violet instead). **Differences only** hides unchanged lines except three around each change.
+- **Editing**: double-click a line to edit it, `Enter` to accept (`↑ / ↓` accept and move to the next line), `Esc` to cancel. Right-click a line to insert or delete lines, copy it, or open it in the Code page.
+- **Copy a change across**: the arrows in the middle column replace the other side's block with this one; `Alt+→` / `Alt+←` do the same for the current change. `Ctrl+Z` undoes. `Ctrl+S` or the *Save* buttons write the file back with its original encoding (UTF-8 or GBK), BOM and line endings. Sides that come from Git or from unsaved editor content are read-only.
+- **Alignment points**: if the automatic pairing is wrong, right-click a line on the left → *Set as alignment point (left)*, then a line on the right → *(right)*. The two lines are paired and everything else is aligned around them.
+- The toolbar also swaps the sides, reloads both files (`F5`) and exports an **HTML report** with three lines of context around each change, which opens in any browser.
+
+![Text compare](screenshot-compare.png)
+
+### Folders
+
+Both trees are listed side by side with size and modified time; the newer time is highlighted. The middle column shows `=` for identical, `≠` for different, and an arrow for items that exist on one side only. Folders show how many differences they contain, and at first only folders with differences are expanded.
+
+- By default files are compared by size and time, and files with the same size but a different time are checked byte by byte in the background. **By content** checks every file byte by byte.
+- **Filters** (funnel icon) skip files and folders: separate entries with `;` or new lines, end folder names with `/`, and use `*` and `?`. The default skips `.git/`, `.svn/`, `.vs/`, `build/`, `*.o`, `*.obj` and `*.d`.
+- Double-click (or `Enter`) a file to compare it in a new tab; `←` / `→` collapse and expand folders.
+- Right-click an item to copy it to the other side, delete it on either side (after a confirmation), show it in the file manager, open it in the Code page or copy its relative path.
+- **Sync…** offers *Update right*, *Update left*, *Update both* (newer file wins), *Mirror to right* and *Mirror to left* (these also delete files that exist only on the target side). Every operation is listed for confirmation before anything is copied or deleted. Copies keep the modified time.
+- **HTML report** lists every file with its status, size and time.
+
+![Folder compare](screenshot-compare-folder.png)
+
+### Hex
+
+BIN files are compared byte by byte. With **Auto-align** on (the default, for files up to 8 MB), inserted or deleted bytes are detected and shown as `--` on the other side, so the rest of the file still lines up. Intel HEX and S-record files are compared by address: record order and line length do not matter, and gaps between segments are shown as `⋯`. The toolbar shows how many bytes differ, jumps between differing ranges, and exports or copies the list of ranges (address on each side, length, bytes).
+
+### Three-way merge
+
+The top shows the left, base and right versions side by side; blocks changed on one side only are merged automatically (blue for left, green when both sides made the same change), and conflicts are red. Above each conflict, choose **Take left**, **Take right**, **Left + right**, **Right + left** or **Take base**; click the selected button again to undo the choice. **Take left for all** / **Take right for all** decide every conflict at once.
+
+The merged result at the bottom can be edited directly; unresolved conflicts are written with the usual `<<<<<<<` / `|||||||` / `=======` / `>>>>>>>` markers, shown in red. Drag the divider to resize. **Save** (`Ctrl+S`) writes the result; for a Git conflict, **Save and mark resolved** also runs `git add`. To merge any three files, fill in *Base* on the home tab and press *Three-way merge*; the result is written to the left file.
+
+### Tables
+
+CSV and TSV files (comma, semicolon, tab or `|` separated, detected automatically) and linker `.map` files (as a table of symbol, object, section and size) are compared row by row. Rows are matched by the **key column** (the first column by default, symbol + object for map files) or by row order. Changed cells show `old → new`; a Δ column shows how much the size column changed, and **Sort by change** puts the largest changes first. *Copy differences* puts a CSV of the changed rows on the clipboard.
+
+### External tools
+
+If Beyond Compare, WinMerge, Meld or KDiff3 is installed, **⋯ → Open with …** on a comparison tab opens the same two files in it.
+
+## System right-click menu
+
+Settings → General → **System context menu** adds QCCOM to the file manager. No administrator rights are needed, and turning the switch off removes everything again.
+
+- **Windows**: right-click a file → **Open with QCCOM** (source files open in the editor, `.log` files in the log view, map / ELF / HEX / BIN files in their viewers), a folder or the background of a folder → **Open with QCCOM** (opens it as a project). **Compare with QCCOM** on two selected files or folders compares them; on one item it is set as the left side, and the next one you pick is compared with it. On Windows 11 these entries are under *Show more options*.
+- **Linux**: adds QCCOM to *Open With* in the file manager, two Nautilus scripts (*Scripts → Open with QCCOM / Compare with QCCOM*) and a Dolphin service menu.
+
+If QCCOM is already running, the file goes to the open window instead of starting a new one. If you move the program, turn the switch off and on again. The same works from a terminal: `qccom --file a.c`, `qccom --project ~/fw`, `qccom --compare old.bin new.bin`.
+
 ## Theme
 
 Dark, Light or **System default** (follows the operating system and switches live). Change it in Settings → Appearance, from the gear menu, or with `Ctrl+K Ctrl+T`. Every color, including popups, code highlighting and log levels, is tuned for at least 4.5:1 contrast in both themes. Settings → Appearance also has a UI scale for high-DPI screens.
@@ -395,7 +461,7 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+, | Settings |
 | Ctrl+K Ctrl+S | Keyboard shortcuts |
 | Ctrl+K Ctrl+T | Toggle dark / light theme |
-| Ctrl+Shift+D / E / G / B | Debug / Code / Git / Toolbox page |
+| Ctrl+Shift+D / E / G / M / B | Debug / Code / Git / Compare / Toolbox page |
 | Ctrl+Shift+N | New window |
 
 **Debug page**

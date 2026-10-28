@@ -69,6 +69,8 @@ pub struct Prefs {
     key_search: String,
     /// 刚改过、有冲突的命令，行上标红提示
     conflict: Option<(Act, Vec<Act>)>,
+    /// 系统右键菜单是否已加入（查一次注册表 / 文件后缓存）
+    ctx_menu: Option<bool>,
 }
 
 impl Default for Prefs {
@@ -79,6 +81,7 @@ impl Default for Prefs {
             recording: None,
             key_search: String::new(),
             conflict: None,
+            ctx_menu: None,
         }
     }
 }
@@ -114,7 +117,7 @@ fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mu
 /// 这一类里有没有设置项匹配搜索（决定搜索时显示不显示分类标题）
 fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
-        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "命令面板"],
+        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "系统右键菜单", "命令面板"],
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号"],
         Cat::Log => &[
             "时间戳",
@@ -302,6 +305,30 @@ impl App {
                 match enable_portable() {
                     Ok(()) => self.toast(t("已启用便携模式，重启后生效"), OK()),
                     Err(e) => self.toast(e.to_string(), ERR()),
+                }
+            }
+        });
+        let on = *self.prefs.ctx_menu.get_or_insert_with(crate::shellint::installed);
+        let desc = if cfg!(windows) {
+            t("在资源管理器的右键菜单加入「用 QCCOM 打开」「用 QCCOM 比较」；Windows 11 在「显示更多选项」里。不需要管理员权限")
+        } else {
+            t("加入「用 QCCOM 打开」「用 QCCOM 比较」（文件管理器的打开方式、Nautilus 脚本、Dolphin 右键菜单）")
+        };
+        row(ui, q, t("系统右键菜单"), desc, |ui| {
+            let mut v = on;
+            if switch(ui, &mut v).changed() {
+                let r = if v { crate::shellint::install() } else { crate::shellint::uninstall() };
+                match r {
+                    Ok(()) => {
+                        self.prefs.ctx_menu = Some(crate::shellint::installed());
+                        let msg = if v {
+                            t("已加入系统右键菜单；程序换了位置后重新开一次")
+                        } else {
+                            t("已从系统右键菜单移除")
+                        };
+                        self.toast(msg, OK());
+                    }
+                    Err(e) => self.toast(e, ERR()),
                 }
             }
         });

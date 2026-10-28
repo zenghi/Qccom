@@ -685,71 +685,6 @@ pub fn sym_name(sec: &str) -> &str {
     sec
 }
 
-// ------------------------------------------------------------------ 文本差异
-
-#[derive(Clone, Copy, PartialEq)]
-pub enum RowKind {
-    Same,
-    Del,
-    Add,
-    Mod,
-}
-
-/// 左右并排的一行：(左行号, 右行号, 类型)
-pub struct DiffRow {
-    pub l: Option<usize>,
-    pub r: Option<usize>,
-    pub kind: RowKind,
-}
-
-pub fn side_by_side(a: &[&str], b: &[&str]) -> Vec<DiffRow> {
-    use std::hash::{Hash, Hasher};
-    let h = |l: &&str| {
-        let mut s = std::collections::hash_map::DefaultHasher::new();
-        l.hash(&mut s);
-        s.finish()
-    };
-    let ha: Vec<u64> = a.iter().map(h).collect();
-    let hb: Vec<u64> = b.iter().map(h).collect();
-    let mut rows = vec![];
-    let (mut i, mut j) = (0, 0);
-    for (os, ol, ns, nl) in crate::git::diff_hunks(&ha, &hb) {
-        while i < os && j < ns {
-            rows.push(DiffRow {
-                l: Some(i),
-                r: Some(j),
-                kind: RowKind::Same,
-            });
-            i += 1;
-            j += 1;
-        }
-        let pair = ol.min(nl);
-        for k in 0..ol.max(nl) {
-            let (l, r) = (if k < ol { Some(os + k) } else { None }, if k < nl { Some(ns + k) } else { None });
-            let kind = if k < pair {
-                RowKind::Mod
-            } else if l.is_some() {
-                RowKind::Del
-            } else {
-                RowKind::Add
-            };
-            rows.push(DiffRow { l, r, kind });
-        }
-        i = os + ol;
-        j = ns + nl;
-    }
-    while i < a.len() || j < b.len() {
-        rows.push(DiffRow {
-            l: (i < a.len()).then_some(i),
-            r: (j < b.len()).then_some(j),
-            kind: RowKind::Same,
-        });
-        i += 1;
-        j += 1;
-    }
-    rows
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -797,16 +732,6 @@ mod tests {
         assert_eq!(sym_name(&m.ins[4].name), "rx_buf");
         let objs = m.by_object();
         assert_eq!(objs[0].0, "uart.o");
-    }
-
-    #[test]
-    fn diff_rows() {
-        let a = ["a", "b", "c", "d"];
-        let b = ["a", "B", "c", "d", "e"];
-        let r = side_by_side(&a, &b);
-        assert_eq!(r.len(), 5);
-        assert!(r[1].kind == RowKind::Mod);
-        assert!(r[4].kind == RowKind::Add && r[4].l.is_none());
     }
 
     #[test]

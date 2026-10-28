@@ -12,7 +12,7 @@ use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontFamily, 
 use serde::{Deserialize, Serialize};
 
 use crate::app::{draw_icon, hgrad_line, icon_button, Icon};
-use crate::binview::{self, BinEvt, Special};
+use crate::binview::{BinEvt, Special};
 use crate::cindex::{self, Hit, Index, Kind, Progress, Sym};
 use crate::editor::{Buf, Editor, View};
 
@@ -208,42 +208,6 @@ impl Doc {
         };
         d.reparse();
         Ok(d)
-    }
-
-    /// 两个文本文件的比较视图
-    fn diff(a: &Path, b: &Path) -> Result<Doc, String> {
-        let v = binview::DiffView::new(a, b)?;
-        let name = |p: &Path| p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        let path = PathBuf::from(format!("{} ↔ {}", a.display(), b.display()));
-        let buf = Buf::new(String::new());
-        let ed = Editor::new(egui::Id::new(("code-ed", &path)), &buf);
-        Ok(Doc {
-            rel: format!("{} ↔ {}", name(a), name(b)),
-            path,
-            buf,
-            ed,
-            gbk: false,
-            crlf: false,
-            lang: Lang::Plain,
-            syms: vec![],
-            syms_stale: None,
-            goto: None,
-            cursor: (0, 0),
-            bom: false,
-            mtime: None,
-            ext_changed: false,
-            edited_at: None,
-            git_lines: vec![],
-            git_ver: None,
-            blame: None,
-            blame_req: false,
-            backup_ver: None,
-            special: Some(Special::Diff(Box::new(v))),
-            show_special: true,
-            virt: true,
-            inactive: (u64::MAX, 0, vec![]),
-            scope: (u64::MAX, 0, None, None),
-        })
     }
 
     /// 有文本内容可以编辑（不是纯二进制、不是比较视图）
@@ -477,6 +441,8 @@ pub enum CodeEvt {
     OpenSettings,
     /// Ctrl+点击代码里的数字：在位域计算器里打开
     BitCalc(String, Option<i128>),
+    /// 在比较页比较两个文件或文件夹；带名字的一边是只读的临时文件（已保存版本、Git HEAD、未保存的内容）
+    Compare(PathBuf, Option<String>, PathBuf, Option<String>),
 }
 
 pub struct CodeView {
@@ -1302,36 +1268,35 @@ impl CodeView {
         }
     }
 
-    /// 比较两个文件：文本用左右对照的差异视图，固件 / 二进制用十六进制比较
+    /// 比较两个文件或文件夹：交给比较页
     fn compare(&mut self, a: &Path, b: &Path) {
-        let text = |p: &Path| !is_firmware(p) && std::fs::read(p).ok().is_some_and(|b| cindex::decode(&b).is_some());
-        if text(a) && text(b) {
-            match Doc::diff(a, b) {
-                Ok(d) => {
-                    if let Some(i) = self.tabs.iter().position(|x| x.path == d.path) {
-                        self.tabs.remove(i);
-                    }
-                    let at = (self.active + 1).min(self.tabs.len());
-                    self.tabs.insert(at, d);
-                    self.active = at;
-                }
-                Err(e) => self.toast(e, ERR()),
+        self.events.push(CodeEvt::Compare(a.to_path_buf(), None, b.to_path_buf(), None));
+    }
+
+    /// 编辑器里的内容和磁盘上已保存的版本比较
+    fn compare_saved(&mut self, i: usize) {
+        let Some(d) = self.tabs.get(i) else { return };
+        let name = d.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let buf = crate::compareview::temp_file(&name, d.buf.text.as_bytes());
+        self.events.push(CodeEvt::Compare(
+            d.path.clone(),
+            Some(format!("{name} ({})", t("已保存"))),
+            buf,
+            Some(format!("{name} ({})", t("编辑中"))),
+        ));
+    }
+
+    /// 和 Git 里最后一次提交的版本比较
+    fn compare_head(&mut self, i: usize) {
+        let Some(d) = self.tabs.get(i) else { return };
+        let name = d.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let dir = d.path.parent().unwrap_or(Path::new("."));
+        match crate::compareview::git_blob(dir, &format!("HEAD:./{name}")) {
+            Some(bytes) => {
+                let head = crate::compareview::temp_file(&name, &bytes);
+                self.events.push(CodeEvt::Compare(head, Some(format!("{name} (HEAD)")), d.path.clone(), None));
             }
-            return;
-        }
-        self.open_file(a, None);
-        let Some(d) = self.tabs.iter_mut().find(|d| d.path == a) else { return };
-        if !matches!(d.special, Some(Special::Hex(_))) {
-            match std::fs::read(a).ok().and_then(|bytes| binview::parse::load_image(a, &bytes)) {
-                Some(img) => d.special = Some(Special::Hex(Box::new(binview::HexView::from_image(img)))),
-                None => return,
-            }
-        }
-        d.show_special = true;
-        if let Some(Special::Hex(h)) = d.special.as_mut() {
-            if let Err(e) = h.compare_with(b) {
-                self.events.push(CodeEvt::Toast(e, ERR()));
-            }
+            None => self.toast(t("这个文件不在 Git 仓库里，或者还没提交过"), WARN()),
         }
     }
 
@@ -1345,7 +1310,6 @@ impl CodeView {
                 }
                 let _ = now;
             }
-            Some(BinEvt::Open(p, l)) => self.open_file(&p, Some((l, None))),
             Some(BinEvt::Toast(m, c)) => self.toast(m, c),
             None => {}
         }
@@ -2029,6 +1993,7 @@ impl CodeView {
             let mut op: Option<TreeOp> = None;
             let mut delete = false;
             let mut compare_with: Option<PathBuf> = None;
+            let mut head_of: Option<PathBuf> = None;
             r.context_menu(|ui| {
                 ui.set_min_width(190.0);
                 if ui.button(t("新建文件…")).clicked() {
@@ -2071,23 +2036,36 @@ impl CodeView {
                     reveal(&path);
                     ui.close_menu();
                 }
-                if !is_dir {
-                    ui.separator();
-                    if let Some(first) = self.cmp_pick.clone().filter(|p| *p != path) {
-                        let n = first.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                        if ui.button(tf("与“{}”比较", &[&n])).clicked() {
-                            compare_with = Some(first);
-                            ui.close_menu();
-                        }
-                    }
-                    if ui.button(t("选择以进行比较")).clicked() {
-                        self.cmp_pick = Some(path.clone());
+                ui.separator();
+                if let Some(first) = self.cmp_pick.clone().filter(|p| *p != path && p.is_dir() == is_dir) {
+                    let n = first.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                    if ui.button(tf("与“{}”比较", &[&n])).clicked() {
+                        compare_with = Some(first);
                         ui.close_menu();
                     }
+                }
+                if ui.button(t("选为比较左侧")).clicked() {
+                    self.cmp_pick = Some(path.clone());
+                    self.toast(t("再在另一个文件上右键「与…比较」"), ACCENT());
+                    ui.close_menu();
+                }
+                if !is_dir && ui.button(t("与 Git HEAD 比较")).clicked() {
+                    head_of = Some(path.clone());
+                    ui.close_menu();
                 }
             });
             if let Some(first) = compare_with.take() {
                 self.compare(&first, &path);
+            }
+            if let Some(p) = head_of.take() {
+                let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                match crate::compareview::git_blob(p.parent().unwrap_or(Path::new(".")), &format!("HEAD:./{name}")) {
+                    Some(bytes) => {
+                        let head = crate::compareview::temp_file(&name, &bytes);
+                        self.events.push(CodeEvt::Compare(head, Some(format!("{name} (HEAD)")), p, None));
+                    }
+                    None => self.toast(t("这个文件不在 Git 仓库里，或者还没提交过"), WARN()),
+                }
             }
             if let Some(op) = op {
                 // 在文件夹上新建就建在里面，在文件上新建就建在同一层
@@ -2900,6 +2878,8 @@ impl CodeView {
         let mut drag_start = None;
         let mut menu: Option<(usize, u8)> = None;
         let mut cmp: Option<(usize, Option<usize>)> = None;
+        let mut cmp_saved: Option<usize> = None;
+        let mut cmp_head: Option<usize> = None;
         let others: Vec<(String, bool)> = self.tabs.iter().map(|d| (d.rel.clone(), d.virt)).collect();
         let split_other = self.split.as_ref().map(|s| s.other.clone());
         egui::ScrollArea::horizontal()
@@ -2976,6 +2956,15 @@ impl CodeView {
                                 }
                                 if k == 4 && !d.virt {
                                     ui.menu_button(t("与…比较"), |ui| {
+                                        if d.dirty() && ui.button(t("已保存的版本")).clicked() {
+                                            cmp_saved = Some(i);
+                                            ui.close_menu();
+                                        }
+                                        if ui.button("Git HEAD").clicked() {
+                                            cmp_head = Some(i);
+                                            ui.close_menu();
+                                        }
+                                        ui.separator();
                                         for (j, o) in others.iter().enumerate() {
                                             if j != i && !o.1 {
                                                 if ui.button(&o.0).clicked() {
@@ -3028,6 +3017,12 @@ impl CodeView {
         if let Some(i) = activate {
             self.active = i;
             self.hover = None;
+        }
+        if let Some(i) = cmp_saved {
+            self.compare_saved(i);
+        }
+        if let Some(i) = cmp_head {
+            self.compare_head(i);
         }
         if let Some((i, j)) = cmp {
             let a = self.tabs[i].path.clone();

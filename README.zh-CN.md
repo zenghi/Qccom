@@ -42,6 +42,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **固件工具**：Map / ELF / HEX / BIN 查看器（内存占用条、字节解读）、文本和二进制文件比较、带字段提取的位域计算器、数字悬停、代码片段、TODO 列表、Kconfig / 设备树 / 链接脚本高亮、可选 Vim 键位。
 - **调试工具**：日志数值实时波形图、过滤 / 高亮规则、二进制协议分帧和校验检查、自动应答、[Rhai](https://rhai.rs) 测试脚本、Modbus RTU / TCP 主站、XMODEM / YMODEM 发送文件、发送时自动加 CRC、AT 指令助手、多行发送、按原时序回放日志、统计、标记和书签。
 - **串口扩展**：DTR / RTS / Break 控制和 CTS / DSR / RI / CD 实时状态，一键复位（含 ESP32 下载模式时序），串口共享到网络，双口监听，端口别名，配置方案，多窗口。
+- **比较与合并**（`Ctrl+Shift+M`）：内置 Beyond Compare 式比较。文本比较带行内差异，两边都能直接改、一键把一段推到另一边；文件夹比较和同步；十六进制比较能自动对齐插入的字节，HEX 按地址比较；Git 冲突三方合并；CSV 和 map 符号表比较；HTML 报告。到处都能右键比较，包括系统文件管理器（「用 QCCOM 打开」「用 QCCOM 比较」）。
 - **Git 查看器**：本地 / 远程分支和标签、所有分支的提交图、提交详情、带行号的差异对比、工作区状态、切换分支、拉取。
 - **工具箱**（`Ctrl+Shift+B`）：所有通信调试工具（TCP、UDP、MQTT、BLE、WebSocket、HTTP 接口、Modbus 从站）排在最前，另有 TFTP / HTTP 文件服务器、本地 MQTT 服务器、Syslog 接收、局域网设备发现、Ping 和端口检测、子网计算、数据转换、校验计算（含自定义 CRC）、时间戳、正则测试、字模 / 图片取模、颜色转换、ASCII 表、UART 波特率计算、SLCAN CAN 调试和 USB HID。可搜索、可收藏，每个工具都能从命令面板直接打开。
 - **录制与导出**：保存或复制日志；也可以把之后的每一行实时写入文件（可按大小或时长分卷），适合长时间挂机抓日志。
@@ -65,9 +66,9 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 |---|---|
 | ![API 标签](docs/screenshot-api.png) | ![BLE 标签](docs/screenshot-ble.png) |
 
-| 工具箱：CAN 调试 |
-|---|
-| ![工具箱里的 CAN 调试](docs/screenshot-toolbox.png) |
+| 工具箱：CAN 调试 | 比较 |
+|---|---|
+| ![工具箱里的 CAN 调试](docs/screenshot-toolbox.png) | ![文本比较](docs/screenshot-compare.png) |
 
 ## 动图演示
 

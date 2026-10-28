@@ -201,6 +201,15 @@ mod tests {
             include_str!("toolbox/baud.rs"),
             include_str!("toolbox/slcan.rs"),
             include_str!("toolbox/hid.rs"),
+            include_str!("compareview.rs"),
+            include_str!("compareview/text.rs"),
+            include_str!("compareview/folder.rs"),
+            include_str!("compareview/hex.rs"),
+            include_str!("compareview/merge.rs"),
+            include_str!("compareview/table.rs"),
+            include_str!("compare/report.rs"),
+            include_str!("compare/table.rs"),
+            include_str!("shellint.rs"),
         ];
         let mut missing = vec![];
         for src in sources {

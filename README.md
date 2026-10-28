@@ -42,6 +42,7 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 - **Code generation.** F8 multi-color highlights, greyed-out `#if 0` / undefined `#ifdef` code, `#ifdef` and `#if 0` wrapping, printf of a variable with the right format, Doxygen and file headers, 16 customizable macro actions, key recording, navigation history and VS Code / Source Insight / Keil key schemes. Code, Git, terminal and file servers share one project folder.
 - **Built-in terminal, find / replace, split view.** A terminal panel (PowerShell, cmd, Git Bash, bash…) with clickable `file:line`, regex find and replace in a file or across the project with preview, split editor, Git change bars and inline blame, auto-reload, crash recovery and portable mode.
 - **Firmware tools.** Map / ELF / HEX / BIN viewers with memory-usage bars and a byte inspector, text and binary file compare, a bit calculator with field extraction, number hovers, code snippets, a TODO panel, Kconfig / device tree / linker-script highlighting and optional Vim keys.
+- **Compare & merge** (`Ctrl+Shift+M`). Built-in, Beyond Compare-style: text compare with inline changes, editing on both sides and block copy; folder compare with sync; hex compare that re-aligns inserted bytes and compares HEX files by address; three-way merge for Git conflicts; CSV and map symbol-table compare; HTML reports. Available from right-click menus everywhere, including the system file manager (*Open with QCCOM*, *Compare with QCCOM*).
 - **Git viewer.** Branches, tags and remotes, a commit graph across all branches, commit details, line-numbered diffs, working-tree status, checkout and fetch.
 - **Toolbox** (`Ctrl+Shift+B`). All the communication tools (TCP, UDP, MQTT, BLE, WebSocket, HTTP API, Modbus slave) plus TFTP / HTTP file servers, a local MQTT broker, a Syslog receiver, LAN device discovery, ping and port check, a subnet calculator, a data converter, checksums with custom CRC, timestamps, a regex tester, font / image to C arrays, a color converter, an ASCII table, a UART baud-rate calculator, CAN over SLCAN adapters and USB HID. Searchable, with favorites, and every tool is in the command palette.
 - **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
@@ -65,9 +66,9 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 |---|---|
 | ![API tab](docs/screenshot-api.png) | ![BLE tab](docs/screenshot-ble.png) |
 
-| Toolbox: CAN |
-|---|
-| ![CAN in the toolbox](docs/screenshot-toolbox.png) |
+| Toolbox: CAN | Compare |
+|---|---|
+| ![CAN in the toolbox](docs/screenshot-toolbox.png) | ![Text compare](docs/screenshot-compare.png) |
 
 ## See it in action
 
@@ -149,6 +150,8 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/shell.rs`, `src/termview.rs`, `src/pattern.rs` | Terminal panel (pseudo-terminals), shared terminal widget, find / replace patterns |
 | `src/binview.rs`, `src/binview/parse.rs`, `src/tools.rs` | Map / ELF / HEX / BIN viewers and parsers, file compare, bit calculator |
 | `src/snippets.rs`, `src/vim.rs` | Code snippets, Vim key emulation |
+| `src/compare/`, `src/compareview.rs`, `src/compareview/` | Diff, three-way merge, folder / hex / table compare and HTML reports; Compare page |
+| `src/shellint.rs` | System right-click menu, forwarding files to the running window |
 | `src/gitview.rs`, `src/git.rs` | Git viewer UI and the `git` CLI wrapper |
 | `src/update.rs` | Self-update (version check, download, verify, replace) |
 | `src/i18n.rs`, `assets/i18n.tsv` | Translations |

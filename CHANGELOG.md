@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.5.0
+
+A built-in compare and merge page, and QCCOM in the system right-click menu.
+
+- **Compare page** (`Ctrl+Shift+M`, new icon in the activity bar): pick two files or folders, drop files on it, or reopen a recent or saved session. The right mode is chosen automatically, and several comparisons stay open as tabs.
+- **Text compare**: side by side with character-level highlights, similar lines kept on the same row, and an overview strip of every change. Ignore whitespace, case, comments or blank lines. Both sides are editable (double-click a line), the arrows in the middle copy a block to the other side (`Alt+→ / Alt+←`), `Ctrl+Z` undoes, and saving keeps the original encoding (UTF-8 / GBK), BOM and line endings. Manual alignment points fix the pairing when the automatic one guesses wrong. `F7 / Shift+F7` jump between changes; *Differences only* hides the rest. Export an HTML report.
+- **Folder compare**: two aligned trees with sizes, times (the newer side is highlighted) and a status column. Compare by size and time or byte by byte (in the background), filter out `build/`, `*.o` and the like, copy or delete either side, and sync in five modes (update left / right / both, mirror) after a preview of every operation. Double-click a file to compare it; HTML report.
+- **Hex compare**: BIN files are aligned when bytes are inserted or deleted, so one extra byte does not make the rest of the file different. Intel HEX and S-record files are compared by address, whatever the record order. Export or copy the list of differing ranges.
+- **Three-way merge**: left, base and right side by side with the merged result below. Non-overlapping changes merge automatically; each conflict gets *Take left / right / left + right / right + left / base* buttons, and the result can be edited directly. For Git conflicts, *Save and mark resolved* runs `git add`.
+- **Table compare**: CSV / TSV files and `.map` symbol tables aligned by a key column, with old → new values and a Δ column for sizes; sort by the largest change.
+- **Compare from anywhere**: the Code page file tree (files and folders) and editor tabs (*Compare with… → Saved version / Git HEAD / another tab*), and the Git page (*Compare with HEAD*, commit files against their parent, and a new *Merge conflicts* group where a click opens the three-way merge). Saved sessions, and *Open with Beyond Compare / WinMerge / Meld* when one is installed.
+- **System right-click menu** (Settings → General, no admin rights): *Open with QCCOM* opens a file (code in the editor, `.log` in the log view, map / ELF / HEX / BIN in their viewers) or a folder as a project; *Compare with QCCOM* on two selected items compares them, or on one item sets it as the left side for the next one. On Linux this installs a desktop entry, Nautilus scripts and a Dolphin service menu. If QCCOM is already open, the request goes to the existing window.
+- Command line: `qccom --compare a b`, `qccom --file x`, `qccom --project dir`.
+
 ## 1.4.0
 
 The network tools move into the Toolbox, and every connection can be open at the same time.

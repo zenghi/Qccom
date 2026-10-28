@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.6.0"
+version = "1.7.0"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -44,6 +44,7 @@ qrcode = { version = "0.14", default-features = false }
 [target.'cfg(windows)'.dependencies]
 ureq = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
+raw-window-handle = "0.6"
 
 [target.'cfg(not(windows))'.dependencies]
 ureq = { version = "2", default-features = false, features = ["tls"] }

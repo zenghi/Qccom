@@ -89,6 +89,10 @@ pub struct Settings {
     pub repeat_ms: u32,
     pub sidebar: bool,
     pub advanced_open: bool,
+    /// 编辑器 / 终端背景图
+    pub bg: crate::bgimg::BgCfg,
+    /// 侧边栏里折叠起来的分组（"dev" / "baud" / "link" / "view"）
+    pub folded: Vec<String>,
     /// 设置的版本号，用来迁移旧默认值
     pub rev: u32,
     /// 是否已经按黄金比例摆过窗口（只在第一次启动时做）
@@ -187,6 +191,8 @@ impl Default for Settings {
             repeat_ms: 1000,
             sidebar: true,
             advanced_open: false,
+            folded: vec![],
+            bg: Default::default(),
             rev: SETTINGS_REV,
             window_placed: false,
             groups: default_groups(),
@@ -273,6 +279,7 @@ mod plot;
 mod prefs;
 mod serialx;
 mod sess;
+mod sshview;
 mod toolbox;
 mod toolbox2;
 mod toolbox3;
@@ -365,6 +372,14 @@ pub struct App {
     last_tx_at: Option<Instant>,
     at_bottom: bool,
     jump_bottom: bool,
+    /// 滚动条旁的概览标记：(缓存键, 算的时刻, 每格的标记位)
+    ov: (u64, Instant, Vec<u8>),
+    /// 中键自动滚动的锚点
+    auto_anchor: Option<egui::Pos2>,
+    /// 离开底部那一刻的总行数（「回到最新」上显示新增多少行）
+    bottom_total: Option<u64>,
+    /// Ctrl+G 跳到时间的输入框
+    goto_time: Option<String>,
 
     /// 串口终端模式
     tv: TermView,
@@ -563,6 +578,10 @@ impl App {
             last_tx_at: None,
             at_bottom: true,
             jump_bottom: false,
+            ov: (0, Instant::now(), vec![]),
+            auto_anchor: None,
+            bottom_total: None,
+            goto_time: None,
             tv: {
                 let mut tv = TermView::new("term-view", 100, 30);
                 tv.focus_req = true;
@@ -871,7 +890,10 @@ impl App {
 
     fn send_quick(&mut self, c: &QuickCmd) {
         match c.bytes(self.s.encoding, self.line_ending()) {
-            Ok(d) => self.send_bytes(d),
+            Ok(d) => match c.target {
+                Some(k) if k as usize != self.cur_slot() => self.send_to_slot(k as usize, d),
+                _ => self.send_bytes(d),
+            },
             Err(e) => self.toast(e, ERR()),
         }
     }
@@ -1579,16 +1601,18 @@ impl App {
                         ui.add_space(10.0);
                         self.connect_button(ui);
                         ui.add_space(16.0);
-                        eyebrow(ui, t("链路"), &self.uptime());
-                        self.link_card(ui);
+                        if self.fold_head(ui, "link", t("链路"), &self.uptime(), &self.link_summary()) {
+                            self.link_card(ui);
+                        }
                         ui.add_space(16.0);
                     } else {
                         // ---- 设备
-                        eyebrow(ui, t("设备"), &tf("{} 个", &[&self.ports.len()]));
-                        if self.ports.is_empty() {
+                        let dev_sum = if self.s.port.is_empty() { tf("{} 个", &[&self.ports.len()]) } else { self.s.port.clone() };
+                        let dev_open = self.fold_head(ui, "dev", t("设备"), &tf("{} 个", &[&self.ports.len()]), &dev_sum);
+                        if dev_open && self.ports.is_empty() {
                             empty_port_card(ui);
                         }
-                        for p in self.ports.clone() {
+                        for p in self.ports.clone().into_iter().filter(|_| dev_open) {
                             let selected = p.name == self.s.port;
                             let live = self.connected.as_deref() == Some(p.name.as_str());
                             let alias = self.port_alias(&p.name).cloned();
@@ -1602,8 +1626,12 @@ impl App {
                         ui.add_space(12.0);
 
                         // ---- 波特率
-                        eyebrow(ui, t("波特率"), "");
+                        let baud_sum = format!("{} {}", self.s.cfg.baud, self.s.cfg.short());
+                        let baud_open = self.fold_head(ui, "baud", t("波特率"), "", &baud_sum);
                         ui.add_enabled_ui(!busy, |ui| {
+                            if !baud_open {
+                                return;
+                            }
                             ui.horizontal(|ui| {
                                 // 右边留给下拉箭头和「自动」按钮，别让这一行把侧边栏撑宽
                                 let w = ui.available_width() - 94.0;
@@ -1646,11 +1674,13 @@ impl App {
                                 }
                             });
                         });
-                        ui.label(
-                            RichText::new(tf("{}  ·  流控 {}", &[&self.s.cfg.short(), &[t("无"), t("软件"), t("硬件")][self.s.cfg.flow.min(2) as usize]]))
-                                .small()
-                                .color(TEXT3()),
-                        );
+                        if baud_open {
+                            ui.label(
+                                RichText::new(tf("{}  ·  流控 {}", &[&self.s.cfg.short(), &[t("无"), t("软件"), t("硬件")][self.s.cfg.flow.min(2) as usize]]))
+                                    .small()
+                                    .color(TEXT3()),
+                            );
+                        }
                         ui.add_space(10.0);
 
                         // ---- 连接按钮
@@ -1658,13 +1688,19 @@ impl App {
                         ui.add_space(16.0);
 
                         // ---- 链路
-                        eyebrow(ui, t("链路"), &self.uptime());
-                        self.link_card(ui);
+                        if self.fold_head(ui, "link", t("链路"), &self.uptime(), &self.link_summary()) {
+                            self.link_card(ui);
+                        }
                         ui.add_space(16.0);
                     }
 
                     // ---- 显示
-                    eyebrow(ui, t("显示"), "");
+                    let view_sum = format!("{} · {}", self.s.encoding.name(), [t("文本"), "HEX", t("混合")][self.s.view as usize]);
+                    if !self.fold_head(ui, "view", t("显示"), "", &view_sum) {
+                        ui.add_space(12.0);
+                        self.advanced_fold(ui);
+                        return;
+                    }
                     let old = self.s.encoding;
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(t("编码")).color(TEXT2()));
@@ -1728,30 +1764,7 @@ impl App {
                     }
                     ui.add_space(12.0);
 
-                    // ---- 高级
-                    let id = ui.make_persistent_id("adv");
-                    let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, self.s.advanced_open);
-                    let open = state.is_open();
-                    let r = ui.horizontal(|ui| {
-                        let (rect, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
-                        let c = rect.center();
-                        let pts = if open {
-                            vec![c + vec2(-4.0, -2.0), c + vec2(0.0, 2.5), c + vec2(4.0, -2.0)]
-                        } else {
-                            vec![c + vec2(-2.0, -4.0), c + vec2(2.5, 0.0), c + vec2(-2.0, 4.0)]
-                        };
-                        ui.painter().add(Shape::line(pts, st(1.4, TEXT2())));
-                        ui.add(egui::Label::new(RichText::new(t("高级设置")).color(TEXT2())).sense(Sense::click()))
-                    });
-                    let r = r.inner | r.response.interact(Sense::click());
-                    if r.clicked() {
-                        state.toggle(ui);
-                        self.s.advanced_open = !open;
-                    }
-                    state.store(ui.ctx());
-                    if open {
-                        self.advanced(ui);
-                    }
+                    self.advanced_fold(ui);
                     ui.add_space(8.0);
                 });
         });
@@ -1966,6 +1979,84 @@ impl App {
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos2((screen.x - size.x) / 2.0, (screen.y - size.y) / 2.0)));
         self.s.window_placed = true;
+    }
+
+    /// 侧边栏最下面的「高级设置」折叠块
+    fn advanced_fold(&mut self, ui: &mut egui::Ui) {
+        let id = ui.make_persistent_id("adv");
+        let mut state = egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, self.s.advanced_open);
+        let open = state.is_open();
+        let r = ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(vec2(12.0, 12.0), Sense::hover());
+            let c = rect.center();
+            let pts = if open {
+                vec![c + vec2(-4.0, -2.0), c + vec2(0.0, 2.5), c + vec2(4.0, -2.0)]
+            } else {
+                vec![c + vec2(-2.0, -4.0), c + vec2(2.5, 0.0), c + vec2(-2.0, 4.0)]
+            };
+            ui.painter().add(Shape::line(pts, st(1.4, TEXT2())));
+            ui.add(egui::Label::new(RichText::new(t("高级设置")).color(TEXT2())).sense(Sense::click()))
+        });
+        let r = r.inner | r.response.interact(Sense::click());
+        if r.clicked() {
+            state.toggle(ui);
+            self.s.advanced_open = !open;
+        }
+        state.store(ui.ctx());
+        if open {
+            self.advanced(ui);
+        }
+    }
+
+    /// 侧边栏分组标题：点击折叠 / 展开，折叠后在右边显示一句摘要；右键可以全部折叠或展开。返回是否展开
+    fn fold_head(&mut self, ui: &mut egui::Ui, key: &str, title: &str, note: &str, summary: &str) -> bool {
+        let open = !self.s.folded.iter().any(|k| k == key);
+        let r = ui
+            .horizontal(|ui| {
+                let (rect, _) = ui.allocate_exact_size(vec2(10.0, 12.0), Sense::hover());
+                let c = rect.center();
+                let pts = if open {
+                    vec![c + vec2(-3.5, -1.5), c + vec2(0.0, 2.0), c + vec2(3.5, -1.5)]
+                } else {
+                    vec![c + vec2(-1.5, -3.5), c + vec2(2.0, 0.0), c + vec2(-1.5, 3.5)]
+                };
+                ui.painter().add(Shape::line(pts, st(1.3, TEXT3())));
+                ui.label(RichText::new(title).font(FontId::new(11.0, bold())).color(TEXT3()).extra_letter_spacing(1.5));
+                let right = if open { note } else { summary };
+                if !right.is_empty() {
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        let c = if open { TEXT3() } else { TEXT2() };
+                        ui.add(egui::Label::new(RichText::new(right).font(FontId::new(10.5, FontFamily::Monospace)).color(c)).truncate());
+                    });
+                }
+            })
+            .response
+            .interact(Sense::click())
+            .on_hover_cursor(egui::CursorIcon::PointingHand);
+        if r.clicked() {
+            if open {
+                self.s.folded.push(key.to_string());
+            } else {
+                self.s.folded.retain(|k| k != key);
+            }
+        }
+        r.context_menu(|ui| {
+            if ui.button(t("全部折叠")).clicked() {
+                self.s.folded = ["dev", "baud", "link", "view"].iter().map(|s| s.to_string()).collect();
+                ui.close_menu();
+            }
+            if ui.button(t("全部展开")).clicked() {
+                self.s.folded.clear();
+                ui.close_menu();
+            }
+        });
+        ui.add_space(2.0);
+        open
+    }
+
+    /// 链路分组折叠时的摘要：收发字节数
+    fn link_summary(&self) -> String {
+        format!("RX {}  TX {}", human_bytes(self.rx_bytes), human_bytes(self.tx_bytes))
     }
 
     fn uptime(&self) -> String {
@@ -2907,6 +2998,72 @@ impl App {
         let mut word_at: Option<(u64, usize, usize)> = None;
         let mut vis_first: Option<(u64, usize)> = None;
         let mut vis_last: Option<(u64, usize)> = None;
+        // —— 快速滚动：Alt+滚轮 十倍速、翻页 / 首尾键、中键自动滚动 ——
+        let hovered = ui.rect_contains_pointer(inner);
+        let max_y = (n as f32 * row_h - inner.height()).max(0.0);
+        let mut want: Option<f32> = None;
+        if hovered {
+            let (alt, dy) = ui.input(|i| (i.modifiers.alt, i.raw_scroll_delta.y));
+            if alt && dy != 0.0 {
+                want = Some(self.log_scroll_y - dy * 10.0);
+                ui.input_mut(|i| {
+                    i.smooth_scroll_delta = egui::Vec2::ZERO;
+                    i.raw_scroll_delta = egui::Vec2::ZERO;
+                });
+            }
+        }
+        if ui.memory(|m| m.focused().is_none()) && self.goto_time.is_none() {
+            let page = (inner.height() - row_h * 2.0).max(row_h);
+            ui.input_mut(|i| {
+                if i.consume_key(Modifiers::NONE, Key::PageUp) {
+                    want = Some(self.log_scroll_y - page);
+                }
+                if i.consume_key(Modifiers::NONE, Key::PageDown) {
+                    want = Some(self.log_scroll_y + page);
+                }
+                if i.consume_key(Modifiers::COMMAND, Key::Home) {
+                    want = Some(0.0);
+                }
+                if i.consume_key(Modifiers::COMMAND, Key::End) {
+                    self.jump_bottom = true;
+                    self.auto_scroll = true;
+                }
+            });
+        }
+        let (mid_down, mid_up, other_click, esc, hover) = ui.input(|i| {
+            (
+                i.pointer.button_pressed(egui::PointerButton::Middle),
+                i.pointer.button_released(egui::PointerButton::Middle),
+                i.pointer.primary_pressed() || i.pointer.secondary_pressed(),
+                i.key_pressed(Key::Escape),
+                i.pointer.hover_pos(),
+            )
+        });
+        if let Some(a) = self.auto_anchor {
+            // 再按一下中键 / 任意点击 / Esc 退出；按住拖动后松开也退出
+            if mid_down || other_click || esc || mid_up && hover.is_some_and(|p| (p.y - a.y).abs() > 16.0) {
+                self.auto_anchor = None;
+            } else if let Some(p) = hover {
+                let d = p.y - a.y;
+                if d.abs() > 8.0 {
+                    let dt = ui.input(|i| i.stable_dt).min(0.05);
+                    want = Some(self.log_scroll_y + d.signum() * (d.abs() - 8.0).powf(1.25) * 4.0 * dt);
+                }
+                ui.ctx().set_cursor_icon(if d > 8.0 {
+                    egui::CursorIcon::ResizeSouth
+                } else if d < -8.0 {
+                    egui::CursorIcon::ResizeNorth
+                } else {
+                    egui::CursorIcon::AllScroll
+                });
+                ui.ctx().request_repaint();
+            }
+        } else if mid_down && hovered && n > 0 {
+            self.auto_anchor = hover;
+        }
+        if let Some(y) = want {
+            sa = sa.vertical_scroll_offset(y.clamp(0.0, max_y));
+        }
         if self.jump_bottom {
             sa = sa.vertical_scroll_offset(n as f32 * row_h + inner.height());
             self.jump_bottom = false;
@@ -3154,9 +3311,34 @@ impl App {
         }
         self.log_scroll_y = out.state.offset.y;
         self.at_bottom = out.state.offset.y + out.inner_rect.height() >= out.content_size.y - row_h * 1.5;
-        // 往上翻时出现「回到最新」浮动按钮
+        if self.at_bottom {
+            self.bottom_total = None;
+        } else if self.bottom_total.is_none() {
+            self.bottom_total = Some(self.buf.total());
+        }
+        if n as f32 * row_h > out.inner_rect.height() {
+            self.overview(ui, out.inner_rect, n, open);
+        }
+        if let Some(a) = self.auto_anchor {
+            let p = ui.painter();
+            p.circle(a, 13.0, BG2().gamma_multiply(0.92), st(1.0, ACCENT().gamma_multiply(0.7)));
+            p.circle_filled(a, 2.0, ACCENT());
+            for s in [-1.0f32, 1.0] {
+                let c = a + vec2(0.0, s * 7.0);
+                p.add(Shape::convex_polygon(
+                    vec![c + vec2(-3.5, -s * 1.5), c + vec2(3.5, -s * 1.5), c + vec2(0.0, s * 2.5)],
+                    ACCENT(),
+                    egui::Stroke::NONE,
+                ));
+            }
+        }
+        self.goto_time_box(ui, card_rect, n, open);
+        // 往上翻时出现「回到最新」浮动按钮，带上离开后新来了多少行
         if !self.at_bottom && n > 0 {
-            let r = Rect::from_center_size(pos2(card_rect.center().x, card_rect.bottom() - 26.0), vec2(116.0, 30.0));
+            let fresh = self.bottom_total.map(|b| self.buf.total().saturating_sub(b)).unwrap_or(0);
+            let label = if fresh > 0 { tf("回到最新（+{} 行）", &[&fresh]) } else { t("回到最新").to_string() };
+            let lw = ui.fonts(|f| f.layout_no_wrap(label.clone(), FontId::new(12.5, bold()), TEXT()).size().x);
+            let r = Rect::from_center_size(pos2(card_rect.center().x, card_rect.bottom() - 26.0), vec2(lw + 48.0, 30.0));
             let resp = ui.interact(r, ui.id().with("jump"), Sense::click());
             let p = ui.painter();
             p.add(
@@ -3177,7 +3359,7 @@ impl App {
             );
             let a = pos2(r.left() + 20.0, r.center().y);
             p.add(Shape::line(vec![a + vec2(-4.0, -2.0), a + vec2(0.0, 2.5), a + vec2(4.0, -2.0)], st(1.5, ACCENT())));
-            p.text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, t("回到最新"), FontId::new(12.5, bold()), TEXT());
+            p.text(pos2(r.left() + 32.0, r.center().y), Align2::LEFT_CENTER, label, FontId::new(12.5, bold()), TEXT());
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
@@ -3189,6 +3371,155 @@ impl App {
         }
         hud_corners(&painter, card_rect.shrink(5.0), ACCENT().gamma_multiply(0.35));
     }
+}
+
+impl App {
+    /// 滚动条旁的概览：错误红、警告黄、书签青、搜索命中白，一眼看出整份日志哪里有事
+    fn overview(&mut self, ui: &egui::Ui, rect: Rect, n: usize, open: Option<u64>) {
+        use std::hash::{Hash, Hasher};
+        let cells = ((rect.height() / 3.0) as usize).max(1);
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        (n, cells, self.buf.total(), self.buf.dropped, &self.search, self.s.min_level as u8, self.s.show_tx).hash(&mut h);
+        let key = h.finish();
+        let stale = self.ov.1.elapsed() > Duration::from_millis(if key == self.ov.0 { 2000 } else { 300 });
+        if stale || self.ov.2.len() != cells {
+            let mut v = vec![0u8; cells];
+            let search = (!self.search.is_empty()).then_some(self.search.as_str());
+            for i in 0..n {
+                let Some(l) = self.buf.get(self.row_id(i, open)) else { continue };
+                let mut m = match l.level {
+                    Level::Error => 1,
+                    Level::Warn => 2,
+                    _ => 0,
+                };
+                if l.bookmark {
+                    m |= 4;
+                }
+                if search.is_some_and(|q| find_ci(&l.plain, q).is_some()) {
+                    m |= 8;
+                }
+                if m != 0 {
+                    v[i * cells / n] |= m;
+                }
+            }
+            self.ov = (key, Instant::now(), v);
+        }
+        let p = ui.painter();
+        let ch = rect.height() / cells as f32;
+        for (i, &m) in self.ov.2.iter().enumerate() {
+            if m == 0 {
+                continue;
+            }
+            let y = rect.top() + i as f32 * ch;
+            let c = if m & 1 != 0 {
+                ERR()
+            } else if m & 2 != 0 {
+                WARN()
+            } else if m & 4 != 0 {
+                ACCENT()
+            } else {
+                TEXT()
+            };
+            let r = Rect::from_min_max(pos2(rect.right() - 4.0, y), pos2(rect.right() - 1.0, y + ch.max(2.0)));
+            p.rect_filled(r, 0.0, c.gamma_multiply(0.85));
+            // 搜索命中同时有错误时，左边再补一道白
+            if m & 8 != 0 && m & 7 != 0 {
+                p.rect_filled(r.translate(vec2(-4.0, 0.0)), 0.0, TEXT().gamma_multiply(0.7));
+            }
+        }
+    }
+
+    /// Ctrl+G：输入时间，跳到那个时刻（或之后第一行）
+    fn goto_time_box(&mut self, ui: &mut egui::Ui, card: Rect, n: usize, open: Option<u64>) {
+        let Some(mut text) = self.goto_time.take() else { return };
+        let mut keep = true;
+        let mut go = false;
+        let r = Rect::from_center_size(pos2(card.center().x, card.top() + 30.0), vec2(300.0, 36.0));
+        let first = (n > 0).then(|| self.buf.get(self.row_id(0, open)).map(|l| l.ts)).flatten();
+        let last = (n > 0).then(|| self.buf.get(self.row_id(n - 1, open)).map(|l| l.ts)).flatten();
+        egui::Area::new(ui.id().with("goto_time")).fixed_pos(r.min).order(egui::Order::Foreground).show(ui.ctx(), |ui| {
+            egui::Frame::new()
+                .fill(BG2())
+                .stroke(st(1.0, ACCENT().gamma_multiply(0.5)))
+                .corner_radius(CornerRadius::same(8))
+                .inner_margin(egui::Margin::symmetric(10, 6))
+                .shadow(epaint::Shadow {
+                    offset: [0, 6],
+                    blur: 18,
+                    spread: 0,
+                    color: shade(170),
+                })
+                .show(ui, |ui| {
+                    ui.set_width(r.width() - 20.0);
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(t("跳到时间")).color(TEXT2()).size(12.5));
+                        let hint = first.map(|f| f.format("%H:%M:%S").to_string()).unwrap_or_else(|| "12:30:05".into());
+                        let te = ui.add(egui::TextEdit::singleline(&mut text).hint_text(hint).desired_width(120.0).font(TextStyle::Monospace));
+                        if !te.has_focus() && !te.lost_focus() {
+                            te.request_focus();
+                        }
+                        if te.lost_focus() {
+                            if ui.input(|i| i.key_pressed(Key::Enter)) {
+                                go = true;
+                            } else {
+                                keep = false;
+                            }
+                        }
+                        if let (Some(f), Some(l)) = (first, last) {
+                            ui.label(RichText::new(format!("{}–{}", f.format("%H:%M"), l.format("%H:%M"))).color(TEXT3()).size(11.5));
+                        }
+                    });
+                });
+        });
+        if ui.input(|i| i.key_pressed(Key::Escape)) {
+            keep = false;
+        }
+        if go {
+            match (parse_hms(&text), first, last) {
+                (Some(tm), Some(f), Some(l)) => {
+                    // 先按最后一行的日期拼；比最后一行还晚就往前一天（跨零点的日志）
+                    let mut target = l.date_naive().and_time(tm);
+                    if target > l.naive_local() && l.date_naive() > f.date_naive() {
+                        target -= chrono::Duration::days(1);
+                    }
+                    let (mut lo, mut hi) = (0usize, n);
+                    while lo < hi {
+                        let mid = (lo + hi) / 2;
+                        let ts = self.buf.get(self.row_id(mid, open)).map(|l| l.ts.naive_local());
+                        if ts.is_some_and(|t| t < target) {
+                            lo = mid + 1;
+                        } else {
+                            hi = mid;
+                        }
+                    }
+                    let i = lo.min(n - 1);
+                    let id = self.row_id(i, open);
+                    self.auto_scroll = false;
+                    self.scroll_to = Some(id);
+                    self.sel = Some((id, id));
+                    keep = false;
+                }
+                (None, _, _) => {
+                    self.toast(t("时间格式：时:分[:秒[.毫秒]]"), WARN());
+                }
+                _ => keep = false,
+            }
+        }
+        if keep {
+            self.goto_time = Some(text);
+        }
+    }
+}
+
+/// "12:30"、"12:30:05"、"12:30:05.250" → 时间
+fn parse_hms(s: &str) -> Option<chrono::NaiveTime> {
+    let s = s.trim().replace('：', ":");
+    for f in ["%H:%M:%S%.f", "%H:%M:%S", "%H:%M"] {
+        if let Ok(t) = chrono::NaiveTime::parse_from_str(&s, f) {
+            return Some(t);
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------- 终端
@@ -3284,6 +3615,11 @@ impl App {
                         self.focus_search = true;
                     }
                 }
+                Act::LogGotoTime => {
+                    if !self.s.terminal {
+                        self.goto_time = Some(String::new());
+                    }
+                }
                 Act::LogClear => self.clear(),
                 Act::LogSave => self.save(),
                 Act::LogPause => self.toggle_pause(),
@@ -3350,6 +3686,13 @@ impl App {
                 }
                 Act::CheckUpdate => self.check_update(true),
                 Act::BitCalc => self.bitcalc.toggle(),
+                Act::ToggleBg => {
+                    if crate::bgimg::any(&self.s.bg) {
+                        self.s.bg.on = !self.s.bg.on;
+                    } else {
+                        self.open_settings(prefs::Cat::Appearance);
+                    }
+                }
                 Act::Checksum => self.calc.open = !self.calc.open,
                 Act::NewWindow => self.new_window(),
                 Act::ToggleShell => {
@@ -3736,7 +4079,11 @@ impl App {
                             }
                         }
                         Ok(None) if manual => self.toast(tf("已是最新版本 v{}", &[&env!("CARGO_PKG_VERSION")]), OK()),
-                        Err(e) if manual => self.toast(tf("检查更新失败：{}", &[&e]), ERR()),
+                        Err(e) if manual => {
+                            // 顺手放进剪贴板，方便发给服务器管理员或贴到问题反馈里
+                            ctx.copy_text(format!("QCCOM v{} {}: {e}", env!("CARGO_PKG_VERSION"), update::version_url()));
+                            self.toast(tf("检查更新失败（错误信息已复制）：{}", &[&e]), ERR())
+                        }
                         _ => {}
                     }
                 }
@@ -4047,7 +4394,9 @@ impl eframe::App for App {
         self.close_all_sessions();
     }
 
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        crate::titlebar::apply(frame, !crate::theme::is_light(), BG0(), TEXT(), LINE());
+        crate::bgimg::set(&self.s.bg);
         if !self.s.window_placed {
             self.place_window(ctx);
         }
@@ -4104,12 +4453,19 @@ impl eframe::App for App {
             .show_separator_line(true)
             .show(ctx, |ui| self.status_bar(ui));
         self.activity_bar(ctx);
-        self.shells.poll();
+        self.shells.poll(ctx.input(|i| i.focused));
+        self.ssh_poll();
         let cwd = self.shell_cwd();
         self.shells.ui(ctx, &cwd);
         for e in std::mem::take(&mut self.shells.events) {
             match e {
                 ShellEvt::Toast(m) => self.toast(m, WARN()),
+                ShellEvt::Done(title, d) => {
+                    self.toast(tf("「{}」的命令跑完了（用时 {} 秒）", &[&title, &d.as_secs()]), OK());
+                    if !ctx.input(|i| i.focused) {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::RequestUserAttention(egui::UserAttentionType::Informational));
+                    }
+                }
                 ShellEvt::Open(p, line) => {
                     self.set_page(Page::Code);
                     self.code.open_file(&p, Some((line, None)));
@@ -4188,6 +4544,13 @@ impl eframe::App for App {
                 dropped.extend(s.lines().filter(|l| !l.trim().is_empty()).map(|l| PathBuf::from(l.trim())));
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
+        }
+        // 拖到底部终端面板上：把路径插进命令行
+        if !dropped.is_empty() && self.shells.s.open {
+            let hover = ctx.input(|i| i.pointer.hover_pos());
+            if hover.is_some_and(|h| self.shells.rect.is_some_and(|r| r.contains(h))) {
+                self.shells.insert_paths(&std::mem::take(&mut dropped));
+            }
         }
         for p in dropped {
             match self.page {

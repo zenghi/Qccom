@@ -7,6 +7,7 @@ use std::collections::VecDeque;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Instant;
 
+use super::logx::tool_window;
 use super::*;
 
 /// 会话槽位：0 串口、1 TCP（客户端 / 服务器）、2 UDP、3 MQTT、4 BLE、5 WebSocket
@@ -241,6 +242,104 @@ impl App {
                 s.unread = true;
             }
             self.sessions[k] = Some(s);
+        }
+    }
+
+    /// 发给某个后台连接（快捷命令指定了目标连接时）
+    pub(super) fn send_to_slot(&mut self, k: usize, data: Vec<u8>) {
+        if k == self.cur_slot() {
+            return self.send_bytes(data);
+        }
+        let Some(mut s) = self.sessions.get_mut(k).and_then(|s| s.take()).filter(|s| s.conn.is_some()) else {
+            self.toast(tf("「{}」没有连接", &[&crate::cmds::target_name(Some(k as u8))]), WARN());
+            return;
+        };
+        self.swap_session(&mut s);
+        self.send_bytes(data);
+        self.swap_session(&mut s);
+        self.sessions[k] = Some(s);
+    }
+
+    /// 合并日志窗口：所有连接的日志按时间排在一起，每行标出来源
+    pub(super) fn merged_window(&mut self, ctx: &egui::Context) {
+        if !self.wins.merged {
+            return;
+        }
+        const PER: usize = 3000;
+        let cur = self.cur_slot();
+        let mut rows: Vec<(chrono::DateTime<chrono::Local>, usize, Dir, Level, String)> = vec![];
+        for k in 0..SLOTS {
+            let buf = if k == cur {
+                &self.buf
+            } else if let Some(s) = &self.sessions[k] {
+                &s.buf
+            } else {
+                continue;
+            };
+            let total = buf.total();
+            let from = total.saturating_sub(PER as u64).max(buf.dropped);
+            for id in from..total {
+                if let Some(l) = buf.get(id) {
+                    if l.dir == Dir::Tx && !self.s.show_tx {
+                        continue;
+                    }
+                    rows.push((l.ts, k, l.dir, l.level, l.plain.clone()));
+                }
+            }
+        }
+        rows.sort_by_key(|r| r.0);
+        let slot_col = |k: usize| [ACCENT(), VIOLET(), WARN(), OK(), ink(Color32::from_rgb(0x60, 0xa5, 0xfa)), ink(Color32::from_rgb(0xf4, 0x72, 0xb6))][k % 6];
+        let mut open = true;
+        let n_src = rows.iter().map(|r| r.1).collect::<std::collections::BTreeSet<_>>().len();
+        tool_window(ctx, t("合并日志（所有连接）"), "merged", &mut open, 760.0, |ui| {
+            ui.label(RichText::new(tf("{} 个连接的最近日志按时间排在一起；每个连接最多取最近 {} 行", &[&n_src, &PER])).small().color(TEXT3()));
+            ui.add_space(4.0);
+            let font = FontId::monospace(12.0);
+            let row_h = ui.fonts(|f| f.row_height(&font)) + 3.0;
+            egui::ScrollArea::both()
+                .max_height(460.0)
+                .auto_shrink([false, false])
+                .stick_to_bottom(true)
+                .show_rows(ui, row_h, rows.len(), |ui, range| {
+                    for (ts, k, dir, level, text) in &rows[range] {
+                        let mut job = LayoutJob::default();
+                        let fmt = |c: Color32| TextFormat {
+                            font_id: font.clone(),
+                            color: c,
+                            ..Default::default()
+                        };
+                        job.append(&ts.format("%H:%M:%S%.3f ").to_string(), 0.0, fmt(TEXT3()));
+                        let src = format!("{:<9} ", crate::cmds::target_name(Some(*k as u8)));
+                        job.append(&src, 0.0, fmt(slot_col(*k)));
+                        job.append(if *dir == Dir::Tx { "→ " } else { "  " }, 0.0, fmt(TEXT3()));
+                        let c = match level {
+                            Level::Error => ERR(),
+                            Level::Warn => WARN(),
+                            _ if *dir == Dir::Tx => ACCENT(),
+                            _ => LOG_TEXT(),
+                        };
+                        job.append(text, 0.0, fmt(c));
+                        ui.add(egui::Label::new(job).extend());
+                    }
+                });
+            ui.add_space(4.0);
+            if ui.button(t("复制全部")).clicked() {
+                let text: String = rows
+                    .iter()
+                    .map(|(ts, k, dir, _, s)| {
+                        format!(
+                            "{} [{}] {}{s}\n",
+                            ts.format("%H:%M:%S%.3f"),
+                            crate::cmds::target_name(Some(*k as u8)),
+                            if *dir == Dir::Tx { "> " } else { "" }
+                        )
+                    })
+                    .collect();
+                ui.ctx().copy_text(text);
+            }
+        });
+        if !open {
+            self.wins.merged = false;
         }
     }
 

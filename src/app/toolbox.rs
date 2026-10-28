@@ -16,6 +16,7 @@ pub enum Tool {
     Mqtt,
     Ble,
     Ws,
+    Ssh,
     Api,
     MbSlave,
     Tftp,
@@ -56,7 +57,7 @@ pub enum Tool {
 /// 工具列表的分组
 pub(super) fn groups() -> [(&'static str, &'static [Tool]); 10] {
     [
-        (t("通信调试"), &[Tool::Tcp, Tool::Udp, Tool::Mqtt, Tool::Ble, Tool::Ws, Tool::Api, Tool::MbSlave]),
+        (t("通信调试"), &[Tool::Tcp, Tool::Udp, Tool::Mqtt, Tool::Ble, Tool::Ws, Tool::Ssh, Tool::Api, Tool::MbSlave]),
         (t("服务器"), &[Tool::Tftp, Tool::Http, Tool::Syslog, Tool::Broker]),
         (t("网络"), &[Tool::Discover, Tool::Ping, Tool::Subnet]),
         (t("固件"), &[Tool::FwConv, Tool::FwPack, Tool::SizeDiff, Tool::Stack, Tool::Vectors]),
@@ -117,6 +118,8 @@ pub struct ToolboxCfg {
     pub x: super::toolbox2::Cfg2,
     /// v1.6 嵌入式工具的设置
     pub z: super::toolbox3::Cfg3,
+    /// SSH / Telnet 保存的主机
+    pub ssh_hosts: Vec<crate::remote::Host>,
 }
 
 impl Default for ToolboxCfg {
@@ -148,6 +151,7 @@ impl Default for ToolboxCfg {
             favs: vec![],
             x: Default::default(),
             z: Default::default(),
+            ssh_hosts: vec![],
         }
     }
 }
@@ -171,6 +175,7 @@ pub struct ToolboxUi {
     filter: String,
     pub(super) x: super::toolbox2::Ui2,
     pub(super) z: super::toolbox3::Ui3,
+    pub(super) ssh: super::sshview::SshUi,
 }
 
 impl Default for ToolboxUi {
@@ -192,6 +197,7 @@ impl Default for ToolboxUi {
             filter: String::new(),
             x: Default::default(),
             z: Default::default(),
+            ssh: Default::default(),
         }
     }
 }
@@ -214,6 +220,10 @@ impl App {
         // 网络连接和 API：右边就是调试页那一套（侧边栏、日志、终端、快捷命令）
         if comm_slot(self.s.tb.tool).is_some() || self.s.tb.tool == Tool::Api {
             self.debug_page(ctx);
+            return;
+        }
+        if self.s.tb.tool == Tool::Ssh {
+            self.ssh_page(ctx);
             return;
         }
         // CAN 循环发送
@@ -331,6 +341,10 @@ impl App {
                 (true, false) => 1,
                 _ => 0,
             };
+        }
+        if tool == Tool::Ssh {
+            let flash = self.tb.ssh.tabs.iter().any(|s| s.alive() && s.rx_at.is_some_and(|t| t.elapsed() < Duration::from_millis(400)));
+            return if flash { 2 } else { self.ssh_online() as u8 };
         }
         let running = match tool {
             Tool::Tftp => self.tb.tftp.is_some(),
@@ -1152,6 +1166,7 @@ pub(super) fn tool_text(t_: Tool) -> (&'static str, &'static str) {
         Tool::Udp => ("UDP", t("收发 UDP 数据包，每包一行并标出来源")),
         Tool::Mqtt => ("MQTT", t("连接 MQTT 服务器，订阅主题、发布消息")),
         Tool::Ble => (t("低功耗蓝牙"), t("扫描 BLE 设备，订阅通知、读写特征")),
+        Tool::Ssh => ("SSH / Telnet", t("远程登录开发板、网关和服务器：多个会话同时在线，拖文件就能上传")),
         Tool::Ws => ("WebSocket", t("连接 ws:// 或 wss:// 服务，收发文本 / 二进制消息")),
         Tool::Api => (t("HTTP 接口"), t("像 Postman 一样调试设备上的 REST 接口")),
         Tool::Tftp => (t("TFTP 服务器"), t("把一个文件夹通过 TFTP 共享出去，U-Boot、交换机、IP 电话用它下载固件")),

@@ -68,6 +68,8 @@ pub struct Screen {
     pub grid: Vec<Row>,
     pub scrollback: VecDeque<Row>,
     pub max_scrollback: usize,
+    /// 回滚区从头部丢掉了多少行（行号 = dropped + 下标，不会因为丢行而变）
+    pub dropped: u64,
     pub x: usize,
     pub y: usize,
     pen: Style,
@@ -127,6 +129,7 @@ impl Screen {
             grid: vec![vec![Cell::BLANK; cols]; rows],
             scrollback: VecDeque::new(),
             max_scrollback: 3000,
+            dropped: 0,
             x: 0,
             y: 0,
             pen: Style::DEFAULT,
@@ -193,6 +196,7 @@ impl Screen {
         self.scrollback.push_back(row);
         while self.scrollback.len() > self.max_scrollback {
             self.scrollback.pop_front();
+            self.dropped += 1;
         }
     }
 
@@ -426,7 +430,10 @@ impl Perform for Screen {
                         self.erase(y, 0, cols);
                     }
                 }
-                3 => self.scrollback.clear(),
+                3 => {
+                    self.dropped += self.scrollback.len() as u64;
+                    self.scrollback.clear();
+                }
                 _ => {}
             },
             'K' => match ps.first().copied().unwrap_or(0) {

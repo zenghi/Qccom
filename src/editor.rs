@@ -2148,6 +2148,7 @@ impl Editor {
 
         let p = ui.painter_at(rect);
         p.rect_filled(rect, 0.0, BG0());
+        crate::bgimg::paint(&p, rect, crate::bgimg::Slot::Editor);
         let tp = ui.painter_at(text_rect);
         let ph = self.primary_sel();
         let prim_line = buf.line_of(ph.h);

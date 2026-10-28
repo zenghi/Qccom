@@ -15,6 +15,8 @@ pub(super) enum Item {
     LangAuto,
     Prefs(prefs::Cat),
     Tool(toolbox::Tool),
+    /// 连接保存的 SSH / Telnet 主机
+    Host(usize),
 }
 
 #[derive(Default)]
@@ -50,6 +52,10 @@ impl App {
             Item::LangAuto => (t("语言").to_string(), t("跟随系统").to_string(), String::new()),
             Item::Prefs(c) => (t("设置").to_string(), c.label().to_string(), String::new()),
             Item::Tool(tool) => (t("工具箱").to_string(), toolbox::tool_text(tool).0.to_string(), String::new()),
+            Item::Host(i) => {
+                let h = self.s.tb.ssh_hosts.get(i).cloned().unwrap_or_default();
+                (h.proto.name().to_string(), format!("{} {}  {}", t("连接"), h.title(), h.addr()), String::new())
+            }
         }
     }
 
@@ -65,6 +71,7 @@ impl App {
         v.extend((0..i18n::LANGS.len()).map(Item::Lang));
         v.extend(prefs::Cat::ALL.iter().map(|c| Item::Prefs(*c)));
         v.extend(toolbox::groups().iter().flat_map(|g| g.1.iter()).map(|t| Item::Tool(*t)));
+        v.extend((0..self.s.tb.ssh_hosts.len()).map(Item::Host));
         v
     }
 
@@ -217,6 +224,12 @@ impl App {
             }
             Item::Prefs(c) => self.open_settings(c),
             Item::Tool(tool) => self.open_tool(tool),
+            Item::Host(i) => {
+                if let Some(h) = self.s.tb.ssh_hosts.get(i).cloned() {
+                    self.open_tool(toolbox::Tool::Ssh);
+                    self.ssh_connect(&h);
+                }
+            }
         }
     }
 }
@@ -229,6 +242,7 @@ fn item_key(it: Item) -> String {
         Item::LangAuto => "lang.auto".into(),
         Item::Prefs(c) => format!("prefs.{}", c.id()),
         Item::Tool(tool) => format!("tool.{tool:?}"),
+        Item::Host(i) => format!("host.{i}"),
     }
 }
 

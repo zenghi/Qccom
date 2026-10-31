@@ -412,6 +412,8 @@ pub struct Editor {
     drag: Option<Drag>,
     clicks: (f64, Pos2, u8),
     blink: f64,
+    /// 输入法组字状态
+    ime: crate::ime::Ime,
     cache: Cache,
     disp: (u64, Vec<Row>, Vec<usize>),
     /// 自动换行的宽度（像素，上一帧量的）；None 表示不换行
@@ -452,6 +454,7 @@ impl Editor {
             drag: None,
             clicks: (0.0, Pos2::ZERO, 0),
             blink: 0.0,
+            ime: Default::default(),
             cache: Cache::default(),
             disp: (u64::MAX, vec![], vec![]),
             wrap_w: None,
@@ -1927,7 +1930,7 @@ impl Editor {
 
         // ---- 键盘
         if focused {
-            let events = ui.input(|i| i.events.clone());
+            let events = self.ime.filter(ui.input(|i| i.events.clone()));
             let mut changed_ver = buf.ver;
             for e in events {
                 if let Some(mode) = self.vim.as_ref().map(|v| v.mode) {
@@ -2672,6 +2675,15 @@ impl Editor {
                     tp.rect_stroke(Rect::from_min_max(pos2(x, y + 1.0), pos2(x + w, y + row_h - 1.0)), 1.0, st(1.0, c), egui::StrokeKind::Inside);
                 }
                 continue;
+            }
+            if focused && i == self.primary {
+                // 输入法：候选框跟着主光标，正在输入的拼音画在光标处
+                let cur = Rect::from_min_max(pos2(x - 1.0, y + 2.0), pos2(x + 1.0, y + row_h - 2.0));
+                crate::ime::Ime::allow(ui, text_rect, cur);
+                let w = self.ime.paint(&tp, pos2(x, y), row_h, font.clone(), TEXT(), BG2());
+                if w > 0.0 {
+                    continue;
+                }
             }
             if focused && on {
                 tp.rect_filled(Rect::from_min_max(pos2(x - 1.0, y + 2.0), pos2(x + 1.0, y + row_h - 2.0)), 0.0, c);

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.1
+
+- **Input methods**: the code editor and all terminals (serial terminal, terminal panel, SSH / Telnet) now accept Chinese, Japanese, Korean and other IME input. The candidate window follows the cursor and the text being composed is shown in place.
+- **Share the serial port with other apps**: the new *Share with other apps* switch under the port's signals lets a flasher or another serial monitor use the same device while QCCOM stays connected; both sides see the data and both can send. On Linux and macOS QCCOM creates a virtual port (with a fixed-name link `vcom/ttyQCCOM0` in the QCCOM data folder; copy the path with one click). On Windows install the free signed com0com driver and pick one end of its port pair; the other app opens the other end. *Share on network* (TCP) still works for apps that support it.
+
 ## 1.8.0
 
 Review what other programs change, go back in time, commit from QCCOM, and look inside more file types. Nothing new is always on screen except the branch name in the status bar.

@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.8.0"
+version = "1.8.1"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -51,6 +51,8 @@ native-tls = "0.2"
 raw-window-handle = "0.6"
 
 [target.'cfg(not(windows))'.dependencies]
+# 虚拟串口（openpty）：已经被其他依赖带进来了
+libc = "0.2"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"

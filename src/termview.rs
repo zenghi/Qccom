@@ -35,6 +35,8 @@ pub struct TermView {
     pub zoom: f32,
     /// 命令行终端（本地 shell / SSH）：Ctrl+F 查找、Ctrl+↑↓ 在命令之间跳、记录命令块
     pub blocks: bool,
+    /// 输入法组字状态
+    ime: crate::ime::Ime,
     /// 命令块：每次回车时光标所在的行（稳定行号，见 Screen::dropped）
     pub marks: Vec<u64>,
     /// 最近一条命令什么时候发出、最后一次有输出是什么时候（判断长命令跑完）
@@ -69,6 +71,7 @@ impl TermView {
             bg: crate::bgimg::Slot::Serial,
             zoom: 1.0,
             blocks: false,
+            ime: Default::default(),
             marks: vec![],
             cmd_at: None,
             last_out: None,
@@ -283,6 +286,7 @@ impl TermView {
     /// 键盘、粘贴 → 发给设备
     fn input(&mut self, ui: &egui::Ui, enc: &dyn Fn(&str) -> Vec<u8>, o: &mut TermOut) {
         let (events, shift, time) = ui.input(|i| (i.events.clone(), i.modifiers.shift, i.time));
+        let events = self.ime.filter(events);
         let app_cursor = self.term.s.app_cursor;
         let mut out = Vec::new();
         for e in events {
@@ -642,6 +646,12 @@ impl TermView {
             let wide = s.grid.get(s.y).and_then(|r| r.get(s.x)).is_some_and(|c| term::is_wide(c.ch));
             let cr = Rect::from_min_size(pos2(origin.x + s.x as f32 * cw, origin.y + s.y as f32 * rh), vec2(cw * if wide { 2.0 } else { 1.0 }, rh));
             if focused {
+                // 输入法：候选框跟着光标，正在输入的拼音画在光标处
+                crate::ime::Ime::allow(ui, card_rect, cr);
+            }
+            if focused && !self.ime.preedit.is_empty() {
+                self.ime.paint(&painter, cr.min, rh, font.clone(), TEXT(), BG2());
+            } else if focused {
                 let t = ui.input(|i| i.time) - self.blink_at;
                 let phase = t % 1.06;
                 if phase < 0.6 {

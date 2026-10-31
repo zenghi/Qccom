@@ -144,6 +144,8 @@ pub struct Settings {
     pub sniff_port: String,
     /// 串口转 TCP 的端口
     pub bridge_port: u16,
+    /// Windows：共享给其他软件时 QCCOM 占用的虚拟串口（com0com 一对里的一头）
+    pub vcom_port: String,
     pub reset: serialx::ResetKind,
     /// 当前配置方案的名字
     pub profile: String,
@@ -229,6 +231,7 @@ impl Default for Settings {
             aliases: Default::default(),
             sniff_port: String::new(),
             bridge_port: 7000,
+            vcom_port: String::new(),
             reset: serialx::ResetKind::Dtr,
             profile: String::new(),
             triggers: vec![],
@@ -443,6 +446,7 @@ pub struct App {
     signals: Option<[bool; 4]>,
     sniff: serialx::Sniff,
     bridge: Option<crate::bridge::Bridge>,
+    vcom: Option<crate::vcom::Vcom>,
     serial_ui: serialx::SerialUi,
     /// AT 助手提示里选中的一项
     at_sel: usize,
@@ -634,6 +638,7 @@ impl App {
             signals: None,
             sniff: Default::default(),
             bridge: None,
+            vcom: None,
             serial_ui: Default::default(),
             at_sel: 0,
             open_log,
@@ -758,6 +763,9 @@ impl App {
         }
         if let Some(b) = self.bridge.as_ref().filter(|_| self.s.transport == Transport::Serial) {
             b.forward(&d);
+        }
+        if let Some(v) = self.vcom.as_ref().filter(|_| self.s.transport == Transport::Serial) {
+            v.forward(&d);
         }
         if self.paused {
             self.pause_buf.extend_from_slice(&d);
@@ -1079,6 +1087,7 @@ impl App {
         if self.s.transport == Transport::Serial {
             self.tick_sniff();
             self.poll_bridge();
+            self.poll_vcom();
         }
         self.tick_conn();
     }
@@ -2948,6 +2957,12 @@ impl App {
                 if let Some(sc) = &self.dock.script {
                     sc.stop();
                 }
+            }
+        }
+        if self.vcom.is_some() {
+            ui.add_space(6.0);
+            if chip(ui, t("已共享给其他软件").to_string(), OK(), t("串口已虚拟给其他软件同时使用：点击停止")).clicked() {
+                self.toggle_vcom();
             }
         }
         if let Some(b) = &self.bridge {

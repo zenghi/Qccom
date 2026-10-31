@@ -306,7 +306,107 @@ impl App {
         }
     }
 
+    // ------------------------------------------------------------ 串口共享给其他软件（虚拟串口）
+
+    pub(super) fn toggle_vcom(&mut self) {
+        if self.vcom.take().is_some() {
+            self.buf.sys(t("已停止共享给其他软件"));
+            return;
+        }
+        #[cfg(unix)]
+        let r = crate::vcom::Vcom::start_pty(1, self.ctx.clone());
+        #[cfg(not(unix))]
+        let r = if self.s.vcom_port.is_empty() {
+            Err(t("先选一个虚拟串口（需要安装 com0com）").to_string())
+        } else {
+            crate::vcom::Vcom::start_port(&self.s.vcom_port, self.s.cfg.baud, self.ctx.clone())
+        };
+        match r {
+            Ok(v) => {
+                for n in &v.names {
+                    self.buf.sys(tf("串口已共享给其他软件，在那边打开：{}", &[n]));
+                }
+                self.vcom = Some(v);
+            }
+            Err(e) => self.toast(tf("无法共享：{}", &[&e]), ERR()),
+        }
+    }
+
+    pub(super) fn poll_vcom(&mut self) {
+        let Some(v) = &mut self.vcom else { return };
+        let mut evts = vec![];
+        while let Ok(e) = v.rx.try_recv() {
+            evts.push(e);
+        }
+        for e in evts {
+            match e {
+                crate::vcom::VcomEvt::Data(d) => {
+                    if self.conn.is_some() {
+                        self.send_bytes(d);
+                    }
+                }
+                crate::vcom::VcomEvt::Error(e) => {
+                    self.buf.sys(tf("✗ 共享出错：{}", &[&e]));
+                    self.vcom = None;
+                }
+            }
+        }
+    }
+
+    fn vcom_ui(&mut self, ui: &mut egui::Ui) {
+        ui.add_space(6.0);
+        ui.horizontal(|ui| {
+            let mut on = self.vcom.is_some();
+            let tip = if cfg!(unix) {
+                t("虚拟出一个串口给其他软件（烧录工具、别的串口助手）同时用，不用抢 COM 口")
+            } else {
+                t("通过 com0com 虚拟串口对共享：QCCOM 占一头，其他软件打开另一头，不用抢 COM 口")
+            };
+            if toggle_chip(ui, &mut on, t("共享给其他软件"), tip) {
+                self.toggle_vcom();
+            }
+            #[cfg(not(unix))]
+            if self.vcom.is_none() {
+                let pairs = crate::vcom::virtual_pairs();
+                if pairs.is_empty() {
+                    ui.hyperlink_to(RichText::new(t("需要 com0com")).small(), "https://sourceforge.net/projects/com0com/files/com0com/3.0.0.0/")
+                        .on_hover_text(t("Windows 不允许软件直接创建 COM 口，要装免费的 com0com 虚拟串口驱动（有签名）；装好后这里会列出虚拟串口"));
+                } else {
+                    if !pairs.contains(&self.s.vcom_port) {
+                        self.s.vcom_port = pairs[0].clone();
+                    }
+                    egui::ComboBox::from_id_salt("vcom-port").width(90.0).selected_text(self.s.vcom_port.clone()).show_ui(ui, |ui| {
+                        for p in &pairs {
+                            ui.selectable_value(&mut self.s.vcom_port, p.clone(), p);
+                        }
+                    });
+                }
+            }
+        });
+        let names: Vec<String> = self.vcom.as_ref().map(|v| v.names.clone()).unwrap_or_default();
+        for n in names {
+            // 「/dev/pts/5  →  …/vcom/ttyQCCOM0」：固定名字的链接更好记，显示短一点，复制完整路径
+            let path = n.split("  →  ").last().unwrap_or(&n).to_string();
+            let short = match n.split_once("  →  ") {
+                Some((dev, link)) => format!("{} · {dev}", link.rsplit(['/', '\\']).next().unwrap_or(link)),
+                None => n.clone(),
+            };
+            ui.horizontal(|ui| {
+                if icon_button(ui, Icon::Copy, &tf("复制：{}", &[&path]), false).clicked() {
+                    ui.ctx().copy_text(path.clone());
+                }
+                ui.add(egui::Label::new(RichText::new(&short).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT2())).truncate())
+                    .on_hover_text(if cfg!(unix) {
+                        tf("在其他软件里打开：{}", &[&path])
+                    } else {
+                        t("在其他软件里打开这个口在 com0com 里配对的另一头").to_string()
+                    });
+            });
+        }
+    }
+
     pub(super) fn bridge_ui(&mut self, ui: &mut egui::Ui) {
+        self.vcom_ui(ui);
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             let mut on = self.bridge.is_some();

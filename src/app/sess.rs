@@ -238,6 +238,7 @@ impl App {
             if self.s.transport == Transport::Serial {
                 self.tick_sniff();
                 self.poll_bridge();
+                self.poll_vcom();
             }
             self.tick_conn();
             self.bg = false;

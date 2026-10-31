@@ -2783,3 +2783,195 @@ LED 接反了：长脚（A）要接正，短脚（K）接负，现在不会亮	L
 {} 用 5V 供电，它的 {} 输出 5V 信号接到 {} 的 {}（3.3V 不耐 5V）：加分压电阻或电平转换	{} runs on 5 V and its {} drives 5 V into {}'s {} (3.3 V, not 5 V tolerant): add a divider or level shifter	{} 用 5V 供電，它的 {} 輸出 5V 訊號接到 {} 的 {}（3.3V 不耐 5V）：加分壓電阻或電平轉換							
 {} 的 {} 接到了 {} 的 TX：串口要交叉接，TX 接对方 RX	{}'s {} is wired to {}'s TX: UART lines cross over, TX goes to the other side's RX	{} 的 {} 接到了 {} 的 TX：串列埠要交叉接，TX 接對方 RX							
 {} 和 {} 之间有信号线，但 GND 没连在一起（没共地），信号不可靠	{} and {} share signal wires but not ground, so the signals are unreliable	{} 和 {} 之間有訊號線，但 GND 沒連在一起（沒共地），訊號不可靠							
+# 社区与统计（qccom-hub）
+有人	Someone	有人	誰か	누군가	Jemand	Quelqu'un	Alguien	Кто-то	Alguém
+{} 回复了你的帖子	{} replied to your post	{} 回覆了你的帖子	{} があなたの投稿に返信しました	{} 님이 게시물에 답글을 달았습니다	{} hat auf deinen Beitrag geantwortet	{} a répondu à votre message	{} respondió a tu publicación	{} ответил(а) на ваш пост	{} respondeu à sua publicação
+{} 引用了你的回复	{} quoted your reply	{} 引用了你的回覆	{} があなたの返信を引用しました	{} 님이 답글을 인용했습니다	{} hat deine Antwort zitiert	{} a cité votre réponse	{} citó tu respuesta	{} процитировал(а) ваш ответ	{} citou sua resposta
+{} 采纳了你的回复	{} accepted your reply	{} 採納了你的回覆	{} があなたの返信を解決策に選びました	{} 님이 답글을 채택했습니다	{} hat deine Antwort als Lösung markiert	{} a accepté votre réponse	{} aceptó tu respuesta	{} принял(а) ваш ответ	{} aceitou sua resposta
+你关注的需求已在 {} 完成	A request you follow shipped in {}	你關注的需求已在 {} 完成	フォロー中の要望が {} で実装されました	관심 있는 요청이 {}에서 완료되었습니다	Ein Wunsch, dem du folgst, ist in {} erschienen	Une demande suivie est livrée dans {}	Una petición que sigues se publicó en {}	Запрос, за которым вы следите, выполнен в {}	Um pedido que você segue saiu na {}
+你关注的需求状态变为「{}」	A request you follow is now "{}"	你關注的需求狀態變為「{}」	フォロー中の要望が「{}」になりました	관심 있는 요청이 "{}" 상태가 되었습니다	Ein Wunsch, dem du folgst, ist jetzt „{}“	Une demande suivie est maintenant « {} »	Una petición que sigues ahora está «{}»	Статус запроса изменён: «{}»	Um pedido que você segue agora está "{}"
+新消息	New message	新訊息	新着メッセージ	새 메시지	Neue Nachricht	Nouveau message	Mensaje nuevo	Новое сообщение	Nova mensagem
+社区	Community	社群	コミュニティ	커뮤니티	Community	Communauté	Comunidad	Сообщество	Comunidade
+离线	Offline	離線	オフライン	오프라인	Offline	Hors ligne	Sin conexión	Офлайн	Offline
+发帖	New post	發帖	投稿	글쓰기	Neuer Beitrag	Publier	Publicar	Новый пост	Publicar
+发帖（N）	New post (N)	發帖（N）	投稿（N）	글쓰기 (N)	Neuer Beitrag (N)	Publier (N)	Publicar (N)	Новый пост (N)	Publicar (N)
+板块	Boards	板塊	カテゴリ	게시판	Bereiche	Rubriques	Secciones	Разделы	Seções
+我的	Mine	我的	マイページ	내 활동	Meins	Mon activité	Lo mío	Моё	Meus
+我发的	My posts	我發的	自分の投稿	내가 쓴 글	Meine Beiträge	Mes messages	Mis publicaciones	Мои посты	Minhas publicações
+我投的	My votes	我投的	投票した要望	내가 투표한 글	Meine Stimmen	Mes votes	Mis votos	Мои голоса	Meus votos
+我回复的	My replies	我回復的	返信した投稿	내가 답글 단 글	Meine Antworten	Mes réponses	Mis respuestas	Мои ответы	Minhas respostas
+匿名用户	Anonymous	匿名使用者	匿名ユーザー	익명 사용자	Anonym	Anonyme	Anónimo	Аноним	Anônimo
+登录 / 注册	Sign in / Sign up	登入 / 註冊	ログイン / 登録	로그인 / 가입	Anmelden / Registrieren	Connexion / Inscription	Entrar / Registrarse	Вход / Регистрация	Entrar / Cadastrar
+账号	Account	帳號	アカウント	계정	Konto	Compte	Cuenta	Аккаунт	Conta
+回复、引用、采纳和需求状态变化	Replies, quotes, accepted answers and request status changes	回覆、引用、採納和需求狀態變化	返信・引用・解決策採用・要望ステータスの変化	답글, 인용, 채택, 요청 상태 변경	Antworten, Zitate, Lösungen und Statusänderungen	Réponses, citations, solutions et changements de statut	Respuestas, citas, soluciones y cambios de estado	Ответы, цитаты, решения и смена статусов	Respostas, citações, soluções e mudanças de status
+全部已读	Mark all read	全部已讀	すべて既読	모두 읽음	Alle gelesen	Tout marquer comme lu	Marcar todo como leído	Прочитать все	Marcar tudo como lido
+搜索标题和内容	Search titles and content	搜尋標題和內容	タイトルと本文を検索	제목과 내용 검색	Titel und Inhalt durchsuchen	Rechercher titres et contenu	Buscar en títulos y contenido	Поиск по заголовкам и тексту	Pesquisar títulos e conteúdo
+热门	Hot	熱門	人気	인기	Beliebt	Populaires	Populares	Популярное	Em alta
+票数	Votes	票數	票数	투표순	Stimmen	Votes	Votos	Голоса	Votos
+最新	Newest	最新	新着	최신	Neueste	Récents	Recientes	Новые	Recentes
+最近回复	Recent replies	最近回覆	最近の返信	최근 답글	Neueste Antworten	Réponses récentes	Respuestas recientes	Последние ответы	Respostas recentes
+进行中	Active	進行中	進行中	진행 중	Aktiv	En cours	Activos	Активные	Ativos
+计划中	Planned	計劃中	予定	계획됨	Geplant	Prévu	Planificado	Запланировано	Planejado
+已完成	Done	已完成	完了	완료	Erledigt	Terminé	Hecho	Готово	Concluído
+待评估和计划中	Under review and planned	待評估和計劃中	検討中と予定	검토 중 및 계획됨	In Prüfung und geplant	À l'étude et prévu	En revisión y planificado	На рассмотрении и запланировано	Em análise e planejado
+连不上社区服务器，显示的是上次的内容	Can't reach the community server; showing cached content	連不上社群伺服器，顯示的是上次的內容	コミュニティサーバーに接続できません。前回の内容を表示しています	커뮤니티 서버에 연결할 수 없어 이전 내용을 표시합니다	Community-Server nicht erreichbar, zeige zwischengespeicherte Inhalte	Serveur communautaire injoignable, contenu en cache affiché	No se puede conectar con el servidor; mostrando contenido guardado	Сервер сообщества недоступен, показано сохранённое	Servidor da comunidade inacessível; mostrando conteúdo em cache
+加载失败	Failed to load	載入失敗	読み込みに失敗しました	불러오기 실패	Laden fehlgeschlagen	Échec du chargement	Error al cargar	Не удалось загрузить	Falha ao carregar
+没有找到相关内容	No results	沒有找到相關內容	該当する内容がありません	결과가 없습니다	Keine Treffer	Aucun résultat	Sin resultados	Ничего не найдено	Nenhum resultado
+换个关键词试试	Try different keywords	換個關鍵詞試試	別のキーワードで試してください	다른 키워드로 검색해 보세요	Versuche andere Suchbegriffe	Essayez d'autres mots-clés	Prueba otras palabras	Попробуйте другие слова	Tente outras palavras
+还没有需求	No requests yet	還沒有需求	まだ要望はありません	아직 요청이 없습니다	Noch keine Wünsche	Aucune demande pour l'instant	Aún no hay peticiones	Запросов пока нет	Ainda não há pedidos
+想要什么功能？提一个，让大家投票	Want a feature? Suggest it and let everyone vote	想要什麼功能？提一個，讓大家投票	欲しい機能は？提案してみんなに投票してもらいましょう	원하는 기능이 있나요? 제안하고 투표를 받아 보세요	Fehlt dir eine Funktion? Schlag sie vor und lass abstimmen	Une fonctionnalité en tête ? Proposez-la et laissez voter	¿Quieres una función? Propónla y que todos voten	Нужна функция? Предложите её и пусть все голосуют	Quer um recurso? Sugira e deixe todos votarem
+提需求	Suggest a feature	提需求	要望を出す	기능 제안	Funktion vorschlagen	Proposer une fonctionnalité	Proponer una función	Предложить функцию	Sugerir recurso
+还没有公告	No announcements yet	還沒有公告	お知らせはまだありません	아직 공지가 없습니다	Noch keine Ankündigungen	Aucune annonce	Aún no hay anuncios	Объявлений пока нет	Ainda não há avisos
+这里还空着	Nothing here yet	這裡還空著	まだ何もありません	아직 비어 있습니다	Hier ist noch nichts	Rien ici pour l'instant	Aún no hay nada	Здесь пока пусто	Nada aqui ainda
+来发第一个帖子	Be the first to post	來發第一個帖子	最初の投稿をしましょう	첫 글을 남겨 보세요	Schreib den ersten Beitrag	Publiez le premier message	Sé el primero en publicar	Напишите первый пост	Seja o primeiro a publicar
+还没有内容	Nothing yet	還沒有內容	まだ内容がありません	아직 내용이 없습니다	Noch nichts	Rien pour l'instant	Aún no hay nada	Пока ничего	Nada ainda
+加载更多	Load more	載入更多	さらに読み込む	더 보기	Mehr laden	Charger plus	Cargar más	Загрузить ещё	Carregar mais
+共 {} 条	{} in total	共 {} 條	全 {} 件	총 {}개	{} insgesamt	{} au total	{} en total	Всего: {}	{} no total
+你的账号在所有电脑上的内容	Content from your account on all computers	你的帳號在所有電腦上的內容	すべての PC でのあなたのアカウントの内容	모든 컴퓨터에서 내 계정으로 작성한 내용	Inhalte deines Kontos auf allen Computern	Contenu de votre compte sur tous les ordinateurs	Contenido de tu cuenta en todos los equipos	Контент вашего аккаунта со всех компьютеров	Conteúdo da sua conta em todos os computadores
+这台电脑上匿名发的内容；登录后可以跨电脑查看	Anonymous content from this computer; sign in to see it on any computer	這臺電腦上匿名發的內容；登入後可以跨電腦檢視	この PC から匿名で投稿した内容。ログインすると他の PC でも見られます	이 컴퓨터에서 익명으로 작성한 내용입니다. 로그인하면 다른 컴퓨터에서도 볼 수 있습니다	Anonyme Inhalte von diesem Computer; nach Anmeldung überall sichtbar	Contenu anonyme de cet ordinateur ; connectez-vous pour le voir partout	Contenido anónimo de este equipo; inicia sesión para verlo en cualquier equipo	Анонимный контент с этого компьютера; войдите, чтобы видеть его везде	Conteúdo anônimo deste computador; entre para vê-lo em qualquer computador
+投一票（V）	Vote (V)	投一票（V）	投票する（V）	투표 (V)	Abstimmen (V)	Voter (V)	Votar (V)	Голосовать (V)	Votar (V)
+置顶	Pinned	置頂	固定	고정	Angeheftet	Épinglé	Fijado	Закреплено	Fixado
+已解决	Solved	已解決	解決済み	해결됨	Gelöst	Résolu	Resuelto	Решено	Resolvido
+审核中	Pending review	稽核中	審査中	검토 중	Wird geprüft	En attente de validation	En revisión	На проверке	Em análise
+没有新提醒	No notifications	沒有新提醒	新しい通知はありません	새 알림이 없습니다	Keine Benachrichtigungen	Aucune notification	Sin notificaciones	Нет уведомлений	Nenhuma notificação
+别人回复你、采纳你的回复，或者你投票的需求有进展时，会在这里告诉你	You'll be told here when someone replies to you, accepts your reply, or a request you voted for makes progress	別人回覆你、採納你的回覆，或者你投票的需求有進展時，會在這裡告訴你	返信や解決策の採用、投票した要望の進捗があるとここに表示されます	누군가 답글을 달거나 답글을 채택하거나 투표한 요청에 진행이 있으면 여기에 표시됩니다	Hier erfährst du, wenn jemand antwortet, deine Antwort als Lösung wählt oder ein Wunsch vorankommt	Vous serez averti ici des réponses, des solutions acceptées et de l'avancement des demandes votées	Aquí verás cuando alguien te responda, acepte tu respuesta o avance una petición que votaste	Здесь появятся ответы, принятые решения и новости по запросам, за которые вы голосовали	Aqui você verá quando alguém responder, aceitar sua resposta ou um pedido votado avançar
+返回（Esc）	Back (Esc)	返回（Esc）	戻る（Esc）	뒤로 (Esc)	Zurück (Esc)	Retour (Échap)	Volver (Esc)	Назад (Esc)	Voltar (Esc)
+选一个帖子查看	Select a post to read	選一個帖子檢視	投稿を選んで表示	읽을 글을 선택하세요	Beitrag zum Lesen auswählen	Sélectionnez un message	Selecciona una publicación	Выберите пост	Selecione uma publicação
+下一个	Next	下一個	次へ	다음	Weiter	Suivant	Siguiente	Далее	Próximo
+上一个	Previous	上一個	前へ	이전	Zurück	Précédent	Anterior	Назад	Anterior
+投票	Vote	投票	投票	투표	Abstimmen	Voter	Votar	Голос	Votar
+打不开这个帖子	Couldn't open this post	打不開這個帖子	この投稿を開けません	이 글을 열 수 없습니다	Beitrag kann nicht geöffnet werden	Impossible d'ouvrir ce message	No se puede abrir la publicación	Не удалось открыть пост	Não foi possível abrir a publicação
+取消置顶	Unpin	取消置頂	固定を解除	고정 해제	Lösen	Désépingler	Desfijar	Открепить	Desafixar
+解除锁定	Unlock	解除鎖定	ロック解除	잠금 해제	Entsperren	Déverrouiller	Desbloquear	Разблокировать	Desbloquear
+锁定（禁止回复）	Lock (no replies)	鎖定（禁止回覆）	ロック（返信禁止）	잠금 (답글 금지)	Sperren (keine Antworten)	Verrouiller (pas de réponses)	Bloquear (sin respuestas)	Закрыть (без ответов)	Bloquear (sem respostas)
+移到「{}」	Move to "{}"	移到「{}」	「{}」へ移動	"{}"(으)로 이동	Nach „{}“ verschieben	Déplacer vers « {} »	Mover a «{}»	Перенести в «{}»	Mover para "{}"
+在后台打开	Open in admin	在後臺開啟	管理画面で開く	관리자 페이지에서 열기	Im Admin öffnen	Ouvrir dans l'admin	Abrir en el panel	Открыть в админке	Abrir no painel
+删除帖子	Delete post	刪除帖子	投稿を削除	글 삭제	Beitrag löschen	Supprimer le message	Eliminar publicación	Удалить пост	Excluir publicação
+删除这个帖子？回复会一起删除，不能恢复。	Delete this post? Its replies will be deleted too. This can't be undone.	刪除這個帖子？回覆會一起刪除，不能恢復。	この投稿を削除しますか？返信も削除され、元に戻せません。	이 글을 삭제할까요? 답글도 함께 삭제되며 되돌릴 수 없습니다.	Beitrag löschen? Antworten werden mitgelöscht. Nicht umkehrbar.	Supprimer ce message ? Les réponses seront supprimées. Action irréversible.	¿Eliminar la publicación? Se borrarán las respuestas. No se puede deshacer.	Удалить пост? Ответы тоже удалятся. Отменить нельзя.	Excluir a publicação? As respostas também serão excluídas. Não dá para desfazer.
+我	Me	我	自分	나	Ich	Moi	Yo	Я	Eu
+已编辑	edited	已編輯	編集済み	수정됨	bearbeitet	modifié	editado	изменено	editado
+已锁定	Locked	已鎖定	ロック中	잠김	Gesperrt	Verrouillé	Bloqueado	Закрыто	Bloqueado
+取消投票（V）	Remove vote (V)	取消投票（V）	投票を取り消す（V）	투표 취소 (V)	Stimme zurückziehen (V)	Retirer le vote (V)	Quitar voto (V)	Отозвать голос (V)	Remover voto (V)
+我也想要（V）	I want this too (V)	我也想要（V）	私も欲しい（V）	저도 원해요 (V)	Will ich auch (V)	Moi aussi (V)	Yo también lo quiero (V)	Мне тоже нужно (V)	Eu também quero (V)
+已在 {} 完成	Shipped in {}	已在 {} 完成	{} で実装済み	{}에서 완료	Erschienen in {}	Livré dans {}	Publicado en {}	Сделано в {}	Lançado na {}
+有进展会提醒你	You'll be notified of progress	有進展會提醒你	進捗があれば通知します	진행되면 알려 드립니다	Du wirst über Fortschritte benachrichtigt	Vous serez averti de l'avancement	Te avisaremos de los avances	Мы сообщим о прогрессе	Você será avisado do progresso
+已合并	Merged	已合併	統合済み	병합됨	Zusammengeführt	Fusionné	Fusionado	Объединено	Mesclado
+这个需求和「{}」重复，票数已经合并过去	This duplicates "{}"; its votes were merged there	這個需求和「{}」重複，票數已經合並過去	「{}」と重複しているため、票はそちらに統合されました	"{}"와(과) 중복되어 투표가 그쪽으로 합쳐졌습니다	Duplikat von „{}“; die Stimmen wurden dorthin übertragen	Doublon de « {} » ; les votes y ont été fusionnés	Duplicado de «{}»; sus votos se fusionaron allí	Дубликат «{}»; голоса перенесены туда	Duplicado de "{}"; os votos foram mesclados lá
+（没有补充说明）	(No details)	（沒有補充說明）	（補足説明なし）	(추가 설명 없음)	(Keine Details)	(Aucun détail)	(Sin detalles)	(Без подробностей)	(Sem detalhes)
+还没有回复	No replies yet	還沒有回覆	まだ返信はありません	아직 답글이 없습니다	Noch keine Antworten	Pas encore de réponses	Aún no hay respuestas	Ответов пока нет	Ainda sem respostas
+{} 条回复	{} replies	{} 條回覆	返信 {} 件	답글 {}개	{} Antworten	{} réponses	{} respuestas	Ответов: {}	{} respostas
+作者回复	Developer's response	作者回復	作者からの回答	개발자 답변	Antwort des Entwicklers	Réponse du développeur	Respuesta del desarrollador	Ответ автора	Resposta do desenvolvedor
+说明打算怎么做、为什么不做…	Explain the plan, or why it won't be done…	說明打算怎麼做、為什麼不做…	対応方針や見送る理由を書いてください…	진행 계획이나 하지 않는 이유를 적어 주세요…	Plan erklären oder warum es nicht umgesetzt wird…	Expliquez le plan ou pourquoi ce ne sera pas fait…	Explica el plan o por qué no se hará…	Опишите план или почему не будет сделано…	Explique o plano ou por que não será feito…
+完成版本	Shipped in	完成版本	実装バージョン	완료 버전	Erschienen in	Livré dans	Versión	Версия	Versão
+写作者回复	Write a developer response	寫作者回復	作者として回答	개발자 답변 작성	Antwort als Entwickler schreiben	Rédiger une réponse	Escribir respuesta	Написать ответ автора	Escrever resposta
+点击修改	Click to edit	點選修改	クリックして編集	클릭하여 수정	Zum Bearbeiten klicken	Cliquer pour modifier	Clic para editar	Нажмите, чтобы изменить	Clique para editar
+这条回复已删除	This reply was deleted	這條回覆已刪除	この返信は削除されました	삭제된 답글입니다	Diese Antwort wurde gelöscht	Cette réponse a été supprimée	Esta respuesta fue eliminada	Ответ удалён	Esta resposta foi excluída
+楼主	OP	樓主	投稿者	작성자	Autor	Auteur	Autor	Автор поста	Autor
+已采纳	Accepted	已採納	解決策	채택됨	Lösung	Solution	Solución	Решение	Solução
+赞	Like	贊	いいね	좋아요	Gefällt mir	J'aime	Me gusta	Нравится	Curtir
+引用	Quote	引用	引用	인용	Zitieren	Citer	Citar	Цитировать	Citar
+取消采纳	Unaccept	取消採納	解決策を取り消す	채택 취소	Lösung zurücknehmen	Retirer la solution	Quitar solución	Отменить решение	Remover solução
+采纳为解决方法	Accept as solution	採納為解決方法	解決策にする	해결 방법으로 채택	Als Lösung markieren	Accepter comme solution	Marcar como solución	Отметить как решение	Aceitar como solução
+再点一次删除	Click again to delete	再點一次刪除	もう一度クリックで削除	한 번 더 누르면 삭제	Zum Löschen erneut klicken	Cliquer à nouveau pour supprimer	Haz clic otra vez para eliminar	Нажмите ещё раз для удаления	Clique de novo para excluir
+这个帖子已锁定，不能再回复	This post is locked; no more replies	這個帖子已鎖定，不能再回復	この投稿はロックされているため返信できません	잠긴 글이라 답글을 달 수 없습니다	Beitrag gesperrt, keine Antworten mehr	Message verrouillé, plus de réponses possibles	Publicación bloqueada; no admite respuestas	Пост закрыт для ответов	Publicação bloqueada; sem novas respostas
+你暂时不能发言	You can't post right now	你暫時不能發言	現在は投稿できません	지금은 글을 쓸 수 없습니다	Du kannst gerade nicht posten	Vous ne pouvez pas publier pour le moment	Ahora no puedes publicar	Сейчас вы не можете писать	Você não pode publicar agora
+正在修改 #{} 的回复	Editing reply #{}	正在修改 #{} 的回覆	#{} の返信を編集中	#{} 답글 수정 중	Antwort #{} bearbeiten	Modification de la réponse #{}	Editando respuesta #{}	Правка ответа #{}	Editando resposta #{}
+知道怎么解决？说说看…（R）	Know the fix? Share it… (R)	知道怎麼解決？說說看…（R）	解決方法を知っていますか？… (R)	해결 방법을 아시나요? 알려 주세요… (R)	Kennst du die Lösung? Schreib sie… (R)	Vous connaissez la solution ? Partagez-la… (R)	¿Sabes cómo arreglarlo? Cuéntalo… (R)	Знаете решение? Поделитесь… (R)	Sabe resolver? Conte… (R)
+写下你的回复…（R）	Write a reply… (R)	寫下你的回覆…（R）	返信を書く…（R）	답글 작성… (R)	Antwort schreiben… (R)	Écrire une réponse… (R)	Escribe una respuesta… (R)	Написать ответ… (R)	Escreva uma resposta… (R)
+上传中…	Uploading…	上傳中…	アップロード中…	업로드 중…	Wird hochgeladen…	Envoi…	Subiendo…	Загрузка…	Enviando…
+也可以把图片拖进窗口	You can also drag images into the window	也可以把圖片拖進視窗	画像をウィンドウにドラッグしても追加できます	이미지를 창으로 끌어와도 됩니다	Bilder können auch ins Fenster gezogen werden	Vous pouvez aussi glisser des images dans la fenêtre	También puedes arrastrar imágenes a la ventana	Изображения можно перетащить в окно	Você também pode arrastar imagens para a janela
+粘贴截图	Paste screenshot	貼上截圖	スクショを貼り付け	스크린샷 붙여넣기	Screenshot einfügen	Coller une capture	Pegar captura	Вставить скриншот	Colar captura
+匿名	Anonymous	匿名	匿名	익명	Anonym	Anonyme	Anónimo	Анонимно	Anônimo
+这条回复不显示你的昵称	Hide your nickname on this reply	這條回覆不顯示你的暱稱	この返信ではニックネームを表示しません	이 답글에 닉네임을 표시하지 않습니다	Spitzname bei dieser Antwort ausblenden	Masquer votre pseudo pour cette réponse	No mostrar tu apodo en esta respuesta	Скрыть ник в этом ответе	Ocultar seu apelido nesta resposta
+编辑帖子	Edit post	編輯帖子	投稿を編集	글 수정	Beitrag bearbeiten	Modifier le message	Editar publicación	Редактировать пост	Editar publicação
+丢弃草稿	Discard draft	丟棄草稿	下書きを破棄	임시 글 삭제	Entwurf verwerfen	Abandonner le brouillon	Descartar borrador	Удалить черновик	Descartar rascunho
+草稿已自动保存	Draft saved automatically	草稿已自動儲存	下書きは自動保存されています	임시 글이 자동 저장되었습니다	Entwurf automatisch gespeichert	Brouillon enregistré automatiquement	Borrador guardado automáticamente	Черновик сохранён автоматически	Rascunho salvo automaticamente
+取消编辑	Cancel editing	取消編輯	編集をやめる	수정 취소	Bearbeiten abbrechen	Annuler la modification	Cancelar edición	Отменить правку	Cancelar edição
+暂时不能发言	Posting is restricted	暫時不能發言	現在は投稿できません	글쓰기가 제한되었습니다	Posten eingeschränkt	Publication restreinte	Publicación restringida	Публикация ограничена	Publicação restrita
+你的账号或这台电脑被作者限制了发言，有疑问可以联系作者	Your account or this computer has been restricted by the developer. Contact the developer if you have questions	你的帳號或這臺電腦被作者限制了發言，有疑問可以聯絡作者	アカウントまたはこの PC は作者により投稿が制限されています。ご質問は作者まで	계정 또는 이 컴퓨터의 글쓰기가 제한되었습니다. 문의는 개발자에게 해 주세요	Dein Konto oder dieser Computer wurde vom Entwickler eingeschränkt. Bei Fragen bitte melden	Votre compte ou cet ordinateur a été restreint par le développeur. Contactez-le en cas de question	Tu cuenta o este equipo fue restringido por el desarrollador. Contáctalo si tienes dudas	Автор ограничил публикации для вашего аккаунта или компьютера. По вопросам пишите автору	Sua conta ou este computador foi restrito pelo desenvolvedor. Entre em contato em caso de dúvida
+一句话说清楚想要什么功能	Describe the feature in one sentence	一句話說清楚想要什麼功能	欲しい機能をひと言で	원하는 기능을 한 문장으로	Die Funktion in einem Satz	La fonctionnalité en une phrase	La función en una frase	Опишите функцию одной фразой	Descreva o recurso em uma frase
+一句话描述遇到的问题	Describe the problem in one sentence	一句話描述遇到的問題	困っていることをひと言で	문제를 한 문장으로	Das Problem in einem Satz	Le problème en une phrase	El problema en una frase	Опишите проблему одной фразой	Descreva o problema em uma frase
+看看是不是已经有人提过，有的话投一票就好	Someone may have suggested this already; if so, just vote for it	看看是不是已經有人提過，有的話投一票就好	すでに同じ要望があれば、投票するだけで OK です	이미 같은 요청이 있다면 투표만 해 주세요	Vielleicht gibt es das schon – dann einfach abstimmen	C'est peut-être déjà proposé : votez simplement	Quizá ya lo propusieron; si es así, solo vota	Возможно, это уже предлагали — тогда просто проголосуйте	Talvez já tenham sugerido; nesse caso, só vote
+最多 4 张，每张 2 MB 以内；也可以直接拖进窗口	Up to 4 images, 2 MB each; you can also drag them into the window	最多 4 張，每張 2 MB 以內；也可以直接拖進視窗	最大 4 枚、各 2 MB まで。ウィンドウへのドラッグも可	최대 4장, 장당 2 MB. 창으로 끌어와도 됩니다	Bis zu 4 Bilder à 2 MB; auch per Ziehen ins Fenster	Jusqu'à 4 images de 2 Mo ; glisser-déposer possible	Hasta 4 imágenes de 2 MB; también puedes arrastrarlas	До 4 изображений по 2 МБ; можно перетащить в окно	Até 4 imagens de 2 MB; também dá para arrastar
+插入代码块	Insert code block	插入程式碼塊	コードブロックを挿入	코드 블록 삽입	Codeblock einfügen	Insérer un bloc de code	Insertar bloque de código	Вставить блок кода	Inserir bloco de código
+（没有内容）	(Empty)	（沒有內容）	（内容なし）	(내용 없음)	(Leer)	(Vide)	(Vacío)	(Пусто)	(Vazio)
+（选填）用在什么场景、希望怎么用。写清楚更容易被做出来	(Optional) When would you use it and how? Clear requests are more likely to be built	（選填）用在什麼場景、希望怎麼用。寫清楚更容易被做出來	（任意）どんな場面でどう使いたいか。具体的なほど実現しやすくなります	(선택) 어떤 상황에서 어떻게 쓰고 싶은지 적어 주세요. 구체적일수록 반영되기 쉽습니다	(Optional) Wann und wie würdest du es nutzen? Klare Wünsche werden eher umgesetzt	(Facultatif) Dans quel cas et comment l'utiliser ? Une demande claire a plus de chances d'aboutir	(Opcional) ¿Cuándo y cómo lo usarías? Las peticiones claras se hacen antes	(Необязательно) Когда и как вы будете это использовать? Понятные запросы делают быстрее	(Opcional) Quando e como você usaria? Pedidos claros têm mais chance de sair
+说说做了什么、期望什么、实际看到什么。可以贴日志和截图	What did you do, what did you expect, and what happened? Logs and screenshots help	說說做了什麼、期望什麼、實際看到什麼。可以貼日誌和截圖	何をして、何を期待し、実際どうなったか。ログやスクショも貼れます	무엇을 했고, 무엇을 기대했고, 실제로 어떻게 되었는지 적어 주세요. 로그와 스크린샷도 첨부할 수 있습니다	Was hast du getan, was erwartet, was ist passiert? Logs und Screenshots helfen	Qu'avez-vous fait, attendu et obtenu ? Journaux et captures bienvenus	¿Qué hiciste, qué esperabas y qué pasó? Ayudan los registros y capturas	Что делали, что ожидали и что получилось? Логи и скриншоты помогут	O que fez, o que esperava e o que aconteceu? Logs e capturas ajudam
+支持 Markdown：**粗体**、`代码`、```代码块```、> 引用、- 列表	Markdown supported: **bold**, `code`, ```code block```, > quote, - list	支援 Markdown：**粗體**、`程式碼`、```程式碼塊```、> 引用、- 列表	Markdown 対応：**太字**、`コード`、```コードブロック```、> 引用、- リスト	Markdown 지원: **굵게**, `코드`, ```코드 블록```, > 인용, - 목록	Markdown: **fett**, `Code`, ```Codeblock```, > Zitat, - Liste	Markdown : **gras**, `code`, ```bloc de code```, > citation, - liste	Markdown: **negrita**, `código`, ```bloque```, > cita, - lista	Markdown: **жирный**, `код`, ```блок кода```, > цитата, - список	Markdown: **negrito**, `código`, ```bloco```, > citação, - lista
+图片最多 4 张	Up to 4 images	圖片最多 4 張	画像は最大 4 枚	이미지는 최대 4장	Höchstens 4 Bilder	4 images maximum	Máximo 4 imágenes	Не более 4 изображений	No máximo 4 imagens
+匿名发布	Post anonymously	匿名釋出	匿名で投稿	익명으로 게시	Anonym posten	Publier anonymement	Publicar de forma anónima	Опубликовать анонимно	Publicar anonimamente
+以「{}」发布	Post as "{}"	以「{}」釋出	「{}」として投稿	"{}"(으)로 게시	Als „{}“ posten	Publier en tant que « {} »	Publicar como «{}»	Опубликовать как «{}»	Publicar como "{}"
+将以「{}」发布	Will post as "{}"	將以「{}」釋出	「{}」として投稿されます	"{}"(으)로 게시됩니다	Wird als „{}“ gepostet	Sera publié en tant que « {} »	Se publicará como «{}»	Будет опубликовано как «{}»	Será publicado como "{}"
+登录	Sign in	登入	ログイン	로그인	Anmelden	Se connecter	Iniciar sesión	Войти	Entrar
+登录后可以在别的电脑上看到自己的帖子	Sign in to see your posts on other computers	登入後可以在別的電腦上看到自己的帖子	ログインすると他の PC でも自分の投稿を見られます	로그인하면 다른 컴퓨터에서도 내 글을 볼 수 있습니다	Melde dich an, um deine Beiträge auf anderen Computern zu sehen	Connectez-vous pour retrouver vos messages sur d'autres ordinateurs	Inicia sesión para ver tus publicaciones en otros equipos	Войдите, чтобы видеть свои посты на других компьютерах	Entre para ver suas publicações em outros computadores
+发布中…	Posting…	釋出中…	投稿中…	게시 중…	Wird gepostet…	Publication…	Publicando…	Публикация…	Publicando…
+保存修改	Save changes	儲存修改	変更を保存	변경 사항 저장	Änderungen speichern	Enregistrer	Guardar cambios	Сохранить изменения	Salvar alterações
+标题 4–80 个字	Title must be 4–80 characters	標題 4–80 個字	タイトルは 4〜80 文字	제목은 4–80자	Titel: 4–80 Zeichen	Titre : 4 à 80 caractères	Título: 4–80 caracteres	Заголовок: 4–80 символов	Título: 4–80 caracteres
+注册社区账号	Create a community account	註冊社群帳號	コミュニティアカウントを作成	커뮤니티 계정 만들기	Community-Konto erstellen	Créer un compte communauté	Crear cuenta de la comunidad	Создать аккаунт сообщества	Criar conta da comunidade
+登录社区	Sign in to the community	登入社群	コミュニティにログイン	커뮤니티 로그인	In der Community anmelden	Se connecter à la communauté	Iniciar sesión en la comunidad	Вход в сообщество	Entrar na comunidade
+不登录也能匿名发帖、投票。登录后换电脑也能看到自己的帖子和提醒	You can post and vote anonymously without signing in. Sign in to keep your posts and notifications across computers	不登入也能匿名發帖、投票。登入後換電腦也能看到自己的帖子和提醒	ログインしなくても匿名で投稿・投票できます。ログインすると PC を替えても投稿と通知を見られます	로그인하지 않아도 익명으로 글쓰기와 투표가 가능합니다. 로그인하면 다른 컴퓨터에서도 글과 알림을 볼 수 있습니다	Posten und Abstimmen geht auch anonym. Mit Anmeldung siehst du Beiträge und Benachrichtigungen auf allen Computern	Publier et voter anonymement est possible. Connecté, vous retrouvez messages et notifications partout	Puedes publicar y votar de forma anónima. Con sesión, verás tus publicaciones y avisos en cualquier equipo	Писать и голосовать можно анонимно. После входа посты и уведомления доступны на любом компьютере	Dá para publicar e votar anonimamente. Entrando, você vê publicações e avisos em qualquer computador
+字母、数字、下划线，3–20 位	Letters, digits, underscores; 3–20 characters	字母、數字、下劃線，3–20 位	英数字とアンダースコア、3〜20 文字	영문, 숫자, 밑줄 3–20자	Buchstaben, Ziffern, Unterstriche; 3–20 Zeichen	Lettres, chiffres, tirets bas ; 3 à 20 caractères	Letras, números y guion bajo; 3–20 caracteres	Буквы, цифры, подчёркивание; 3–20 символов	Letras, números e sublinhado; 3–20 caracteres
+至少 6 位	At least 6 characters	至少 6 位	6 文字以上	6자 이상	Mindestens 6 Zeichen	Au moins 6 caractères	Al menos 6 caracteres	Не менее 6 символов	Pelo menos 6 caracteres
+昵称	Nickname	暱稱	ニックネーム	닉네임	Spitzname	Pseudo	Apodo	Ник	Apelido
+显示给别人看的名字，可以用中文	The name others see; any language is fine	顯示給別人看的名字，可以用中文	他の人に表示される名前（日本語可）	다른 사람에게 보이는 이름 (한글 가능)	Der Name, den andere sehen	Le nom visible par les autres	El nombre que ven los demás	Имя, которое видят другие	O nome que os outros veem
+请稍候…	Please wait…	請稍候…	お待ちください…	잠시만 기다려 주세요…	Bitte warten…	Veuillez patienter…	Espera…	Подождите…	Aguarde…
+注册并登录	Sign up and sign in	註冊並登入	登録してログイン	가입하고 로그인	Registrieren und anmelden	S'inscrire et se connecter	Registrarse e iniciar sesión	Зарегистрироваться и войти	Cadastrar e entrar
+已有账号？登录	Have an account? Sign in	已有帳號？登入	アカウントをお持ちの方はログイン	계정이 있나요? 로그인	Schon ein Konto? Anmelden	Déjà un compte ? Se connecter	¿Ya tienes cuenta? Inicia sesión	Уже есть аккаунт? Войти	Já tem conta? Entrar
+没有账号？注册	No account? Sign up	沒有帳號？註冊	アカウントがない方は登録	계정이 없나요? 가입	Kein Konto? Registrieren	Pas de compte ? S'inscrire	¿No tienes cuenta? Regístrate	Нет аккаунта? Регистрация	Não tem conta? Cadastre-se
+忘记密码可以在社区发帖或联系作者重置。	Forgot your password? Post in the community or contact the developer to reset it.	忘記密碼可以在社群發帖或聯絡作者重置。	パスワードを忘れた場合は、コミュニティに投稿するか作者に連絡してリセットしてください。	비밀번호를 잊었다면 커뮤니티에 글을 남기거나 개발자에게 재설정을 요청하세요.	Passwort vergessen? Poste in der Community oder kontaktiere den Entwickler.	Mot de passe oublié ? Publiez dans la communauté ou contactez le développeur.	¿Olvidaste la contraseña? Publica en la comunidad o contacta al desarrollador.	Забыли пароль? Напишите в сообществе или автору для сброса.	Esqueceu a senha? Publique na comunidade ou fale com o desenvolvedor.
+更换	Change	更換	変更	변경	Ändern	Changer	Cambiar	Сменить	Trocar
+更换头像	Change avatar	更換頭像	アバターを変更	프로필 사진 변경	Avatar ändern	Changer d'avatar	Cambiar avatar	Сменить аватар	Trocar avatar
+这台电脑之前匿名发过 {} 条内容	This computer has {} anonymous posts or replies	這臺電腦之前匿名發過 {} 條內容	この PC から匿名で {} 件投稿しています	이 컴퓨터에서 익명으로 작성한 내용이 {}개 있습니다	Dieser Computer hat {} anonyme Beiträge	Cet ordinateur a {} contenus anonymes	Este equipo tiene {} contenidos anónimos	С этого компьютера анонимно опубликовано: {}	Este computador tem {} conteúdos anônimos
+归到账号下以后，换电脑也能看到，也能收到回复提醒。	Move them to your account to see them anywhere and get reply notifications.	歸到帳號下以後，換電腦也能看到，也能收到回覆提醒。	アカウントに移すと、他の PC でも見られ、返信通知も届きます。	계정으로 옮기면 다른 컴퓨터에서도 보고 답글 알림도 받을 수 있습니다.	Übertrage sie in dein Konto, um sie überall zu sehen und Benachrichtigungen zu erhalten.	Rattachez-les à votre compte pour les retrouver partout et recevoir les notifications.	Pásalos a tu cuenta para verlos en cualquier equipo y recibir avisos.	Перенесите их в аккаунт, чтобы видеть везде и получать уведомления.	Mova para sua conta para vê-los em qualquer lugar e receber avisos.
+归到我的账号	Move to my account	歸到我的帳號	アカウントに移す	내 계정으로 옮기기	In mein Konto übernehmen	Rattacher à mon compte	Pasar a mi cuenta	Перенести в аккаунт	Mover para minha conta
+修改密码	Change password	修改密碼	パスワード変更	비밀번호 변경	Passwort ändern	Changer le mot de passe	Cambiar contraseña	Сменить пароль	Alterar senha
+当前密码	Current password	當前密碼	現在のパスワード	현재 비밀번호	Aktuelles Passwort	Mot de passe actuel	Contraseña actual	Текущий пароль	Senha atual
+新密码，至少 6 位	New password, at least 6 characters	新密碼，至少 6 位	新しいパスワード（6 文字以上）	새 비밀번호 (6자 이상)	Neues Passwort, mind. 6 Zeichen	Nouveau mot de passe, 6 caractères min.	Nueva contraseña, mínimo 6 caracteres	Новый пароль, не менее 6 символов	Nova senha, mínimo 6 caracteres
+退出登录	Sign out	退出登入	ログアウト	로그아웃	Abmelden	Se déconnecter	Cerrar sesión	Выйти	Sair
+打开后台	Open admin	開啟後臺	管理画面を開く	관리자 페이지 열기	Admin öffnen	Ouvrir l'admin	Abrir panel	Открыть админку	Abrir painel
+点击任意处或按 Esc 关闭	Click anywhere or press Esc to close	點選任意處或按 Esc 關閉	どこかをクリックするか Esc で閉じる	아무 곳이나 클릭하거나 Esc로 닫기	Klicken oder Esc zum Schließen	Cliquez ou appuyez sur Échap pour fermer	Haz clic o pulsa Esc para cerrar	Щёлкните или нажмите Esc, чтобы закрыть	Clique ou pressione Esc para fechar
+选择图片	Choose image	選擇圖片	画像を選択	이미지 선택	Bild auswählen	Choisir une image	Elegir imagen	Выбрать изображение	Escolher imagem
+需求	Requests	需求	要望	기능 요청	Wünsche	Demandes	Peticiones	Запросы	Pedidos
+求助	Help	求助	質問	도움 요청	Hilfe	Aide	Ayuda	Помощь	Ajuda
+分享	Share	分享	共有	공유	Teilen	Partage	Compartir	Опыт	Compartilhar
+公告	News	公告	お知らせ	공지	Neuigkeiten	Annonces	Anuncios	Объявления	Avisos
+想要的功能，大家投票，票多的先做	Feature requests; the most-voted get built first	想要的功能，大家投票，票多的先做	欲しい機能に投票。票が多いものから実装します	원하는 기능에 투표하세요. 표가 많은 것부터 만듭니다	Funktionswünsche – die meisten Stimmen werden zuerst umgesetzt	Demandes de fonctionnalités ; les plus votées passent en premier	Peticiones de funciones; las más votadas se hacen primero	Предложения функций; самые популярные делаются первыми	Pedidos de recursos; os mais votados saem primeiro
+使用中遇到的问题	Problems while using QCCOM	使用中遇到的問題	使用中に困ったこと	사용 중 겪은 문제	Probleme bei der Nutzung	Problèmes d'utilisation	Problemas al usar QCCOM	Проблемы при работе	Problemas de uso
+脚本、快捷命令、使用经验	Scripts, quick commands and tips	指令碼、快捷命令、使用經驗	スクリプト、クイックコマンド、使い方のコツ	스크립트, 빠른 명령, 사용 팁	Skripte, Schnellbefehle und Tipps	Scripts, commandes rapides et astuces	Scripts, comandos rápidos y consejos	Скрипты, быстрые команды и советы	Scripts, comandos rápidos e dicas
+作者发布的消息	Updates from the developer	作者釋出的訊息	作者からのお知らせ	개발자 소식	Neuigkeiten vom Entwickler	Nouvelles du développeur	Novedades del desarrollador	Новости от автора	Novidades do desenvolvedor
+（在这里描述问题）	(Describe the problem here)	（在這裡描述問題）	（ここに問題を書いてください）	(여기에 문제를 설명해 주세요)	(Problem hier beschreiben)	(Décrivez le problème ici)	(Describe el problema aquí)	(Опишите проблему здесь)	(Descreva o problema aqui)
+内容不能为空	Content can't be empty	內容不能為空	本文を入力してください	내용을 입력해 주세요	Inhalt darf nicht leer sein	Le contenu ne peut pas être vide	El contenido no puede estar vacío	Текст не может быть пустым	O conteúdo não pode ficar vazio
+已标记为已解决	Marked as solved	已標記為已解決	解決済みにしました	해결됨으로 표시했습니다	Als gelöst markiert	Marqué comme résolu	Marcado como resuelto	Отмечено как решённое	Marcado como resolvido
+已取消已解决	No longer marked as solved	已取消已解決	解決済みを取り消しました	해결됨 표시를 취소했습니다	Nicht mehr als gelöst markiert	N'est plus marqué comme résolu	Ya no está marcado como resuelto	Отметка «решено» снята	Não está mais marcado como resolvido
+已退出登录	Signed out	已退出登入	ログアウトしました	로그아웃했습니다	Abgemeldet	Déconnecté	Sesión cerrada	Вы вышли	Você saiu
+已把这台电脑之前匿名发的内容归到你的账号下	Anonymous content from this computer is now in your account	已把這臺電腦之前匿名發的內容歸到你的帳號下	この PC の匿名投稿をアカウントに移しました	이 컴퓨터의 익명 글을 계정으로 옮겼습니다	Anonyme Inhalte dieses Computers sind jetzt in deinem Konto	Le contenu anonyme de cet ordinateur est rattaché à votre compte	El contenido anónimo de este equipo ya está en tu cuenta	Анонимный контент с этого компьютера перенесён в аккаунт	O conteúdo anônimo deste computador agora está na sua conta
+图片不能超过 2 MB	Images must be 2 MB or smaller	圖片不能超過 2 MB	画像は 2 MB 以下にしてください	이미지는 2 MB 이하여야 합니다	Bilder höchstens 2 MB	Images de 2 Mo maximum	Las imágenes no pueden superar 2 MB	Изображение не более 2 МБ	Imagens de até 2 MB
+只能拖入图片	Only images can be dropped here	只能拖入圖片	ドロップできるのは画像のみです	이미지만 끌어놓을 수 있습니다	Nur Bilder können hier abgelegt werden	Seules les images peuvent être déposées ici	Solo se pueden soltar imágenes	Сюда можно перетаскивать только изображения	Só é possível soltar imagens
+剪贴板里没有图片	No image on the clipboard	剪貼簿裡沒有圖片	クリップボードに画像がありません	클립보드에 이미지가 없습니다	Kein Bild in der Zwischenablage	Aucune image dans le presse-papiers	No hay imagen en el portapapeles	В буфере обмена нет изображения	Nenhuma imagem na área de transferência
+已提交，内容需要审核后才会公开	Submitted; it will appear after review	已提交，內容需要稽核後才會公開	送信しました。審査後に公開されます	제출했습니다. 검토 후 공개됩니다	Eingereicht; erscheint nach Prüfung	Envoyé ; visible après validation	Enviado; se publicará tras la revisión	Отправлено; появится после проверки	Enviado; aparecerá após análise
+已保存修改	Changes saved	已儲存修改	変更を保存しました	변경 사항을 저장했습니다	Änderungen gespeichert	Modifications enregistrées	Cambios guardados	Изменения сохранены	Alterações salvas
+发布成功	Posted	釋出成功	投稿しました	게시했습니다	Veröffentlicht	Publié	Publicado	Опубликовано	Publicado
+欢迎，{}	Welcome, {}	歡迎，{}	ようこそ、{} さん	{} 님, 환영합니다	Willkommen, {}	Bienvenue, {}	Bienvenido, {}	Добро пожаловать, {}	Bem-vindo, {}
+头像已更新	Avatar updated	頭像已更新	アバターを更新しました	프로필 사진을 변경했습니다	Avatar aktualisiert	Avatar mis à jour	Avatar actualizado	Аватар обновлён	Avatar atualizado
+不做	Declined	不做	見送り	보류	Abgelehnt	Refusé	Rechazado	Отклонено	Recusado
+待评估	Under review	待評估	検討中	검토 중	In Prüfung	À l'étude	En revisión	На рассмотрении	Em análise
+票	Votes	票	票	표	Stimmen	Votes	Votos	Голоса	Votos
+连不上社区服务器：{}	Can't reach the community server: {}	連不上社群伺服器：{}	コミュニティサーバーに接続できません：{}	커뮤니티 서버에 연결할 수 없습니다: {}	Community-Server nicht erreichbar: {}	Serveur communautaire injoignable : {}	No se puede conectar con el servidor: {}	Сервер сообщества недоступен: {}	Servidor da comunidade inacessível: {}
+发到社区求助	Ask the community	發到社群求助	コミュニティで質問	커뮤니티에 질문하기	In der Community fragen	Demander à la communauté	Preguntar a la comunidad	Спросить в сообществе	Perguntar à comunidade
+社区与反馈	Community & feedback	社群與反饋	コミュニティとフィードバック	커뮤니티와 피드백	Community & Feedback	Communauté et retours	Comunidad y comentarios	Сообщество и отзывы	Comunidade e feedback
+社区：{} 条新提醒	Community: {} new notifications	社群：{} 條新提醒	コミュニティ：新しい通知 {} 件	커뮤니티: 새 알림 {}개	Community: {} neue Benachrichtigungen	Communauté : {} nouvelles notifications	Comunidad: {} avisos nuevos	Сообщество: новых уведомлений — {}	Comunidade: {} novos avisos
+新公告：{}	New announcement: {}	新公告：{}	新しいお知らせ：{}	새 공지: {}	Neue Ankündigung: {}	Nouvelle annonce : {}	Nuevo anuncio: {}	Новое объявление: {}	Novo aviso: {}
+社区：提需求、投票、求助	Community: request features, vote, ask for help	社群：提需求、投票、求助	コミュニティ：要望・投票・質問	커뮤니티: 기능 요청, 투표, 도움 요청	Community: Wünsche, Abstimmungen, Hilfe	Communauté : demandes, votes, aide	Comunidad: peticiones, votos, ayuda	Сообщество: запросы, голосования, помощь	Comunidade: pedidos, votos, ajuda
+QCCOM 会发送匿名使用统计（随机设备 ID、版本、系统、使用时长、打开过哪些页面），不含日志、文件和串口数据。	QCCOM sends anonymous usage stats (random device ID, version, OS, usage time, pages opened). No logs, files or serial data.	QCCOM 會傳送匿名使用統計（隨機裝置 ID、版本、系統、使用時長、開啟過哪些頁面），不含日誌、檔案和串列埠資料。	QCCOM は匿名の利用統計（ランダムな端末 ID、バージョン、OS、利用時間、開いたページ）を送信します。ログ・ファイル・シリアルデータは含みません。	QCCOM은 익명 사용 통계(무작위 기기 ID, 버전, OS, 사용 시간, 연 페이지)를 보냅니다. 로그, 파일, 시리얼 데이터는 포함하지 않습니다.	QCCOM sendet anonyme Nutzungsstatistiken (zufällige Geräte-ID, Version, OS, Nutzungsdauer, geöffnete Seiten). Keine Logs, Dateien oder seriellen Daten.	QCCOM envoie des statistiques anonymes (ID d'appareil aléatoire, version, OS, durée, pages ouvertes). Aucun journal, fichier ni donnée série.	QCCOM envía estadísticas anónimas (ID aleatorio, versión, sistema, tiempo de uso, páginas abiertas). Sin registros, archivos ni datos serie.	QCCOM отправляет анонимную статистику (случайный ID, версия, ОС, время работы, открытые страницы). Без логов, файлов и данных порта.	O QCCOM envia estatísticas anônimas (ID aleatório, versão, sistema, tempo de uso, páginas abertas). Sem logs, arquivos ou dados seriais.
+知道了	Got it	知道了	わかりました	확인	Verstanden	Compris	Entendido	Понятно	Entendi
+关闭统计	Turn off	關閉統計	統計をオフ	통계 끄기	Ausschalten	Désactiver	Desactivar	Отключить	Desativar
+已关闭匿名统计，可以在设置里重新打开	Anonymous stats turned off; you can turn them back on in Settings	已關閉匿名統計，可以在設定裡重新開啟	匿名統計をオフにしました。設定からいつでもオンにできます	익명 통계를 껐습니다. 설정에서 다시 켤 수 있습니다	Anonyme Statistik aus; in den Einstellungen wieder einschaltbar	Statistiques désactivées ; réactivables dans les paramètres	Estadísticas desactivadas; puedes activarlas en Ajustes	Статистика отключена; включить можно в настройках	Estatísticas desativadas; reative nas configurações
+发送匿名使用统计	Send anonymous usage stats	傳送匿名使用統計	匿名の利用統計を送信	익명 사용 통계 보내기	Anonyme Nutzungsstatistik senden	Envoyer des statistiques anonymes	Enviar estadísticas anónimas	Отправлять анонимную статистику	Enviar estatísticas anônimas
+随机设备 ID、版本、系统、语言、使用时长和各页面的打开次数，帮助作者知道哪些功能最常用。不含日志、文件和串口数据	Random device ID, version, OS, language, usage time and page open counts, so the developer knows which features matter most. No logs, files or serial data	隨機裝置 ID、版本、系統、語言、使用時長和各頁面的開啟次數，幫助作者知道哪些功能最常用。不含日誌、檔案和串列埠資料	ランダムな端末 ID、バージョン、OS、言語、利用時間、各ページを開いた回数。よく使われる機能を知るために使います。ログ・ファイル・シリアルデータは含みません	무작위 기기 ID, 버전, OS, 언어, 사용 시간, 페이지별 열기 횟수로 자주 쓰는 기능을 파악합니다. 로그, 파일, 시리얼 데이터는 포함하지 않습니다	Zufällige Geräte-ID, Version, OS, Sprache, Nutzungsdauer und Seitenaufrufe – damit der Entwickler weiß, was am meisten genutzt wird. Keine Logs, Dateien oder seriellen Daten	ID aléatoire, version, OS, langue, durée d'utilisation et nombre d'ouvertures des pages, pour savoir ce qui sert le plus. Aucun journal, fichier ni donnée série	ID aleatorio, versión, sistema, idioma, tiempo de uso y aperturas de cada página, para saber qué se usa más. Sin registros, archivos ni datos serie	Случайный ID, версия, ОС, язык, время работы и число открытий страниц — чтобы понять, что важнее всего. Без логов, файлов и данных порта	ID aleatório, versão, sistema, idioma, tempo de uso e aberturas de cada página, para saber o que é mais usado. Sem logs, arquivos ou dados seriais
+收集了什么	What's collected	收集了什麼	収集内容	수집 항목	Was wird erfasst	Données collectées	Qué se recopila	Что собирается	O que é coletado
+提需求、给别人的需求投票、求助和分享经验	Request features, vote on others' requests, ask for help and share tips	提需求、給別人的需求投票、求助和分享經驗	要望の提案と投票、質問、ノウハウの共有	기능 요청, 다른 요청에 투표, 도움 요청, 팁 공유	Funktionen wünschen, abstimmen, Hilfe holen und Tipps teilen	Proposer, voter, demander de l'aide et partager des astuces	Pide funciones, vota, pide ayuda y comparte consejos	Предлагайте функции, голосуйте, просите помощи и делитесь опытом	Peça recursos, vote, peça ajuda e compartilhe dicas
+已取消置顶	Unpinned	已取消置頂	固定を解除しました	고정을 해제했습니다	Gelöst	Désépinglé	Desfijado	Откреплено	Desafixado
+已置顶	Pinned	已置頂	固定しました	고정했습니다	Angeheftet	Épinglé	Fijado	Закреплено	Fixado
+已解锁	Unlocked	已解鎖	ロックを解除しました	잠금을 해제했습니다	Entsperrt	Déverrouillé	Desbloqueado	Разблокировано	Desbloqueado
+已移动	Moved	已移動	移動しました	이동했습니다	Verschoben	Déplacé	Movido	Перенесено	Movido
+状态已更新	Status updated	狀態已更新	ステータスを更新しました	상태를 변경했습니다	Status aktualisiert	Statut mis à jour	Estado actualizado	Статус обновлён	Status atualizado

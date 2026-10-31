@@ -492,6 +492,8 @@ pub enum CodeEvt {
     Struct(String),
     /// 三方合并：(上次保存的版本, 我的修改, 写回的文件)
     Merge(PathBuf, PathBuf, PathBuf),
+    /// 右键「发到社区求助」：(选中的代码, 语言)
+    Ask(String, String),
 }
 
 pub struct CodeView {

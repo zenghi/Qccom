@@ -1203,6 +1203,13 @@ impl CodeView {
         item(ui, Act::ToggleComment, t("切换行注释"));
         item(ui, Act::BlockComment, t("切换块注释"));
         item(ui, Act::IfZero, t("用 #if 0 包裹 / 取消"));
+        if let Some(sel) = self.selected_text(ui.ctx()) {
+            if menu_item(ui, t("发到社区求助"), "") {
+                let lang = self.tabs.get(self.active).and_then(|d| d.path.extension()).and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+                self.events.push(CodeEvt::Ask(sel, lang));
+                ui.close_menu();
+            }
+        }
         ui.separator();
         let macros: Vec<(usize, String)> = self.s.macros.iter().enumerate().map(|(i, m)| (i, m.name.clone())).collect();
         let recs: Vec<(usize, String)> = self.s.recordings.iter().enumerate().map(|(i, m)| (i, m.name.clone())).collect();

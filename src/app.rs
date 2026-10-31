@@ -97,6 +97,12 @@ pub struct Settings {
     pub rev: u32,
     /// 是否已经按黄金比例摆过窗口（只在第一次启动时做）
     pub window_placed: bool,
+    /// 发送匿名使用统计（设备随机 ID、版本、系统、语言、使用时长、页面打开次数）
+    pub telemetry: bool,
+    /// 已经提示过一次「会发送匿名统计」
+    pub telemetry_noticed: bool,
+    /// 社区里已经看过的最新公告
+    pub seen_notice: i64,
     pub groups: Vec<CmdGroup>,
     pub cur_group: usize,
     pub cmd_panel: bool,
@@ -201,6 +207,9 @@ impl Default for Settings {
             bg: Default::default(),
             rev: SETTINGS_REV,
             window_placed: false,
+            telemetry: true,
+            telemetry_noticed: false,
+            seen_notice: 0,
             groups: default_groups(),
             cur_group: 0,
             cmd_panel: true,
@@ -266,6 +275,8 @@ enum Page {
     Compare,
     Tools,
     Settings,
+    /// 社区：需求投票、求助、分享、公告
+    Community,
 }
 
 /// 自动更新的界面状态
@@ -407,6 +418,8 @@ pub struct App {
     cmpv: crate::compareview::CompareView,
     /// 电路页（第一次打开时才创建）
     circ: Option<Box<crate::circuitview::CircuitView>>,
+    /// 社区页
+    comm: crate::community::Community,
     /// 其他进程转来的打开 / 比较请求（系统右键菜单）
     fwd: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::shellint::Req>>>>,
     /// 比较页有未保存修改时第一次关窗口被拦下，再关一次就直接退出
@@ -519,6 +532,10 @@ impl App {
         let code = CodeView::new(std::mem::take(&mut s.code));
         let gitv = GitView::new(std::mem::take(&mut s.git), cc.egui_ctx.clone());
         let cmpv = crate::compareview::CompareView::new(std::mem::take(&mut s.cmp));
+        crate::hub::set_enabled(s.telemetry);
+        crate::hub::start_telemetry();
+        let mut comm = crate::community::Community::default();
+        comm.seen_notice = s.seen_notice;
         let mut shell_s = std::mem::take(&mut s.shell);
         shell_s.open = false; // 启动时不自动开 shell
         let shells = Shells::new(shell_s);
@@ -610,6 +627,7 @@ impl App {
             gitv,
             cmpv,
             circ: None,
+            comm,
             close_anyway: false,
             fwd: None,
             shells,
@@ -2842,6 +2860,7 @@ impl App {
             self.status_conns(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(TEXT3()));
+                self.status_community(ui);
                 let br = self.code.branch();
                 if !br.is_empty() {
                     let r = ui
@@ -3037,6 +3056,7 @@ impl App {
         let mut clicked: Option<u64> = None;
         let mut ctx_copy: Option<String> = None;
         let mut ctx_cmd: Option<u8> = None;
+        let mut ctx_copy_line: Option<String> = None;
         let mut ctx_mark: Option<u64> = None;
         let mut ctx_trigger: Option<String> = None;
         let mut ctx_regs: Option<String> = None;
@@ -3278,6 +3298,11 @@ impl App {
                         ctx_regs = Some(l.plain.clone());
                         ui.close_menu();
                     }
+                    if menu_item(ui, t("发到社区求助"), "") {
+                        ctx_cmd = Some(if has_sel { 4 } else { 5 });
+                        ctx_copy_line = Some(l.plain.clone());
+                        ui.close_menu();
+                    }
                     if l.dir != Dir::Sys && !l.plain.trim().is_empty() && menu_item(ui, t("用此行新建应答规则"), "") {
                         ctx_trigger = Some(l.plain.trim().to_string());
                         ui.close_menu();
@@ -3346,6 +3371,19 @@ impl App {
             Some(1) => self.copy_selection(ui.ctx(), false),
             Some(2) => self.copy_selection(ui.ctx(), true),
             Some(3) => self.select_all(),
+            Some(4) | Some(5) => {
+                let sel = if ctx_cmd == Some(5) {
+                    None
+                } else if self.tsel.is_some() {
+                    self.tsel_text(true)
+                } else {
+                    self.selected_text(true)
+                };
+                if let Some(text) = sel.filter(|x| !x.trim().is_empty()).or(ctx_copy_line) {
+                    self.comm.ask_with(&text, "log");
+                    self.set_page(Page::Community);
+                }
+            }
             _ => {}
         }
         if let Some(tv) = ctx_copy {
@@ -3907,10 +3945,19 @@ impl App {
         if self.page == p {
             return;
         }
-        if p == Page::Settings {
+        if p == Page::Settings || p == Page::Community {
             self.prev_page = self.page;
         }
         self.page = p;
+        crate::hub::count(match p {
+            Page::Debug => "page.debug",
+            Page::Code => "page.code",
+            Page::Git => "page.git",
+            Page::Compare => "page.compare",
+            Page::Tools => "page.tools",
+            Page::Settings => "page.settings",
+            Page::Community => "page.community",
+        });
         match p {
             Page::Code => self.code.activate(),
             Page::Git => {
@@ -3918,7 +3965,7 @@ impl App {
                 self.gitv.activate(root.as_deref());
             }
             Page::Debug => self.tv.focus_req = self.s.terminal,
-            Page::Tools | Page::Settings | Page::Compare => {}
+            Page::Tools | Page::Settings | Page::Compare | Page::Community => {}
         }
     }
 
@@ -4071,6 +4118,10 @@ impl App {
                             }
                         });
                         ui.separator();
+                        if menu_item(ui, t("社区与反馈"), "") {
+                            self.set_page(Page::Community);
+                            ui.memory_mut(|m| m.close_popup());
+                        }
                         if menu_item(ui, t("检查更新"), "") {
                             pick = Some(Act::CheckUpdate);
                         }
@@ -4432,6 +4483,81 @@ pub(crate) fn open_url(url: &str) {
     }
 }
 
+impl App {
+    /// 状态栏右边的社区入口：有新回复 / 新公告时亮一个小圆点
+    fn status_community(&mut self, ui: &mut egui::Ui) {
+        let (r, resp) = ui.allocate_exact_size(vec2(20.0, 16.0), Sense::click());
+        let on = self.page == Page::Community;
+        let c = if on || resp.hovered() { ACCENT() } else { TEXT3() };
+        crate::community::chat_icon(ui.painter(), Rect::from_center_size(r.center(), vec2(13.0, 13.0)), c);
+        if self.comm.has_news() {
+            ui.painter().circle_filled(r.center() + vec2(6.0, -5.0), 3.2, ACCENT());
+        }
+        if resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let tip = match (&self.comm.notice, self.comm.unread) {
+            (_, n) if n > 0 => tf("社区：{} 条新提醒", &[&n]),
+            (Some(nt), _) if nt.id > self.comm.seen_notice => tf("新公告：{}", &[&nt.title]),
+            _ => t("社区：提需求、投票、求助").to_string(),
+        };
+        if resp.on_hover_text(tip).clicked() {
+            if self.page == Page::Community {
+                self.set_page(self.prev_page_or_debug());
+            } else {
+                // 有新公告时直接打开它
+                if self.comm.unread == 0 {
+                    if let Some(nt) = self.comm.notice.clone().filter(|n| n.id > self.comm.seen_notice) {
+                        self.comm.seen_notice = nt.id;
+                        self.comm.go(crate::community::Nav::Board(crate::community::Board::Notice));
+                        self.comm.open_post(nt.id);
+                    }
+                } else {
+                    self.comm.go(crate::community::Nav::Notifs);
+                }
+                self.set_page(Page::Community);
+            }
+        }
+    }
+
+    fn prev_page_or_debug(&self) -> Page {
+        if self.prev_page == Page::Community || self.prev_page == Page::Settings {
+            Page::Debug
+        } else {
+            self.prev_page
+        }
+    }
+
+    /// 第一次启动时底部的一行说明：会发送匿名统计，可以关
+    fn telemetry_notice(&mut self, ctx: &egui::Context) {
+        egui::TopBottomPanel::bottom("telemetry-notice")
+            .frame(egui::Frame::new().fill(BG2()).inner_margin(egui::Margin::symmetric(14, 6)))
+            .show_separator_line(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                    draw_icon(ui.painter(), r, Icon::Info, ACCENT());
+                    ui.label(
+                        RichText::new(t("QCCOM 会发送匿名使用统计（随机设备 ID、版本、系统、使用时长、打开过哪些页面），不含日志、文件和串口数据。"))
+                            .size(12.0)
+                            .color(TEXT2()),
+                    );
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if ui.button(t("知道了")).clicked() {
+                            self.s.telemetry_noticed = true;
+                        }
+                        if ui.add(egui::Button::new(RichText::new(t("关闭统计")).color(TEXT2())).frame(false)).clicked() {
+                            self.s.telemetry = false;
+                            self.s.telemetry_noticed = true;
+                            crate::hub::set_enabled(false);
+                            self.toast(t("已关闭匿名统计，可以在设置里重新打开"), OK());
+                        }
+                    });
+                });
+            });
+    }
+}
+
 impl eframe::App for App {
     /// 面板之间没盖住的缝隙露出的是清屏色，要跟着主题走，否则浅色下会露出黑边
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
@@ -4448,6 +4574,7 @@ impl eframe::App for App {
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        crate::hub::final_beat();
         if let Some(mut r) = self.record.take() {
             let _ = r.w.flush();
         }
@@ -4490,7 +4617,7 @@ impl eframe::App for App {
         self.poll_update(ctx);
         self.follow_system_theme(ctx);
         let scope = match self.page {
-            Page::Debug | Page::Tools | Page::Settings => Scope::Debug,
+            Page::Debug | Page::Tools | Page::Settings | Page::Community => Scope::Debug,
             Page::Code => Scope::Code,
             Page::Git => Scope::Git,
             Page::Compare => Scope::Global,
@@ -4553,6 +4680,15 @@ impl eframe::App for App {
         if let Some(cv) = &mut self.circ {
             cv.tick(ctx);
         }
+        // 社区：收后台结果、定时拉提醒；提示语走统一的 toast
+        self.comm.tick(ctx, self.page == Page::Community);
+        for (m, err) in std::mem::take(&mut self.comm.toasts) {
+            self.toast(m, if err { ERR() } else { OK() });
+        }
+        self.s.seen_notice = self.comm.seen_notice;
+        if !self.s.telemetry_noticed {
+            self.telemetry_notice(ctx);
+        }
         match self.page {
             Page::Code => {
                 self.code.ui(ctx, &acts, &self.km);
@@ -4567,6 +4703,10 @@ impl eframe::App for App {
                         CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
                         CodeEvt::Struct(src) => self.open_struct(src),
                         CodeEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
+                        CodeEvt::Ask(text, lang) => {
+                            self.comm.ask_with(&text, &lang);
+                            self.set_page(Page::Community);
+                        }
                         CodeEvt::Merge(base, mine, out) => {
                             use crate::compareview::Side;
                             let disk = crate::compareview::temp_file("disk", &std::fs::read(&out).unwrap_or_default());
@@ -4613,6 +4753,7 @@ impl eframe::App for App {
                 self.compare_events();
             }
             Page::Settings => self.settings_page(ctx),
+            Page::Community => self.comm.ui(ctx),
         }
         if let Some((p, replay)) = self.open_log.take() {
             self.load_log_path(&p, replay);
@@ -4643,6 +4784,7 @@ impl eframe::App for App {
                 }
                 Page::Compare => self.cmpv.drop_files(vec![p]),
                 Page::Tools => self.tool_drop(p),
+                Page::Community => self.comm.drop_file(&p),
                 _ => self.load_log_path(&p, false),
             }
         }

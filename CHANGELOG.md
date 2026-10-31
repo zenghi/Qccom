@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.9.1
+
+Community and feedback, built into QCCOM. Nothing new is always on screen except a small chat icon in the status bar.
+
+- **Community** (chat icon in the status bar, or gear menu → *Community & feedback*): four boards — **Requests** (suggest features and vote; the most-voted get built first, with status *under review / planned / done / declined* and the developer's response), **Help** (mark the reply that solved it), **Share** and **News**. Floor-style replies with quoting, likes, Markdown with highlighted code blocks, and up to 4 images per post (pick a file, paste a screenshot or drop it into the window). Posting a request lists similar ones first so you can vote instead of repeating it.
+- **Anonymous or signed in**: post and vote without an account, or sign up with a username and password to see *My posts / votes / replies* and notifications on any computer; content posted anonymously from this computer can be moved into the account.
+- **Keyboard**: `J` / `K` next / previous, `Enter` open, `V` vote, `R` reply, `N` new post, `/` search, `Esc` back, `Ctrl+Enter` send. Drafts are saved automatically and the last lists stay readable offline.
+- **Ask from where you are**: select log lines or code, right-click → *Ask the community*; the selection, version and OS are put into a new Help post.
+- **Anonymous usage stats**: a random device ID, version, OS, UI language, usage time and how often each page or tool is opened, sent at start and every 6 hours. No logs, files, paths or serial data. Shown once on first start and can be turned off there or in *Settings → General* (*What's collected* shows exactly what is sent). `QCCOM_NO_TELEMETRY=1` turns it off as well.
+- The server is the separate `qccom-hub` program (single binary with SQLite and an admin page) served at `https://www.zenghi.com/qccom/`.
+
 ## 1.9.0
 
 Circuits and wiring: build circuits on a virtual breadboard and power them up, keep a record of how the real hardware is wired, and let other apps share the serial port without locking it.

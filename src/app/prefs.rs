@@ -117,7 +117,7 @@ fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mu
 /// 这一类里有没有设置项匹配搜索（决定搜索时显示不显示分类标题）
 fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
-        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "系统右键菜单", "命令面板"],
+        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "系统右键菜单", "发送匿名使用统计", "社区与反馈", "命令面板"],
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号", "背景图片", "不透明度", "显示方式"],
         Cat::Log => &[
             "时间戳",
@@ -330,6 +330,22 @@ impl App {
                     }
                     Err(e) => self.toast(e, ERR()),
                 }
+            }
+        });
+        row(ui, q, t("发送匿名使用统计"), t("随机设备 ID、版本、系统、语言、使用时长和各页面的打开次数，帮助作者知道哪些功能最常用。不含日志、文件和串口数据"), |ui| {
+            if switch(ui, &mut self.s.telemetry).changed() {
+                crate::hub::set_enabled(self.s.telemetry);
+                self.s.telemetry_noticed = true;
+            }
+            ui.add_space(8.0);
+            ui.menu_button(t("收集了什么"), |ui| {
+                ui.set_min_width(300.0);
+                ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
+            });
+        });
+        row(ui, q, t("社区与反馈"), t("提需求、给别人的需求投票、求助和分享经验"), |ui| {
+            if ui.button(t("打开")).clicked() {
+                self.set_page(Page::Community);
             }
         });
         let pk = self.km.label(Act::Palette);

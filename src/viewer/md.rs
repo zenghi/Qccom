@@ -503,7 +503,7 @@ fn inline(ui: &mut Ui, s: &str) -> Option<String> {
 }
 
 /// 画一段带格式的文字；点了相对链接时返回链接
-fn inline_spans(ui: &mut Ui, s: &str, done: bool) -> Option<String> {
+pub(crate) fn inline_spans(ui: &mut Ui, s: &str, done: bool) -> Option<String> {
     ui.spacing_mut().item_spacing.x = 0.0;
     let mut out = None;
     let base = if done { TEXT3() } else { TEXT() };

@@ -2430,3 +2430,356 @@ Windows 不允许软件直接创建 COM 口，要装免费的 com0com 虚拟串�
 复制：{}	Copy: {}	複製：{}	コピー：{}	복사: {}	Kopieren: {}	Copier : {}	Copiar: {}	Копировать: {}	Copiar: {}
 在其他软件里打开：{}	Open this in the other app: {}	在其他軟體裡開啟：{}	他のアプリでこれを開く：{}	다른 앱에서 이것을 여세요: {}	In der anderen App öffnen: {}	À ouvrir dans l'autre appli : {}	Abra esto en la otra app: {}	Откройте в другой программе: {}	Abra isto no outro app: {}
 在其他软件里打开这个口在 com0com 里配对的另一头	In the other app, open the port paired with this one in com0com	在其他軟體裡開啟這個口在 com0com 裡配對的另一頭	他のアプリでは、com0com でこのポートと対になっているポートを開きます	다른 앱에서는 com0com에서 이 포트와 짝인 포트를 여세요	In der anderen App den in com0com gekoppelten Partnerport öffnen	Dans l'autre appli, ouvrez le port jumelé à celui-ci dans com0com	En la otra app, abra el puerto emparejado con este en com0com	В другой программе откройте парный порт из com0com	No outro app, abra a porta pareada com esta no com0com
+# v1.9 电路仿真、接线记录、虚拟串口
+USB 供电	USB power	USB 供電	USB 給電	USB 전원	USB-Versorgung	Alimentation USB	Alimentación USB	Питание от USB	Alimentação USB
+外部供电	External power	外部供電	外部電源	외부 전원	Externe Versorgung	Alimentation externe	Alimentación externa	Внешнее питание	Alimentação externa
+电压	Voltage	電壓	電圧	전압	Spannung	Tension	Tensión	Напряжение	Tensão
+电阻	Resistance	電阻	抵抗	저항	Widerstand	Résistance	Resistencia	Сопротивление	Resistência
+通断	Continuity	通斷	導通	도통	Durchgang	Continuité	Continuidad	Прозвонка	Continuidade
+共阴	Common cathode	共陰	カソードコモン	공통 캐소드	Gemeinsame Kathode	Cathode commune	Cátodo común	Общий катод	Cátodo comum
+共阳	Common anode	共陽	アノードコモン	공통 애노드	Gemeinsame Anode	Anode commune	Ánodo común	Общий анод	Ânodo comum
+PCB 天线	PCB antenna	PCB 天線	PCB アンテナ	PCB 안테나	PCB-Antenne	Antenne PCB	Antena PCB	Антенна на плате	Antena PCB
+陶瓷天线	Ceramic antenna	陶瓷天線	セラミックアンテナ	세라믹 안테나	Keramikantenne	Antenne céramique	Antena cerámica	Керамическая антенна	Antena cerâmica
+IPEX 外接天线	IPEX external antenna	IPEX 外接天線	IPEX 外部アンテナ	IPEX 외장 안테나	IPEX-Außenantenne	Antenne externe IPEX	Antena externa IPEX	Внешняя антенна IPEX	Antena externa IPEX
+1 节 AA 碱性电池	1 × AA alkaline	1 節 AA 鹼性電池	単3 アルカリ 1 本	AA 알카라인 1개	1 × AA Alkali	1 pile AA alcaline	1 pila AA alcalina	1 щелочная AA	1 pilha AA alcalina
+2 节 AA 碱性电池	2 × AA alkaline	2 節 AA 鹼性電池	単3 アルカリ 2 本	AA 알카라인 2개	2 × AA Alkali	2 piles AA alcalines	2 pilas AA alcalinas	2 щелочные AA	2 pilhas AA alcalinas
+3 节 AA 碱性电池	3 × AA alkaline	3 節 AA 鹼性電池	単3 アルカリ 3 本	AA 알카라인 3개	3 × AA Alkali	3 piles AA alcalines	3 pilas AA alcalinas	3 щелочные AA	3 pilhas AA alcalinas
+锂电池 3.7V	Li-ion 3.7 V	鋰電池 3.7V	リチウム電池 3.7V	리튬 배터리 3.7V	Li-Ion 3,7 V	Li-ion 3,7 V	Li-ion 3,7 V	Li-ion 3,7 В	Li-ion 3,7 V
+9V 电池	9 V battery	9V 電池	9V 電池	9V 배터리	9-V-Block	Pile 9 V	Pila 9 V	Батарея 9 В	Bateria 9 V
+CR2032 纽扣电池	CR2032 coin cell	CR2032 紐扣電池	CR2032 コイン電池	CR2032 코인 셀	CR2032-Knopfzelle	Pile bouton CR2032	Pila de botón CR2032	Батарейка CR2032	Bateria CR2032
+2 节 18650 串联	2 × 18650 in series	2 節 18650 串聯	18650 × 2 直列	18650 2개 직렬	2 × 18650 in Reihe	2 × 18650 en série	2 × 18650 en serie	2 × 18650 последовательно	2 × 18650 em série
+低电平触发	Active low	低電平觸發	Low でトリガ	Low 트리거	Low-aktiv	Actif à l'état bas	Activo en bajo	Активный низкий	Ativo em nível baixo
+高电平触发	Active high	高電平觸發	High でトリガ	High 트리거	High-aktiv	Actif à l'état haut	Activo en alto	Активный высокий	Ativo em nível alto
+耐 5V	5 V tolerant	耐 5V	5V トレラント	5V 허용	5-V-tolerant	Tolérant 5 V	Tolerante a 5 V	Допускает 5 В	Tolerante a 5 V
+启动脚	Strapping pin	啟動腳	起動ピン	부트 핀	Boot-Pin	Broche de démarrage	Pin de arranque	Пин загрузки	Pino de boot
+只能输入	Input only	只能輸入	入力専用	입력 전용	Nur Eingang	Entrée seule	Solo entrada	Только вход	Somente entrada
+开漏	Open drain	開漏	オープンドレイン	오픈 드레인	Open Drain	Drain ouvert	Drenador abierto	Открытый сток	Dreno aberto
+板载 LED	Onboard LED	板載 LED	オンボード LED	온보드 LED	Onboard-LED	LED intégrée	LED integrado	Встроенный светодиод	LED da placa
+地	Ground	地	グランド	접지	Masse	Masse	Tierra	Земля	Terra
+元件库	Parts	元件庫	部品	부품	Bauteile	Composants	Componentes	Компоненты	Componentes
+示例	Examples	示例	サンプル	예제	Beispiele	Exemples	Ejemplos	Примеры	Exemplos
+搜索示例	Search examples	搜尋示例	サンプルを検索	예제 검색	Beispiele suchen	Rechercher un exemple	Buscar ejemplos	Поиск примеров	Pesquisar exemplos
+搜索元件、型号	Search parts or models	搜尋元件、型號	部品・型番を検索	부품, 모델 검색	Bauteil oder Typ suchen	Rechercher composant ou modèle	Buscar componente o modelo	Поиск компонента или модели	Pesquisar componente ou modelo
+没有匹配的元件	No matching parts	沒有匹配的元件	一致する部品はありません	일치하는 부품 없음	Keine passenden Bauteile	Aucun composant trouvé	Ningún componente coincide	Ничего не найдено	Nenhum componente encontrado
+没有匹配的示例	No matching examples	沒有匹配的示例	一致するサンプルはありません	일치하는 예제 없음	Keine passenden Beispiele	Aucun exemple trouvé	Ningún ejemplo coincide	Примеры не найдены	Nenhum exemplo encontrado
+从左侧「示例」里选一个	Pick one from "Examples" on the left	從左側「示例」裡選一個	左の「サンプル」から選んでください	왼쪽 "예제"에서 하나 고르세요	Links unter „Beispiele" eines wählen	Choisissez-en un dans « Exemples » à gauche	Elija uno en «Ejemplos» a la izquierda	Выберите пример слева	Escolha um em "Exemplos" à esquerda
+原理	How it works	原理	しくみ	원리	So funktioniert's	Principe	Cómo funciona	Как это работает	Como funciona
+试一试	Try it	試一試	試してみよう	해 보기	Ausprobieren	À essayer	Pruébalo	Попробуйте	Experimente
+学到什么	What you learn	學到什麼	学べること	배우는 것	Was du lernst	Ce que vous apprenez	Qué aprendes	Чему научитесь	O que você aprende
+搭建步骤	Build steps	搭建步驟	組み立て手順	조립 단계	Aufbauschritte	Étapes de montage	Pasos de montaje	Шаги сборки	Passos de montagem
+恢复成示例原样	Reset to original example	恢復成示例原樣	サンプルを元に戻す	예제 원래대로	Beispiel zurücksetzen	Rétablir l'exemple	Restaurar el ejemplo	Вернуть исходный пример	Restaurar exemplo
+属性	Properties	屬性	プロパティ	속성	Eigenschaften	Propriétés	Propiedades	Свойства	Propriedades
+认识它	About it	認識它	解説	알아보기	Kennenlernen	À savoir	Conócelo	Справка	Conheça
+文字说明	Note	文字說明	注記	메모	Notiz	Note	Nota	Заметка	Nota
+个对象已选中	objects selected	個物件已選中	個選択中	개 선택됨	Objekte ausgewählt	objets sélectionnés	objetos seleccionados	объектов выбрано	objetos selecionados
+旋转	Rotate	旋轉	回転	회전	Drehen	Pivoter	Girar	Повернуть	Girar
+电路	Circuit	電路	回路	회로	Schaltung	Circuit	Circuito	Схема	Circuito
+个元件	parts	個元件	個の部品	개 부품	Bauteile	composants	componentes	компонентов	componentes
+根导线	wires	根導線	本の配線	개 전선	Drähte	fils	cables	проводов	fios
+接实物测电流（INA219 / INA226）	Measure real current (INA219 / INA226)	接實物測電流（INA219 / INA226）	実機の電流を測る（INA219 / INA226）	실제 전류 측정 (INA219 / INA226)	Echten Strom messen (INA219 / INA226)	Mesurer le courant réel (INA219 / INA226)	Medir corriente real (INA219 / INA226)	Измерить реальный ток (INA219 / INA226)	Medir corrente real (INA219 / INA226)
+怎么用	How to use	怎麼用	使い方	사용법	So geht's	Mode d'emploi	Cómo usar	Как пользоваться	Como usar
+1. 从左边把面包板、电源、元件拖到画布上	1. Drag a breadboard, power and parts from the left onto the canvas	1. 從左邊把麵包板、電源、元件拖到畫布上	1. 左からブレッドボード・電源・部品をキャンバスへドラッグ	1. 왼쪽에서 브레드보드, 전원, 부품을 캔버스로 끌어오세요	1. Steckbrett, Versorgung und Bauteile von links auf die Fläche ziehen	1. Glissez plaque d'essai, alimentation et composants depuis la gauche	1. Arrastre la protoboard, la fuente y los componentes desde la izquierda	1. Перетащите макетку, питание и компоненты слева на холст	1. Arraste protoboard, fonte e componentes da esquerda para a tela
+2. 从引脚或面包板孔拖出导线，松手在另一个孔上	2. Drag a wire from a pin or hole and release it on another hole	2. 從引腳或麵包板孔拖出導線，鬆手在另一個孔上	2. ピンや穴から配線を引き出し、別の穴で離す	2. 핀이나 구멍에서 전선을 끌어 다른 구멍에 놓으세요	2. Vom Pin oder Loch einen Draht ziehen und auf einem anderen Loch loslassen	2. Tirez un fil depuis une broche ou un trou et relâchez sur un autre trou	2. Arrastre un cable desde un pin o agujero y suéltelo en otro	2. Протяните провод от вывода или отверстия к другому отверстию	2. Arraste um fio de um pino ou furo e solte em outro furo
+3. 同一竖列的 5 个孔是通的，两边的长条是电源轨	3. The 5 holes in a column are connected; the long strips on the sides are power rails	3. 同一豎列的 5 個孔是通的，兩邊的長條是電源軌	3. 縦一列の 5 穴はつながっていて、両側の長い列は電源レール	3. 같은 세로줄 5개 구멍은 연결되어 있고, 양쪽 긴 줄은 전원 레일입니다	3. Die 5 Löcher einer Spalte sind verbunden, die langen Leisten außen sind Versorgungsschienen	3. Les 5 trous d'une colonne sont reliés ; les bandes latérales sont les rails d'alimentation	3. Los 5 agujeros de una columna están unidos; las tiras laterales son los rieles de alimentación	3. 5 отверстий в столбце соединены, длинные полосы по краям — шины питания	3. Os 5 furos de uma coluna são ligados; as faixas laterais são os trilhos de alimentação
+4. 点「通电」看结果：LED 会亮，接错会冒烟	4. Click "Power on" to see the result: LEDs light up, wrong wiring smokes	4. 點「通電」看結果：LED 會亮，接錯會冒煙	4. 「通電」を押すと結果が見える：LED が光り、誤配線は煙が出る	4. "전원 켜기"를 누르면 결과 확인: LED가 켜지고 잘못 연결하면 연기가 납니다	4. „Einschalten" klicken: LEDs leuchten, Fehlverdrahtung raucht	4. Cliquez sur « Alimenter » : les LED s'allument, une erreur fume	4. Pulse «Encender»: los LED se encienden y los errores echan humo	4. Нажмите «Включить»: светодиоды загорятся, ошибки задымятся	4. Clique em "Ligar": os LEDs acendem e erros soltam fumaça
+5. 选中元件可以在这里改阻值、颜色、型号	5. Select a part to change its value, color or model here	5. 選中元件可以在這裡改阻值、顏色、型號	5. 部品を選ぶとここで抵抗値・色・型番を変更できる	5. 부품을 선택하면 여기서 값, 색, 모델을 바꿀 수 있습니다	5. Bauteil wählen, um hier Wert, Farbe oder Typ zu ändern	5. Sélectionnez un composant pour changer valeur, couleur ou modèle	5. Seleccione un componente para cambiar valor, color o modelo	5. Выберите компонент, чтобы изменить номинал, цвет или модель	5. Selecione um componente para mudar valor, cor ou modelo
+接错检查	Wiring check	接錯檢查	配線チェック	배선 검사	Verdrahtungsprüfung	Vérification du câblage	Revisión de conexiones	Проверка соединений	Verificação de ligações
+没发现接错	No wiring mistakes	沒發現接錯	配線ミスなし	배선 오류 없음	Keine Fehler gefunden	Aucune erreur de câblage	Sin errores de conexión	Ошибок не найдено	Nenhum erro de ligação
+个引脚还没接	pins not connected yet	個引腳還沒接	本のピンが未接続	개 핀 미연결	Pins noch nicht verbunden	broches non reliées	pines sin conectar	выводов не подключено	pinos ainda sem ligação
+导线	Wire	導線	配線	전선	Draht	Fil	Cable	Провод	Fio
+长度约	Length about	長度約	長さ約	길이 약	Länge ca.	Longueur env.	Longitud aprox.	Длина около	Comprimento aprox.
+删除导线	Delete wire	刪除導線	配線を削除	전선 삭제	Draht löschen	Supprimer le fil	Eliminar cable	Удалить провод	Excluir fio
+写成 10k、4.7u、100n 这样的数值	Enter values like 10k, 4.7u, 100n	寫成 10k、4.7u、100n 這樣的數值	10k、4.7u、100n のように入力	10k, 4.7u, 100n 형식으로 입력	Werte wie 10k, 4.7u, 100n eingeben	Saisissez des valeurs comme 10k, 4.7u, 100n	Escriba valores como 10k, 4.7u, 100n	Вводите значения вида 10k, 4.7u, 100n	Digite valores como 10k, 4.7u, 100n
+镜像	Mirror	映象	反転	대칭	Spiegeln	Miroir	Reflejar	Отразить	Espelhar
+实时读数	Live readings	實時讀數	リアルタイム値	실시간 값	Live-Werte	Mesures en direct	Lecturas en vivo	Текущие показания	Leituras ao vivo
+烧坏了	Burned out	燒壞了	焼損	타 버림	Durchgebrannt	Grillé	Quemado	Сгорел	Queimado
+换个新的（修好）	Replace with a new one (repair)	換個新的（修好）	新品に交換（修理）	새것으로 교체(수리)	Durch ein neues ersetzen (reparieren)	Remplacer par un neuf (réparer)	Cambiar por uno nuevo (reparar)	Заменить на новый (починить)	Trocar por um novo (consertar)
+功率	Power	功率	電力	전력	Leistung	Puissance	Potencia	Мощность	Potência
+选中一个元件，这里会讲它是什么、怎么接、常见的坑。	Select a part to learn what it is, how to wire it, and common pitfalls.	選中一個元件，這裡會講它是什麼、怎麼接、常見的坑。	部品を選ぶと、その説明・つなぎ方・よくある落とし穴が表示されます。	부품을 선택하면 무엇인지, 어떻게 연결하는지, 흔한 실수를 알려 줍니다.	Wähle ein Bauteil: hier steht, was es ist, wie man es anschließt und typische Fallen.	Sélectionnez un composant : ce qu'il est, comment le câbler, les pièges courants.	Seleccione un componente para ver qué es, cómo conectarlo y errores comunes.	Выберите компонент — здесь будет, что это, как подключить и типичные ошибки.	Selecione um componente para ver o que é, como ligar e erros comuns.
+连接失败	Connection failed	連線失敗	接続失敗	연결 실패	Verbindung fehlgeschlagen	Échec de connexion	Error de conexión	Ошибка подключения	Falha na conexão
+☁ {} {} 已连接	☁ {} {} connected	☁ {} {} 已連線	☁ {} {} 接続済み	☁ {} {} 연결됨	☁ {} {} verbunden	☁ {} {} connecté	☁ {} {} conectado	☁ {} {} подключено	☁ {} {} conectado
+☁ {} {} 对方断开了	☁ {} {} closed by peer	☁ {} {} 對方斷開了	☁ {} {} 相手が切断	☁ {} {} 상대가 연결 종료	☁ {} {} von Gegenstelle getrennt	☁ {} {} fermé par le pair	☁ {} {} cerrado por el otro extremo	☁ {} {} закрыто другой стороной	☁ {} {} fechado pelo outro lado
+☁ MQTT {} 已连接	☁ MQTT {} connected	☁ MQTT {} 已連線	☁ MQTT {} 接続済み	☁ MQTT {} 연결됨	☁ MQTT {} verbunden	☁ MQTT {} connecté	☁ MQTT {} conectado	☁ MQTT {} подключено	☁ MQTT {} conectado
+导线颜色	Wire color	導線顏色	配線の色	전선 색	Drahtfarbe	Couleur du fil	Color del cable	Цвет провода	Cor do fio
+添加文字说明	Add note	新增文字說明	注記を追加	메모 추가	Notiz hinzufügen	Ajouter une note	Añadir nota	Добавить заметку	Adicionar nota
+看全部	Fit all	看全部	全体表示	전체 보기	Alles zeigen	Tout afficher	Ver todo	Показать всё	Ver tudo
+从左边元件库拖元件进来，或者点一下元件再点画布	Drag parts in from the left, or click a part and then click the canvas	從左邊元件庫拖元件進來，或者點一下元件再點畫布	左の部品をドラッグするか、部品をクリックしてからキャンバスをクリック	왼쪽에서 부품을 끌어오거나 부품을 누른 뒤 캔버스를 누르세요	Bauteile von links hereinziehen oder Bauteil anklicken und dann auf die Fläche klicken	Glissez des composants depuis la gauche, ou cliquez un composant puis le canevas	Arrastre componentes desde la izquierda, o haga clic en uno y luego en el lienzo	Перетащите компоненты слева или щёлкните компонент, затем холст	Arraste componentes da esquerda, ou clique num componente e depois na tela
+点击加拐点，点到引脚结束 · Esc 取消 · 数字键换颜色	Click to add a bend, click a pin to finish · Esc cancels · number keys change color	點選加拐點，點到引腳結束 · Esc 取消 · 數字鍵換顏色	クリックで折れ点追加、ピンで終了 · Esc で取消 · 数字キーで色変更	클릭해 꺾는 점 추가, 핀에서 끝 · Esc 취소 · 숫자 키로 색 변경	Klicken für Knick, Pin klicken zum Beenden · Esc bricht ab · Zifferntasten ändern Farbe	Cliquez pour un coude, une broche pour finir · Échap annule · chiffres = couleur	Clic para un codo, clic en un pin para terminar · Esc cancela · números cambian el color	Щелчок — излом, вывод — конец · Esc — отмена · цифры меняют цвет	Clique para dobrar, clique num pino para terminar · Esc cancela · números mudam a cor
+点击放下 · R 旋转 · 按住 Shift 连续放 · Esc 取消	Click to place · R rotates · hold Shift to place several · Esc cancels	點選放下 · R 旋轉 · 按住 Shift 連續放 · Esc 取消	クリックで配置 · R で回転 · Shift で連続配置 · Esc で取消	클릭해 배치 · R 회전 · Shift로 연속 배치 · Esc 취소	Klicken zum Platzieren · R dreht · Shift für mehrere · Esc bricht ab	Cliquez pour placer · R pivote · Maj pour plusieurs · Échap annule	Clic para colocar · R gira · Mayús para varios · Esc cancela	Щелчок — поставить · R — повернуть · Shift — несколько · Esc — отмена	Clique para colocar · R gira · Shift para vários · Esc cancela
+点按钮、拨开关；在电位器、光敏电阻上滚轮调节	Click buttons and switches; scroll on pots and LDRs to adjust	點按鈕、撥開關；在電位器、光敏電阻上滾輪調節	ボタンやスイッチをクリック、可変抵抗・光センサはホイールで調整	버튼과 스위치를 누르고, 가변저항·조도센서는 휠로 조절	Tasten und Schalter klicken; an Potis und LDRs scrollen	Cliquez boutons et interrupteurs ; molette sur potentiomètres et LDR	Pulse botones e interruptores; rueda sobre potenciómetros y LDR	Нажимайте кнопки и переключатели; колесом крутите потенциометры и фоторезисторы	Clique botões e chaves; role sobre potenciômetros e LDRs
+从引脚拖出导线 · 滚轮缩放 · 中键或空格拖动画布	Drag from a pin to wire · scroll to zoom · middle button or Space to pan	從引腳拖出導線 · 滾輪縮放 · 中鍵或空格拖動畫布	ピンから配線 · ホイールでズーム · 中ボタンかスペースで移動	핀에서 끌어 배선 · 휠로 확대 · 가운데 버튼이나 Space로 이동	Vom Pin ziehen = Draht · Scrollen = Zoom · Mittelklick oder Leertaste = Verschieben	Tirer d'une broche = fil · molette = zoom · clic milieu ou Espace = déplacer	Arrastre desde un pin para cablear · rueda para zoom · botón central o Espacio para mover	Тяните от вывода — провод · колесо — масштаб · средняя кнопка или пробел — сдвиг	Arraste de um pino para ligar · role para zoom · botão do meio ou Espaço para mover
+很久（5 年以上）	A long time (5+ years)	很久（5 年以上）	長期間（5 年以上）	아주 오래(5년 이상)	Sehr lange (5+ Jahre)	Très longtemps (5 ans et plus)	Mucho tiempo (más de 5 años)	Очень долго (5+ лет)	Muito tempo (5+ anos)
+电量	Charge	電量	残量	잔량	Ladung	Charge	Carga	Заряд	Carga
+按现在的平均电流还能用	At the current average draw, it lasts	按現在的平均電流還能用	今の平均電流で使える時間	현재 평균 전류로 사용 가능 시간	Bei aktuellem Durchschnittsstrom reicht es	Au courant moyen actuel, autonomie	Con la corriente media actual dura	При текущем среднем токе хватит на	Com a corrente média atual, dura
+耗电排行	Power ranking	耗電排行	消費電力ランキング	소비 전력 순위	Verbrauchsrangliste	Classement de consommation	Ranking de consumo	Рейтинг потребления	Ranking de consumo
+没有找到串口	No serial ports found	沒有找到串列埠	シリアルポートが見つかりません	시리얼 포트 없음	Keine seriellen Ports gefunden	Aucun port série trouvé	No se encontraron puertos serie	Последовательные порты не найдены	Nenhuma porta serial encontrada
+等待数据…	Waiting for data…	等待資料…	データ待ち…	데이터 대기 중…	Warte auf Daten…	En attente de données…	Esperando datos…	Ожидание данных…	Aguardando dados…
+峰值	Peak	峰值	ピーク	최대	Spitze	Pic	Pico	Пик	Pico
+累计用掉	Used so far	累計用掉	累計消費	누적 사용량	Bisher verbraucht	Consommé au total	Consumido hasta ahora	Израсходовано	Consumido até agora
+电池容量	Battery capacity	電池容量	電池容量	배터리 용량	Akkukapazität	Capacité de la batterie	Capacidad de la batería	Ёмкость батареи	Capacidade da bateria
+触发	Trigger	觸發	トリガ	트리거	Trigger	Déclenchement	Disparo	Синхронизация	Gatilho
+用第一个通道的上升沿触发，波形停在屏幕上不滚动	Trigger on the first channel's rising edge so the waveform stands still	用第一個通道的上升沿觸發，波形停在螢幕上不滾動	1 チャンネル目の立ち上がりでトリガし、波形を止めて表示	첫 채널 상승 에지로 트리거해 파형을 고정	Auf steigende Flanke von Kanal 1 triggern, damit die Kurve steht	Déclencher sur le front montant de la voie 1 pour figer la courbe	Disparar con el flanco de subida del canal 1 para fijar la onda	Синхронизация по фронту первого канала — график не бежит	Disparar na borda de subida do canal 1 para fixar a onda
+停住	Freeze	停住	停止	정지	Einfrieren	Figer	Congelar	Стоп-кадр	Congelar
+冻结画面仔细看	Freeze the display to look closely	凍結畫面仔細看	画面を止めてじっくり見る	화면을 멈추고 자세히 보기	Anzeige anhalten und genau ansehen	Figer l'affichage pour bien regarder	Congelar la pantalla para mirar con calma	Остановить картинку и рассмотреть	Congelar a tela para ver com calma
+导出 VCD…	Export VCD…	匯出 VCD…	VCD を書き出し…	VCD 내보내기…	VCD exportieren…	Exporter en VCD…	Exportar VCD…	Экспорт VCD…	Exportar VCD…
+导出 VCD	Export VCD	匯出 VCD	VCD を書き出し	VCD 내보내기	VCD exportieren	Exporter en VCD	Exportar VCD	Экспорт VCD	Exportar VCD
+输出高电平	Output high	輸出高電平	High 出力	High 출력	Ausgang High	Sortie haute	Salida alta	Выход: высокий	Saída alta
+输出低电平	Output low	輸出低電平	Low 出力	Low 출력	Ausgang Low	Sortie basse	Salida baja	Выход: низкий	Saída baixa
+闪烁	Blink	閃爍	点滅	깜빡임	Blinken	Clignoter	Parpadeo	Мигание	Piscar
+呼吸灯	Breathing LED	呼吸燈	ブリージング	숨쉬기 LED	Atmende LED	LED respirante	LED respirando	Плавное мигание	LED respirando
+流水灯	Running lights	流水燈	流れるLED	흐르는 LED	Lauflicht	Chenillard	Luces secuenciales	Бегущие огни	Luzes sequenciais
+方波（蜂鸣器）	Square wave (buzzer)	方波（蜂鳴器）	矩形波（ブザー）	사각파(부저)	Rechteck (Summer)	Signal carré (buzzer)	Onda cuadrada (zumbador)	Меандр (зуммер)	Onda quadrada (buzzer)
+舵机	Servo	舵機	サーボ	서보	Servo	Servo	Servo	Сервопривод	Servo
+上拉输入（接按键）	Input pull-up (button)	上拉輸入（接按鍵）	プルアップ入力（ボタン）	풀업 입력(버튼)	Eingang mit Pull-up (Taster)	Entrée pull-up (bouton)	Entrada pull-up (botón)	Вход с подтяжкой (кнопка)	Entrada pull-up (botão)
+下拉输入	Input pull-down	下拉輸入	プルダウン入力	풀다운 입력	Eingang mit Pull-down	Entrée pull-down	Entrada pull-down	Вход с подтяжкой к земле	Entrada pull-down
+浮空输入	Floating input	浮空輸入	フローティング入力	플로팅 입력	Offener Eingang	Entrée flottante	Entrada flotante	Плавающий вход	Entrada flutuante
+模拟输入（ADC）	Analog input (ADC)	模擬輸入（ADC）	アナログ入力（ADC）	아날로그 입력(ADC)	Analogeingang (ADC)	Entrée analogique (ADC)	Entrada analógica (ADC)	Аналоговый вход (АЦП)	Entrada analógica (ADC)
+串口 TX	UART TX	串列埠 TX	UART TX	UART TX	UART TX	UART TX	UART TX	UART TX	UART TX
+串口 RX	UART RX	串列埠 RX	UART RX	UART RX	UART RX	UART RX	UART RX	UART RX	UART RX
+上电时	At power-on	上電時	電源投入時	전원 켤 때	Beim Einschalten	À la mise sous tension	Al encender	При включении	Ao ligar
+每隔一段时间	Every interval	每隔一段時間	一定時間ごと	일정 간격마다	In Abständen	À intervalle régulier	Cada cierto tiempo	Периодически	A cada intervalo
+引脚变低（按下按键）	Pin goes low (button pressed)	引腳變低（按下按鍵）	ピンが Low に（ボタン押下）	핀이 Low로(버튼 누름)	Pin wird Low (Taster gedrückt)	La broche passe à 0 (bouton appuyé)	El pin pasa a bajo (botón pulsado)	Вывод стал низким (кнопка нажата)	Pino vai a baixo (botão pressionado)
+引脚变高	Pin goes high	引腳變高	ピンが High に	핀이 High로	Pin wird High	La broche passe à 1	El pin pasa a alto	Вывод стал высоким	Pino vai a alto
+引脚一直是低	Pin stays low	引腳一直是低	ピンが Low のまま	핀이 계속 Low	Pin bleibt Low	La broche reste à 0	El pin sigue bajo	Вывод остаётся низким	Pino continua baixo
+引脚一直是高	Pin stays high	引腳一直是高	ピンが High のまま	핀이 계속 High	Pin bleibt High	La broche reste à 1	El pin sigue alto	Вывод остаётся высоким	Pino continua alto
+电压高于	Voltage above	電壓高於	電圧が次より高い	전압이 다음보다 높음	Spannung über	Tension au-dessus de	Tensión mayor que	Напряжение выше	Tensão acima de
+电压低于	Voltage below	電壓低於	電圧が次より低い	전압이 다음보다 낮음	Spannung unter	Tension en dessous de	Tensión menor que	Напряжение ниже	Tensão abaixo de
+串口收到	UART receives	串列埠收到	UART 受信	UART 수신	UART empfängt	L'UART reçoit	El UART recibe	UART получил	UART recebe
+温度高于	Temperature above	溫度高於	温度が次より高い	온도가 다음보다 높음	Temperatur über	Température au-dessus de	Temperatura mayor que	Температура выше	Temperatura acima de
+温度低于	Temperature below	溫度低於	温度が次より低い	온도가 다음보다 낮음	Temperatur unter	Température en dessous de	Temperatura menor que	Температура ниже	Temperatura abaixo de
+距离小于	Distance under	距離小於	距離が次より短い	거리가 다음보다 짧음	Abstand unter	Distance inférieure à	Distancia menor que	Расстояние меньше	Distância menor que
+设置引脚	Set pin	設定引腳	ピンを設定	핀 설정	Pin setzen	Régler la broche	Fijar pin	Установить вывод	Definir pino
+翻转引脚	Toggle pin	翻轉引腳	ピンを反転	핀 반전	Pin umschalten	Inverser la broche	Invertir pin	Переключить вывод	Inverter pino
+设置 PWM	Set PWM	設定 PWM	PWM を設定	PWM 설정	PWM setzen	Régler la PWM	Fijar PWM	Задать ШИМ	Definir PWM
+PWM 跟着电位器	PWM follows pot	PWM 跟著電位器	PWM を可変抵抗に追従	PWM이 가변저항을 따름	PWM folgt Poti	PWM suit le potentiomètre	PWM sigue al potenciómetro	ШИМ по потенциометру	PWM segue o potenciômetro
+舵机转到	Move servo to	舵機轉到	サーボを次の角度へ	서보를 다음 각도로	Servo fahren auf	Servo à	Mover servo a	Повернуть серво на	Mover servo para
+舵机跟着电位器	Servo follows pot	舵機跟著電位器	サーボを可変抵抗に追従	서보가 가변저항을 따름	Servo folgt Poti	Servo suit le potentiomètre	Servo sigue al potenciómetro	Серво по потенциометру	Servo segue o potenciômetro
+串口打印	Print to UART	串列埠列印	UART に出力	UART 출력	Über UART ausgeben	Afficher sur l'UART	Imprimir por UART	Вывести в UART	Imprimir na UART
+蜂鸣器响	Beep	蜂鳴器響	ブザーを鳴らす	부저 울리기	Piepen	Bip	Pitido	Пискнуть	Bipe
+计数 +1	Count +1	計數 +1	カウント +1	카운트 +1	Zähler +1	Compteur +1	Contador +1	Счётчик +1	Contador +1
+屏幕显示	Show on screen	螢幕顯示	画面に表示	화면 표시	Auf Display zeigen	Afficher à l'écran	Mostrar en pantalla	Показать на экране	Mostrar na tela
+读温湿度（DHT11）	Read temp/humidity (DHT11)	讀溫溼度（DHT11）	温湿度を読む（DHT11）	온습도 읽기(DHT11)	Temp./Feuchte lesen (DHT11)	Lire temp./humidité (DHT11)	Leer temp./humedad (DHT11)	Прочитать темп./влажн. (DHT11)	Ler temp./umidade (DHT11)
+读温湿度（SHT30）	Read temp/humidity (SHT30)	讀溫溼度（SHT30）	温湿度を読む（SHT30）	온습도 읽기(SHT30)	Temp./Feuchte lesen (SHT30)	Lire temp./humidité (SHT30)	Leer temp./humedad (SHT30)	Прочитать темп./влажн. (SHT30)	Ler temp./umidade (SHT30)
+测距（HC-SR04）	Measure distance (HC-SR04)	測距（HC-SR04）	距離を測る（HC-SR04）	거리 측정(HC-SR04)	Abstand messen (HC-SR04)	Mesurer la distance (HC-SR04)	Medir distancia (HC-SR04)	Измерить расстояние (HC-SR04)	Medir distância (HC-SR04)
+74HC595 输出	74HC595 output	74HC595 輸出	74HC595 出力	74HC595 출력	74HC595-Ausgabe	Sortie 74HC595	Salida 74HC595	Вывод 74HC595	Saída 74HC595
+数码管显示	7-segment display	數碼管顯示	7セグ表示	7세그먼트 표시	7-Segment-Anzeige	Afficheur 7 segments	Display de 7 segmentos	Семисегментный индикатор	Display de 7 segmentos
+TM1637 显示	TM1637 display	TM1637 顯示	TM1637 表示	TM1637 표시	TM1637-Anzeige	Affichage TM1637	Mostrar en TM1637	Индикатор TM1637	Display TM1637
+拍照	Take photo	拍照	撮影	사진 찍기	Foto aufnehmen	Prendre une photo	Tomar foto	Сделать снимок	Tirar foto
+显示照片	Show photo	顯示照片	写真を表示	사진 표시	Foto anzeigen	Afficher la photo	Mostrar foto	Показать снимок	Mostrar foto
+发 MQTT	Publish MQTT	發 MQTT	MQTT 送信	MQTT 발행	MQTT senden	Publier en MQTT	Publicar MQTT	Отправить MQTT	Publicar MQTT
+HTTP 上报	HTTP report	HTTP 上報	HTTP で送信	HTTP 보고	HTTP-Meldung	Envoi HTTP	Envío HTTP	Отправка HTTP	Envio HTTP
+TCP 发送	TCP send	TCP 傳送	TCP 送信	TCP 전송	TCP senden	Envoi TCP	Envío TCP	Отправка TCP	Envio TCP
+等待	Wait	等待	待機	대기	Warten	Attendre	Esperar	Ждать	Esperar
+组	group	組	グループ	그룹	Gruppe	groupe	grupo	группа	grupo
+高	High	高	High	High	High	Haut	Alto	Высокий	Alto
+低	Low	低	Low	Low	Low	Bas	Bajo	Низкий	Baixo
+生成代码	Generate code	生成程式碼	コード生成	코드 생성	Code erzeugen	Générer le code	Generar código	Сгенерировать код	Gerar código
+添加引脚	Add pin	新增引腳	ピンを追加	핀 추가	Pin hinzufügen	Ajouter une broche	Añadir pin	Добавить вывод	Adicionar pino
+规则	Rules	規則	ルール	규칙	Regeln	Règles	Reglas	Правила	Regras
+如果…就…	If… then…	如果…就…	もし…なら…	만약…이면…	Wenn… dann…	Si… alors…	Si… entonces…	Если… то…	Se… então…
+当	When	當	条件	조건	Wenn	Quand	Cuando	Когда	Quando
+删除这条规则	Delete this rule	刪除這條規則	このルールを削除	이 규칙 삭제	Regel löschen	Supprimer cette règle	Eliminar esta regla	Удалить правило	Excluir esta regra
+就	Then	就	動作	동작	Dann	Alors	Entonces	То	Então
+再	And	再	さらに	그리고	Und	Et	Y	И	E
+动作	Action	動作	動作	동작	Aktion	Action	Acción	Действие	Ação
+添加规则	Add rule	新增規則	ルールを追加	규칙 추가	Regel hinzufügen	Ajouter une règle	Añadir regla	Добавить правило	Adicionar regra
+串口波特率	UART baud rate	串列埠波特率	UART ボーレート	UART 보율	UART-Baudrate	Débit UART	Baudios UART	Скорость UART	Baud rate da UART
+文字里可以用 {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	Text can use {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	文字裡可以用 {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	文字には {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0} を使えます	텍스트에 {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0} 사용 가능	Im Text nutzbar: {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	Le texte peut utiliser {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	El texto admite {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	В тексте можно использовать {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}	O texto aceita {count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}
+接线记录	Wiring log	接線記錄	配線記録	배선 기록	Verdrahtungsprotokoll	Journal de câblage	Registro de cableado	Журнал соединений	Registro de ligações
+从	From	從	接続元	출발	Von	De	Desde	Откуда	De
+接到	To	接到	接続先	연결 대상	Nach	Vers	Hacia	Куда	Para
+线色	Wire color	線色	線の色	선 색	Drahtfarbe	Couleur	Color	Цвет	Cor
+备注	Note	備註	メモ	메모	Notiz	Note	Nota	Примечание	Nota
+已接	Done	已接	接続済み	연결함	Erledigt	Fait	Hecho	Готово	Feito
+照片	Photos	照片	写真	사진	Fotos	Photos	Fotos	Фото	Fotos
+硬件改动记录	Hardware changes	硬體改動記錄	ハードウェア変更記録	하드웨어 변경 기록	Hardware-Änderungen	Modifications matérielles	Cambios de hardware	Изменения железа	Alterações de hardware
+接线	Wiring	接線	配線	배선	Verdrahtung	Câblage	Cableado	Соединения	Ligações
+照片打不开	Can't open photo	照片打不開	写真を開けません	사진을 열 수 없음	Foto lässt sich nicht öffnen	Impossible d'ouvrir la photo	No se puede abrir la foto	Не удалось открыть фото	Não foi possível abrir a foto
+新建记录	New log	新建記錄	新しい記録	새 기록	Neues Protokoll	Nouveau journal	Nuevo registro	Новый журнал	Novo registro
+记录名，如 主板 V2	Log name, e.g. Main board V2	記錄名，如 主機板 V2	記録名（例：メイン基板 V2）	기록 이름(예: 메인보드 V2)	Name, z. B. Hauptplatine V2	Nom, ex. Carte mère V2	Nombre, p. ej. Placa principal V2	Название, напр. Основная плата V2	Nome, ex.: Placa principal V2
+导出 Markdown	Export Markdown	匯出 Markdown	Markdown 書き出し	Markdown 내보내기	Markdown exportieren	Exporter en Markdown	Exportar Markdown	Экспорт в Markdown	Exportar Markdown
+存成 .md 并复制到剪贴板，可以贴进 README 或提交说明	Saves a .md file and copies it to the clipboard, ready to paste into a README or commit message	存成 .md 並複製到剪貼簿，可以貼進 README 或提交說明	.md として保存しクリップボードにコピー。README やコミットメッセージに貼れます	.md로 저장하고 클립보드에 복사합니다. README나 커밋 메시지에 붙여 넣을 수 있습니다	Als .md speichern und in die Zwischenablage kopieren – für README oder Commit-Nachricht	Enregistre un .md et le copie, prêt pour un README ou un message de commit	Guarda un .md y lo copia al portapapeles para pegarlo en un README o un commit	Сохраняет .md и копирует в буфер — для README или коммита	Salva um .md e copia para a área de transferência, pronto para README ou commit
+已导出并复制：	Exported and copied:	已匯出並複製：	書き出してコピーしました：	내보내고 복사함:	Exportiert und kopiert:	Exporté et copié :	Exportado y copiado:	Экспортировано и скопировано:	Exportado e copiado:
+设备模板	Device templates	裝置模板	機器テンプレート	장치 템플릿	Gerätevorlagen	Modèles d'appareils	Plantillas de dispositivos	Шаблоны устройств	Modelos de dispositivos
+从电路生成	From circuit	從電路生成	回路から生成	회로에서 생성	Aus Schaltung erzeugen	Depuis le circuit	Desde el circuito	Из схемы	Do circuito
+把画布上的连接列成接线表，已有的行不重复加	Lists the canvas connections as a wiring table, skipping rows that already exist	把畫布上的連線列成接線表，已有的行不重複加	キャンバスの接続を配線表にします（既存の行は追加しません）	캔버스 연결을 배선표로 만듭니다(기존 행은 건너뜀)	Listet die Verbindungen der Fläche als Tabelle, vorhandene Zeilen werden übersprungen	Liste les connexions du canevas en tableau, sans doublons	Convierte las conexiones del lienzo en tabla, sin repetir filas	Переносит соединения холста в таблицу без повторов	Lista as ligações da tela como tabela, sem repetir linhas
+接线表新增行数	Rows added:	接線表新增行數	追加した行数：	추가된 행:	Hinzugefügte Zeilen:	Lignes ajoutées :	Filas añadidas:	Добавлено строк:	Linhas adicionadas:
+保存在	Saved in	儲存在	保存先	저장 위치	Gespeichert in	Enregistré dans	Guardado en	Сохранено в	Salvo em
+还没有接线记录	No wiring yet	還沒有接線記錄	配線記録はまだありません	배선 기록이 아직 없습니다	Noch keine Verdrahtung	Pas encore de câblage	Aún no hay cableado	Пока нет записей	Ainda não há ligações
+点「从电路生成」把画布上的连接列出来，或者用「设备模板」加常用设备（USB-TTL、ST-Link……），也可以一行一行手动加	Click "From circuit" to list the canvas connections, use "Device templates" for common tools (USB-TTL, ST-Link…), or add rows by hand	點「從電路生成」把畫布上的連線列出來，或者用「裝置模板」加常用裝置（USB-TTL、ST-Link……），也可以一行一行手動加	「回路から生成」でキャンバスの接続を一覧にするか、「機器テンプレート」でよく使う機器（USB-TTL、ST-Link…）を追加、または手入力で追加	"회로에서 생성"으로 캔버스 연결을 나열하거나, "장치 템플릿"으로 자주 쓰는 장치(USB-TTL, ST-Link…)를 추가하거나, 직접 행을 추가하세요	„Aus Schaltung erzeugen" listet die Verbindungen, „Gerätevorlagen" fügt gängige Tools hinzu (USB-TTL, ST-Link…), oder Zeilen von Hand anlegen	« Depuis le circuit » liste les connexions, « Modèles d'appareils » ajoute les outils courants (USB-TTL, ST-Link…), ou ajoutez des lignes à la main	«Desde el circuito» lista las conexiones, «Plantillas» añade herramientas comunes (USB-TTL, ST-Link…), o añada filas a mano	«Из схемы» перенесёт соединения, «Шаблоны устройств» добавят типовые (USB-TTL, ST-Link…), или добавьте строки вручную	"Do circuito" lista as ligações, "Modelos" adiciona ferramentas comuns (USB-TTL, ST-Link…), ou adicione linhas à mão
+照片上已标记	Marked on photo	照片上已標記	写真にマーク済み	사진에 표시됨	Auf Foto markiert	Marqué sur la photo	Marcado en la foto	Отмечено на фото	Marcado na foto
+点一下，再点照片就能标记这一行	Click here, then click the photo to mark this row	點一下，再點照片就能標記這一行	ここをクリックしてから写真をクリックすると、この行をマークできます	여기를 누른 뒤 사진을 누르면 이 행을 표시합니다	Hier klicken, dann aufs Foto, um diese Zeile zu markieren	Cliquez ici puis sur la photo pour marquer cette ligne	Haga clic aquí y luego en la foto para marcar esta fila	Щёлкните здесь, затем по фото, чтобы отметить строку	Clique aqui e depois na foto para marcar esta linha
+接好了打勾	Tick when connected	接好了打勾	接続したらチェック	연결하면 체크	Abhaken, wenn verbunden	Cocher une fois branché	Marcar cuando esté conectado	Отметьте, когда подключено	Marque quando ligado
+从：设备.引脚	From: device.pin	從：裝置.引腳	接続元：機器.ピン	출발: 장치.핀	Von: Gerät.Pin	De : appareil.broche	Desde: dispositivo.pin	Откуда: устройство.вывод	De: dispositivo.pino
+删除这行	Delete row	刪除這行	この行を削除	이 행 삭제	Zeile löschen	Supprimer la ligne	Eliminar fila	Удалить строку	Excluir linha
+加一行	Add row	加一行	行を追加	행 추가	Zeile hinzufügen	Ajouter une ligne	Añadir fila	Добавить строку	Adicionar linha
+实物照片	Photos of the board	實物照片	実物の写真	실물 사진	Fotos vom Aufbau	Photos du montage	Fotos del montaje	Фото платы	Fotos da montagem
+删掉这张照片	Delete this photo	刪掉這張照片	この写真を削除	이 사진 삭제	Foto löschen	Supprimer cette photo	Eliminar esta foto	Удалить фото	Excluir esta foto
+添加照片（也可以直接拖进来）	Add photos (or drag them in)	新增照片（也可以直接拖進來）	写真を追加（ドラッグでも可）	사진 추가(끌어다 놓아도 됨)	Fotos hinzufügen (oder hineinziehen)	Ajouter des photos (ou glisser-déposer)	Añadir fotos (o arrastrarlas)	Добавить фото (или перетащить)	Adicionar fotos (ou arrastar)
+把实物照片拖进来，在上面给每根线标上编号	Drag in a photo of the board and number each wire on it	把實物照片拖進來，在上面給每根線標上編號	実物の写真をドラッグし、各配線に番号を付けます	실물 사진을 끌어다 놓고 전선마다 번호를 붙이세요	Foto hereinziehen und jeden Draht darauf nummerieren	Glissez une photo du montage et numérotez chaque fil	Arrastre una foto del montaje y numere cada cable	Перетащите фото и пронумеруйте на нём провода	Arraste uma foto da montagem e numere cada fio
+点照片标记第	Click photo to mark row	點照片標記第	写真をクリックしてマークする行：	사진을 눌러 표시할 행:	Foto klicken, um Zeile	Cliquez la photo pour marquer la ligne	Haga clic en la foto para marcar la fila	Щёлкните фото, чтобы отметить строку	Clique na foto para marcar a linha
+行；右键删除标记	; right-click a mark to remove it	行；右鍵刪除標記	（右クリックでマーク削除）	(오른쪽 클릭으로 표시 삭제)	zu markieren; Rechtsklick entfernt Markierung	; clic droit pour retirer une marque	; clic derecho para quitar una marca	; правый щелчок удаляет метку	; clique direito remove a marca
+飞线、换电阻、割线……记下来，过几个月还知道板子改过什么	Bodge wires, swapped resistors, cut traces… note them so you still know months later	飛線、換電阻、割線……記下來，過幾個月還知道板子改過什麼	ジャンパ線、抵抗交換、パターンカット…記録しておけば数か月後もわかります	점퍼선, 저항 교체, 패턴 컷… 기록해 두면 몇 달 뒤에도 압니다	Fädeldrähte, getauschte Widerstände, aufgetrennte Leiterbahnen… notieren, damit man es Monate später noch weiß	Fils volants, résistances changées, pistes coupées… notez-les pour vous en souvenir des mois plus tard	Puentes, resistencias cambiadas, pistas cortadas… anótalo para recordarlo meses después	Перемычки, замена резисторов, разрезанные дорожки… запишите, чтобы помнить через месяцы	Jumpers, resistores trocados, trilhas cortadas… anote para lembrar meses depois
+如：R12 换成 4.7k，PA3 飞线到 J2.5	e.g. R12 changed to 4.7k, bodge wire PA3 → J2.5	如：R12 換成 4.7k，PA3 飛線到 J2.5	例：R12 を 4.7k に交換、PA3 から J2.5 へジャンパ	예: R12를 4.7k로 교체, PA3에서 J2.5로 점퍼	z. B. R12 auf 4,7k getauscht, Fädeldraht PA3 → J2.5	ex. R12 passée à 4,7k, fil volant PA3 → J2.5	p. ej. R12 cambiada a 4,7k, puente PA3 → J2.5	напр. R12 заменён на 4,7k, перемычка PA3 → J2.5	ex.: R12 trocado por 4,7k, jumper PA3 → J2.5
+记下	Add	記下	記録	기록	Notieren	Noter	Anotar	Записать	Anotar
+仿真串口不存在：先在「电路仿真」里放 USB 转 TTL 或 USB 供电的开发板	Simulated port not found: first place a USB-TTL adapter or a USB-powered board in "Circuit simulation"	模擬串列埠不存在：先在「電路模擬」裡放 USB 轉 TTL 或 USB 供電的開發板	シミュレーションのポートがありません：先に「回路シミュレーション」で USB-TTL か USB 給電のボードを置いてください	시뮬레이션 포트가 없습니다. 먼저 "회로 시뮬레이션"에 USB-TTL이나 USB 전원 보드를 놓으세요	Simulierter Port fehlt: zuerst in „Schaltungssimulation" einen USB-TTL-Adapter oder ein USB-versorgtes Board platzieren	Port simulé introuvable : placez d'abord un adaptateur USB-TTL ou une carte alimentée en USB dans « Simulation de circuit »	No existe el puerto simulado: primero coloque un USB-TTL o una placa alimentada por USB en «Simulación de circuitos»	Нет порта симуляции: сначала поставьте USB-TTL или плату с питанием по USB в «Симуляции схем»	Porta simulada não encontrada: coloque antes um USB-TTL ou uma placa alimentada por USB em "Simulação de circuitos"
+仿真串口已移除	Simulated port removed	模擬串列埠已移除	シミュレーションのポートが削除されました	시뮬레이션 포트가 제거됨	Simulierter Port entfernt	Port simulé supprimé	Puerto simulado eliminado	Порт симуляции удалён	Porta simulada removida
+管理员确认被取消了	The administrator prompt was cancelled	管理員確認被取消了	管理者の確認がキャンセルされました	관리자 확인이 취소되었습니다	Die Administrator-Abfrage wurde abgebrochen	La demande administrateur a été annulée	Se canceló la confirmación de administrador	Запрос администратора отменён	A confirmação de administrador foi cancelada
+装好了但没找到虚拟串口	Installed, but no virtual port was found	裝好了但沒找到虛擬串列埠	インストールしましたが仮想ポートが見つかりません	설치했지만 가상 포트를 찾지 못했습니다	Installiert, aber kein virtueller Port gefunden	Installé, mais aucun port virtuel trouvé	Instalado, pero no se encontró el puerto virtual	Установлено, но виртуальный порт не найден	Instalado, mas nenhuma porta virtual encontrada
+虚拟串口	Virtual port	虛擬串列埠	仮想ポート	가상 포트	Virtueller Port	Port virtuel	Puerto virtual	Виртуальный порт	Porta virtual
+其他软件正通过虚拟串口同时使用设备：点击关闭	Other apps are using the device through the virtual port: click to close	其他軟體正透過虛擬串列埠同時使用裝置：點選關閉	他のアプリが仮想ポート経由で同時に使用中：クリックで閉じる	다른 앱이 가상 포트로 장치를 함께 사용 중: 클릭하면 닫기	Andere Apps nutzen das Gerät über den virtuellen Port: klicken zum Schließen	D'autres applis utilisent l'appareil via le port virtuel : cliquer pour fermer	Otras apps usan el dispositivo por el puerto virtual: clic para cerrar	Другие программы используют устройство через виртуальный порт: нажмите, чтобы закрыть	Outros apps usam o dispositivo pela porta virtual: clique para fechar
+虚拟串口已关闭	Virtual port closed	虛擬串列埠已關閉	仮想ポートを閉じました	가상 포트를 닫았습니다	Virtueller Port geschlossen	Port virtuel fermé	Puerto virtual cerrado	Виртуальный порт закрыт	Porta virtual fechada
+虚拟串口驱动装好了	Virtual port driver installed	虛擬串列埠驅動裝好了	仮想ポートドライバをインストールしました	가상 포트 드라이버를 설치했습니다	Treiber für virtuelle Ports installiert	Pilote de port virtuel installé	Controlador de puerto virtual instalado	Драйвер виртуального порта установлен	Driver de porta virtual instalado
+再给其他软件（烧录工具、别的串口助手）一个虚拟串口：大家同时收发同一个设备，不占用 COM 口，不用来回断开	Gives other apps (flashers, other serial monitors) a virtual port: everyone talks to the same device at once, the COM port isn't locked, no more disconnecting back and forth	再給其他軟體（燒錄工具、別的串列埠助手）一個虛擬串列埠：大家同時收發同一個裝置，不佔用 COM 口，不用來回斷開	他のアプリ（書き込みツール、別のシリアルモニタ）に仮想ポートを渡します。全員が同時に同じ機器と送受信でき、COM ポートを占有せず、切断し直す必要もありません	다른 앱(플래시 도구, 다른 시리얼 모니터)에 가상 포트를 줍니다. 모두 같은 장치와 동시에 주고받으며 COM 포트를 점유하지 않고, 연결을 끊었다 다시 할 필요도 없습니다	Gibt anderen Apps (Flash-Tools, andere Terminals) einen virtuellen Port: alle sprechen gleichzeitig mit dem Gerät, der COM-Port bleibt frei, kein Hin-und-her-Trennen	Donne un port virtuel aux autres applis (outils de flash, autres moniteurs série) : tous dialoguent avec l'appareil en même temps, le port COM n'est pas bloqué, plus besoin de déconnecter	Da a otras apps (grabadores, otros monitores serie) un puerto virtual: todos hablan con el dispositivo a la vez, el COM no queda bloqueado y no hay que desconectar	Даёт другим программам (прошивальщикам, другим терминалам) виртуальный порт: все работают с устройством одновременно, COM-порт не занят, не нужно переподключаться	Dá a outros apps (gravadores, outros monitores seriais) uma porta virtual: todos usam o dispositivo ao mesmo tempo, a COM não fica presa e não é preciso desconectar
+其他软件打开	Other apps open	其他軟體開啟	他のアプリで開く	다른 앱에서 열기	Andere Apps öffnen	Les autres applis ouvrent	Las otras apps abren	Другие программы открывают	Outros apps abrem
+Windows 要先装一次虚拟串口驱动	Windows needs a one-time virtual port driver	Windows 要先裝一次虛擬串列埠驅動	Windows では仮想ポートドライバを一度だけインストールする必要があります	Windows에서는 가상 포트 드라이버를 한 번 설치해야 합니다	Windows braucht einmalig einen Treiber für virtuelle Ports	Windows nécessite une seule fois un pilote de port virtuel	Windows necesita instalar una vez un controlador de puerto virtual	Для Windows нужно один раз установить драйвер виртуального порта	O Windows precisa instalar uma vez um driver de porta virtual
+用的是免费开源的 com0com，已经内置，不用另外下载。装好后自动建一对串口，以后直接用	It uses the free, open-source com0com, already bundled, so there's nothing to download. A port pair is created automatically and ready from then on	用的是免費開源的 com0com，已經內建，不用另外下載。裝好後自動建一對串列埠，以後直接用	無料のオープンソース com0com を同梱しているのでダウンロード不要。ポートペアを自動作成し、以後はそのまま使えます	무료 오픈소스 com0com이 내장되어 있어 따로 받을 필요가 없습니다. 포트 쌍을 자동으로 만들어 이후 바로 쓸 수 있습니다	Nutzt das kostenlose Open-Source-com0com, bereits enthalten – kein Download nötig. Ein Portpaar wird automatisch angelegt und ist danach sofort nutzbar	Utilise com0com, libre et gratuit, déjà inclus : rien à télécharger. Une paire de ports est créée automatiquement et prête ensuite	Usa com0com, libre y gratuito, ya incluido: no hay que descargar nada. Se crea un par de puertos automáticamente, listo para usar	Используется бесплатный открытый com0com, уже встроенный — ничего скачивать не нужно. Пара портов создаётся автоматически	Usa o com0com, gratuito e de código aberto, já incluído: nada para baixar. Um par de portas é criado automaticamente e fica pronto
+正在安装…请在弹出的窗口里点「是」	Installing… click "Yes" in the prompt	正在安裝…請在彈出的視窗裡點「是」	インストール中…表示された画面で「はい」を押してください	설치 중… 뜨는 창에서 "예"를 누르세요	Installiere… in der Abfrage „Ja" klicken	Installation… cliquez « Oui » dans la fenêtre	Instalando… pulse «Sí» en la ventana	Установка… нажмите «Да» в окне	Instalando… clique em "Sim" na janela
+一键安装	Install	一鍵安裝	ワンクリックでインストール	원클릭 설치	Installieren	Installer	Instalar	Установить	Instalar
+会弹出一次 Windows 管理员确认	Windows will ask once for administrator approval	會彈出一次 Windows 管理員確認	Windows の管理者確認が一度表示されます	Windows 관리자 확인이 한 번 뜹니다	Windows fragt einmal nach Administratorrechten	Windows demandera une fois l'autorisation administrateur	Windows pedirá una vez permiso de administrador	Windows один раз запросит права администратора	O Windows pedirá uma vez permissão de administrador
+以后再说	Not now	以後再說	後で	나중에	Später	Plus tard	Ahora no	Не сейчас	Agora não
+手动下载 com0com	Download com0com manually	手動下載 com0com	com0com を手動でダウンロード	com0com 직접 다운로드	com0com manuell herunterladen	Télécharger com0com manuellement	Descargar com0com manualmente	Скачать com0com вручную	Baixar com0com manualmente
+虚拟串口已打开，其他软件请打开：{}（和 QCCOM 同时收发，不占用真实 COM 口）	Virtual port is open. In other apps, open: {} (works alongside QCCOM without locking the real COM port)	虛擬串列埠已開啟，其他軟體請開啟：{}（和 QCCOM 同時收發，不佔用真實 COM 口）	仮想ポートを開きました。他のアプリでは {} を開いてください（QCCOM と同時に送受信でき、実際の COM ポートを占有しません）	가상 포트를 열었습니다. 다른 앱에서 {}를 여세요(QCCOM과 동시에 주고받고 실제 COM 포트를 점유하지 않음)	Virtueller Port offen. In anderen Apps öffnen: {} (läuft parallel zu QCCOM, der echte COM-Port bleibt frei)	Port virtuel ouvert. Dans les autres applis, ouvrez : {} (en parallèle de QCCOM, sans bloquer le vrai port COM)	Puerto virtual abierto. En otras apps, abra: {} (funciona junto a QCCOM sin bloquear el COM real)	Виртуальный порт открыт. В других программах откройте: {} (работает параллельно с QCCOM, реальный COM не занят)	Porta virtual aberta. Nos outros apps, abra: {} (funciona junto com o QCCOM sem prender a COM real)
+虚拟串口打不开：{}	Can't open virtual port: {}	虛擬串列埠打不開：{}	仮想ポートを開けません：{}	가상 포트를 열 수 없음: {}	Virtueller Port lässt sich nicht öffnen: {}	Impossible d'ouvrir le port virtuel : {}	No se puede abrir el puerto virtual: {}	Не удалось открыть виртуальный порт: {}	Não foi possível abrir a porta virtual: {}
+在烧录工具或别的串口助手里打开 {}，和 QCCOM 同时用，不用断开	Open {} in your flasher or another serial monitor to use it alongside QCCOM, no disconnecting needed	在燒錄工具或別的串列埠助手裡開啟 {}，和 QCCOM 同時用，不用斷開	書き込みツールや別のシリアルモニタで {} を開けば、切断せずに QCCOM と同時に使えます	플래시 도구나 다른 시리얼 모니터에서 {}를 열면 연결을 끊지 않고 QCCOM과 함께 쓸 수 있습니다	{} im Flash-Tool oder einem anderen Terminal öffnen – läuft parallel zu QCCOM, ohne Trennen	Ouvrez {} dans votre outil de flash ou un autre moniteur série pour l'utiliser avec QCCOM, sans déconnecter	Abra {} en su grabador u otro monitor serie para usarlo junto a QCCOM sin desconectar	Откройте {} в прошивальщике или другом терминале — работает вместе с QCCOM без отключения	Abra {} no gravador ou em outro monitor serial para usar junto com o QCCOM, sem desconectar
+电路和接线	Circuits & wiring	電路和接線	回路と配線	회로와 배선	Schaltung & Verdrahtung	Circuits et câblage	Circuitos y cableado	Схемы и соединения	Circuitos e ligações
+电路仿真	Circuit simulation	電路模擬	回路シミュレーション	회로 시뮬레이션	Schaltungssimulation	Simulation de circuit	Simulación de circuitos	Симуляция схем	Simulação de circuitos
+在面包板上搭电路、通电看结果，接错会冒烟；单片机引脚不写代码也能动起来	Build circuits on a breadboard and power them up; wrong wiring smokes, and MCU pins work without writing code	在麵包板上搭電路、通電看結果，接錯會冒煙；微控制器引腳不寫程式碼也能動起來	ブレッドボードで回路を組んで通電、誤配線は煙が出る。マイコンのピンはコードなしで動かせます	브레드보드에 회로를 만들고 전원을 켜 보세요. 잘못 연결하면 연기가 나고, MCU 핀은 코드 없이도 움직입니다	Schaltungen auf dem Steckbrett bauen und einschalten; Fehler rauchen, MCU-Pins laufen ohne Code	Montez sur plaque d'essai et alimentez ; les erreurs fument, les broches du MCU marchent sans code	Monte circuitos en protoboard y enciéndalos; los errores echan humo y los pines del MCU funcionan sin código	Собирайте схемы на макетке и включайте; ошибки дымят, выводы МК работают без кода	Monte circuitos na protoboard e ligue; erros soltam fumaça e os pinos do MCU funcionam sem código
+已导出，在「VCD 波形」里打开	Exported, opening in "VCD waveform"	已匯出，在「VCD 波形」裡開啟	書き出しました。「VCD 波形」で開きます	내보냈습니다. "VCD 파형"에서 엽니다	Exportiert, wird in „VCD-Kurven" geöffnet	Exporté, ouverture dans « Courbes VCD »	Exportado, abriendo en «Ondas VCD»	Экспортировано, открываю в «VCD-графиках»	Exportado, abrindo em "Ondas VCD"
+不是电路文件	Not a circuit file	不是電路檔案	回路ファイルではありません	회로 파일이 아닙니다	Keine Schaltungsdatei	Ce n'est pas un fichier de circuit	No es un archivo de circuito	Это не файл схемы	Não é um arquivo de circuito
+打开电路	Open circuit	開啟電路	回路を開く	회로 열기	Schaltung öffnen	Ouvrir un circuit	Abrir circuito	Открыть схему	Abrir circuito
+QCCOM 电路	QCCOM circuit	QCCOM 電路	QCCOM 回路	QCCOM 회로	QCCOM-Schaltung	Circuit QCCOM	Circuito QCCOM	Схема QCCOM	Circuito QCCOM
+打不开	Can't open	打不開	開けません	열 수 없음	Kann nicht geöffnet werden	Impossible d'ouvrir	No se puede abrir	Не удалось открыть	Não foi possível abrir
+电路另存为	Save circuit as	電路另存為	回路に名前を付けて保存	회로 다른 이름으로 저장	Schaltung speichern unter	Enregistrer le circuit sous	Guardar circuito como	Сохранить схему как	Salvar circuito como
+仿真	Simulated	模擬	シミュレーション	시뮬레이션	Simuliert	Simulé	Simulado	Симуляция	Simulado
+手机蓝牙	Phone Bluetooth	手機藍芽	スマホ Bluetooth	휴대폰 블루투스	Handy-Bluetooth	Bluetooth du téléphone	Bluetooth del móvil	Bluetooth телефона	Bluetooth do celular
+烧坏	Burned	燒壞	焼損	탐	Durchgebrannt	Grillé	Quemado	Сгорело	Queimado
+回到工具箱	Back to Toolbox	回到工具箱	ツールボックスに戻る	도구 상자로 돌아가기	Zurück zur Toolbox	Retour à la boîte à outils	Volver a herramientas	Назад к инструментам	Voltar às ferramentas
+未命名电路	Untitled circuit	未命名電路	無題の回路	제목 없는 회로	Unbenannte Schaltung	Circuit sans titre	Circuito sin título	Безымянная схема	Circuito sem título
+双击改名	Double-click to rename	雙擊改名	ダブルクリックで名前変更	두 번 클릭해 이름 변경	Doppelklick zum Umbenennen	Double-cliquez pour renommer	Doble clic para renombrar	Двойной щелчок — переименовать	Clique duplo para renomear
+实物	Breadboard	實物	実体図	실물	Steckbrett	Plaque	Protoboard	Макетка	Protoboard
+原理图	Schematic	原理圖	回路図	회로도	Schaltplan	Schéma	Esquema	Схема	Esquemático
+断电	Power off	斷電	電源オフ	전원 끄기	Ausschalten	Couper	Apagar	Выключить	Desligar
+通电	Power on	通電	通電	전원 켜기	Einschalten	Alimenter	Encender	Включить	Ligar
+继续	Resume	繼續	再開	계속	Fortsetzen	Reprendre	Reanudar	Продолжить	Continuar
+实际速度	actual speed	實際速度	実速度	실제 속도	tatsächliche Geschwindigkeit	vitesse réelle	velocidad real	реальная скорость	velocidade real
+不收敛	Not converging	不收斂	収束しません	수렴하지 않음	Konvergiert nicht	Ne converge pas	No converge	Не сходится	Não converge
+处接错	wiring errors	處接錯	件の配線ミス	건 배선 오류	Verdrahtungsfehler	erreurs de câblage	errores de conexión	ошибок соединения	erros de ligação
+处提醒	warnings	處提醒	件の注意	건 주의	Hinweise	avertissements	avisos	предупреждений	avisos
+看接错检查	Show wiring check	看接錯檢查	配線チェックを見る	배선 검사 보기	Verdrahtungsprüfung anzeigen	Voir la vérification	Ver revisión	Показать проверку	Ver verificação
+重做	Redo	重做	やり直し	다시 실행	Wiederholen	Rétablir	Rehacer	Повторить	Refazer
+新建电路	New circuit	新建電路	新しい回路	새 회로	Neue Schaltung	Nouveau circuit	Nuevo circuito	Новая схема	Novo circuito
+打开电路…	Open circuit…	開啟電路…	回路を開く…	회로 열기…	Schaltung öffnen…	Ouvrir un circuit…	Abrir circuito…	Открыть схему…	Abrir circuito…
+隐藏电流动画	Hide current animation	隱藏電流動畫	電流アニメーションを隠す	전류 애니메이션 숨기기	Stromanimation ausblenden	Masquer l'animation du courant	Ocultar animación de corriente	Скрыть анимацию тока	Ocultar animação de corrente
+显示电流动画	Show current animation	顯示電流動畫	電流アニメーションを表示	전류 애니메이션 표시	Stromanimation anzeigen	Afficher l'animation du courant	Mostrar animación de corriente	Показать анимацию тока	Mostrar animação de corrente
+清空画布	Clear canvas	清空畫布	キャンバスをクリア	캔버스 비우기	Fläche leeren	Vider le canevas	Vaciar lienzo	Очистить холст	Limpar tela
+示波器	Oscilloscope	示波器	オシロスコープ	오실로스코프	Oszilloskop	Oscilloscope	Osciloscopio	Осциллограф	Osciloscópio
+逻辑分析仪	Logic analyzer	邏輯分析儀	ロジアナ	로직 분석기	Logikanalysator	Analyseur logique	Analizador lógico	Логический анализатор	Analisador lógico
+通电后这里显示波形。	Waveforms appear here once powered on.	通電後這裡顯示波形。	通電すると波形がここに表示されます。	전원을 켜면 여기에 파형이 표시됩니다.	Nach dem Einschalten erscheinen hier Kurven.	Les courbes s'affichent ici une fois alimenté.	Las ondas aparecen aquí al encender.	После включения здесь появятся графики.	As ondas aparecem aqui ao ligar.
+通电后，元件烧坏、单片机打印、保险丝熔断等事件显示在这里。	Once powered, events like burned parts, MCU prints and blown fuses show up here.	通電後，元件燒壞、微控制器列印、保險絲熔斷等事件顯示在這裡。	通電後、部品の焼損・マイコンの出力・ヒューズ溶断などがここに表示されます。	전원을 켜면 부품 손상, MCU 출력, 퓨즈 단선 같은 이벤트가 여기 표시됩니다.	Nach dem Einschalten erscheinen hier Ereignisse wie durchgebrannte Bauteile, MCU-Ausgaben und Sicherungen.	Une fois alimenté, composants grillés, sorties du MCU, fusibles fondus, etc. s'affichent ici.	Al encender, aquí aparecen eventos como componentes quemados, mensajes del MCU y fusibles fundidos.	После включения здесь появятся события: сгоревшие детали, вывод МК, перегоревшие предохранители.	Ao ligar, eventos como componentes queimados, saídas do MCU e fusíveis queimados aparecem aqui.
+暂时没有事件	No events yet	暫時沒有事件	イベントはまだありません	아직 이벤트 없음	Noch keine Ereignisse	Aucun événement	Sin eventos aún	Событий пока нет	Nenhum evento ainda
+熔断	Blown	熔斷	溶断	단선	Durchgebrannt	Fondu	Fundido	Перегорел	Queimado
+第一个电路：点亮 LED	First circuit: light an LED	第一個電路：點亮 LED	はじめての回路：LED を光らせる	첫 회로: LED 켜기	Erste Schaltung: LED zum Leuchten bringen	Premier circuit : allumer une LED	Primer circuito: encender un LED	Первая схема: зажечь светодиод	Primeiro circuito: acender um LED
+未上电	Unpowered	未上電	未通電	전원 없음	Ohne Strom	Hors tension	Sin alimentación	Без питания	Sem alimentação
+WiFi 未连接	WiFi not connected	WiFi 未連線	WiFi 未接続	WiFi 미연결	WLAN nicht verbunden	WiFi non connecté	WiFi sin conectar	WiFi не подключён	WiFi desconectado
+AT 模式	AT mode	AT 模式	AT モード	AT 모드	AT-Modus	Mode AT	Modo AT	Режим AT	Modo AT
+手机已连接	Phone connected	手機已連線	スマホ接続済み	휴대폰 연결됨	Handy verbunden	Téléphone connecté	Móvil conectado	Телефон подключён	Celular conectado
+等待手机连接	Waiting for phone	等待手機連線	スマホの接続待ち	휴대폰 연결 대기	Warte auf Handy	En attente du téléphone	Esperando al móvil	Ожидание телефона	Aguardando celular
+已定位	Position fixed	已定位	測位済み	위치 확인됨	Position ermittelt	Position trouvée	Posición fijada	Позиция определена	Posição obtida
+搜星中	Searching satellites	搜星中	衛星を捕捉中	위성 검색 중	Suche Satelliten	Recherche de satellites	Buscando satélites	Поиск спутников	Buscando satélites
+没插 SIM 卡	No SIM card	沒插 SIM 卡	SIM カードなし	SIM 카드 없음	Keine SIM-Karte	Pas de carte SIM	Sin tarjeta SIM	Нет SIM-карты	Sem chip SIM
+无信号	No signal	無訊號	圏外	신호 없음	Kein Signal	Pas de signal	Sin señal	Нет сигнала	Sem sinal
+睡眠中	Sleeping	睡眠中	スリープ中	절전 중	Schläft	En veille	Durmiendo	Спит	Dormindo
+过载	Overload	過載	過負荷	과부하	Überlast	Surcharge	Sobrecarga	Перегрузка	Sobrecarga
+截止	Cutoff	截止	遮断	차단	Sperrbereich	Bloqué	Corte	Отсечка	Corte
+饱和	Saturated	飽和	飽和	포화	Sättigung	Saturé	Saturación	Насыщение	Saturação
+放大	Active (amplifying)	放大	増幅	증폭	Verstärkend	Amplification	Activa (amplifica)	Усиление	Ativa (amplificando)
+关断	Off	關斷	オフ	꺼짐	Aus	Bloqué	Apagado	Закрыт	Desligado
+完全导通	Fully on	完全導通	完全オン	완전 도통	Voll leitend	Pleinement passant	Totalmente encendido	Полностью открыт	Totalmente ligado
+半导通（发热）	Partly on (heating up)	半導通（發熱）	半導通（発熱）	반도통(발열)	Teilweise leitend (wird heiß)	Partiellement passant (chauffe)	Parcialmente encendido (se calienta)	Приоткрыт (греется)	Parcialmente ligado (esquentando)
+电学基础	Electricity basics	電學基礎	電気の基礎	전기 기초	Elektrik-Grundlagen	Bases de l'électricité	Fundamentos de electricidad	Основы электричества	Fundamentos de eletricidade
+二极管、三极管和 MOS 管	Diodes, transistors and MOSFETs	二極體、三極體和 MOS 管	ダイオード・トランジスタ・MOSFET	다이오드, 트랜지스터, MOSFET	Dioden, Transistoren und MOSFETs	Diodes, transistors et MOSFET	Diodos, transistores y MOSFET	Диоды, транзисторы и МОП	Diodos, transistores e MOSFETs
+模拟和定时电路	Analog and timing circuits	模擬和定時電路	アナログ回路とタイマ回路	아날로그와 타이머 회로	Analog- und Zeitschaltungen	Circuits analogiques et de temporisation	Circuitos analógicos y de temporización	Аналоговые и времязадающие схемы	Circuitos analógicos e de temporização
+单片机入门	Getting started with MCUs	微控制器入門	マイコン入門	MCU 입문	Einstieg in Mikrocontroller	Premiers pas avec les MCU	Primeros pasos con MCU	Первые шаги с МК	Primeiros passos com MCU
+模块和小项目	Modules and small projects	模組和小專案	モジュールと小さな作品	모듈과 작은 프로젝트	Module und kleine Projekte	Modules et petits projets	Módulos y pequeños proyectos	Модули и небольшие проекты	Módulos e pequenos projetos
+常见接错（反面教材）	Common wiring mistakes (what not to do)	常見接錯（反面教材）	よくある配線ミス（反面教師）	흔한 배선 실수(반면교사)	Typische Verdrahtungsfehler (so nicht)	Erreurs de câblage courantes (à ne pas faire)	Errores comunes de conexión (qué no hacer)	Типичные ошибки (как не надо)	Erros comuns de ligação (o que não fazer)
+显示、摄像头和物联网	Displays, cameras and IoT	顯示、攝像頭和物聯網	ディスプレイ・カメラ・IoT	디스플레이, 카메라, IoT	Displays, Kameras und IoT	Écrans, caméras et IoT	Pantallas, cámaras e IoT	Дисплеи, камеры и IoT	Telas, câmeras e IoT
+电源和功耗	Power supply and consumption	電源和功耗	電源と消費電力	전원과 소비 전력	Versorgung und Verbrauch	Alimentation et consommation	Alimentación y consumo	Питание и потребление	Alimentação e consumo
+进阶：PCB、阻抗和天线	Advanced: PCB, impedance and antennas	進階：PCB、阻抗和天線	応用：PCB・インピーダンス・アンテナ	심화: PCB, 임피던스, 안테나	Fortgeschritten: PCB, Impedanz und Antennen	Avancé : PCB, impédance et antennes	Avanzado: PCB, impedancia y antenas	Продвинутое: PCB, импеданс и антенны	Avançado: PCB, impedância e antenas
+器件进阶	Components in depth	器件進階	部品の応用	부품 심화	Bauteile im Detail	Composants en profondeur	Componentes a fondo	Компоненты подробно	Componentes a fundo
+放好元件：{}	Place parts: {}	放好元件：{}	部品を配置：{}	부품 배치: {}	Bauteile platzieren: {}	Placez les composants : {}	Coloque los componentes: {}	Расставьте компоненты: {}	Posicione os componentes: {}
+连线：{} → {}	Wire: {} → {}	連線：{} → {}	配線：{} → {}	배선: {} → {}	Verdrahten: {} → {}	Câblez : {} → {}	Conecte: {} → {}	Соедините: {} → {}	Ligue: {} → {}
+把 INA219 / INA226 模块接在电池和电路之间，模块的读数用串口发过来（每行一个电流值，带不带单位都行）。	Put an INA219 / INA226 module between the battery and the circuit and have it send readings over serial (one current value per line, with or without units).	把 INA219 / INA226 模組接在電池和電路之間，模組的讀數用串列埠發過來（每行一個電流值，帶不帶單位都行）。							
+从元件库「仪器」里放一个示波器探针，探针尖接到要看的地方。	Place an oscilloscope probe from "Instruments" in the parts list and connect its tip where you want to look.	從元件庫「儀器」裡放一個示波器探針，探針尖接到要看的地方。							
+导出最近 10 秒的波形，可以在工具箱的「VCD 波形」或 PulseView 里看	Exports the last 10 seconds of waveforms; open them in the Toolbox's "VCD waveform" or in PulseView	匯出最近 10 秒的波形，可以在工具箱的「VCD 波形」或 PulseView 裡看							
+从元件库「仪器」里放一个逻辑分析仪，CH0–CH7 接信号，GND 接地。	Place a logic analyzer from "Instruments" in the parts list, wire CH0–CH7 to signals and GND to ground.	從元件庫「儀器」裡放一個邏輯分析儀，CH0–CH7 接訊號，GND 接地。							
+在 CubeMX 里给这个脚开 PWM 定时器通道	Enable a PWM timer channel for this pin in CubeMX	在 CubeMX 裡給這個腳開 PWM 定時器通道							
+由	Generated by	由							
+电路仿真生成。引脚和规则改了以后重新生成即可。	circuit simulation. Regenerate after changing pins or rules.	電路模擬生成。引腳和規則改了以後重新生成即可。							
+库管理器装 "DHT sensor library"	Install "DHT sensor library" from the Library Manager	庫管理器裝 "DHT sensor library"							
+库管理器装 "Adafruit SSD1306"	Install "Adafruit SSD1306" from the Library Manager	庫管理器裝 "Adafruit SSD1306"							
+MQTT 用	MQTT uses	MQTT 用							
+用 CubeMX 生成工程后，把下面的内容放进 main.c 对应位置；printf 已重定向到串口	After generating the project with CubeMX, put the code below into main.c where marked; printf is retargeted to the UART	用 CubeMX 生成工程後，把下面的內容放進 main.c 對應位置；printf 已重定向到串列埠							
+按芯片的 ADC 驱动实现，返回原始读数	Implement with your chip's ADC driver; return the raw reading	按晶片的 ADC 驅動實現，返回原始讀數							
+50 Hz PWM，脉宽 0.5–2.5 ms 对应 0–180°	50 Hz PWM, 0.5–2.5 ms pulse width maps to 0–180°	50 Hz PWM，脈寬 0.5–2.5 ms 對應 0–180°							
+用定时器 PWM 输出方波	Output a square wave with timer PWM	用定時器 PWM 輸出方波							
+Arduino 可用 TM1637Display 库	On Arduino you can use the TM1637Display library	Arduino 可用 TM1637Display 庫							
+SSD1306 驱动：u8g2 或厂商例程	SSD1306 driver: u8g2 or the vendor example	SSD1306 驅動：u8g2 或廠商例程							
+显示摄像头画面：需要屏幕驱动	Showing the camera image needs a display driver	顯示攝像頭畫面：需要螢幕驅動							
+单总线时序：拉低 18 ms 后读 40 位	One-wire timing: pull low for 18 ms, then read 40 bits	單匯流排時序：拉低 18 ms 後讀 40 位							
+10 µs 触发脉冲，回波高电平宽度 / 58 = 厘米	10 µs trigger pulse; echo high time / 58 = centimeters	10 µs 觸發脈衝，回波高電平寬度 / 58 = 釐米							
+时钟、GPIO、USART 由 CubeMX 初始化（MX_GPIO_Init 等）	Clocks, GPIO and USART are initialized by CubeMX (MX_GPIO_Init etc.)	時鐘、GPIO、USART 由 CubeMX 初始化（MX_GPIO_Init 等）							
+在 CubeMX 里设置	Configure in CubeMX	在 CubeMX 裡設定							
+51 准双向口：写 1 才能读输入	8051 quasi-bidirectional port: write 1 before reading input	51 準雙向口：寫 1 才能讀輸入							
+闪烁周期	Blink period	閃爍週期							
+main() 里：MX_xxx_Init() 之后调用 app_setup()，while(1) 里调用 app_loop()	In main(): call app_setup() after MX_xxx_Init(), and app_loop() inside while(1)	main() 裡：MX_xxx_Init() 之後呼叫 app_setup()，while(1) 裡呼叫 app_loop()							
+TM1637 没有响应：检查 CLK、DIO 接线	TM1637 not responding: check the CLK and DIO wiring	TM1637 沒有響應：檢查 CLK、DIO 接線							
+DHT11 读取失败：检查 DATA 接线、供电和上拉	DHT11 read failed: check the DATA wire, power and pull-up	DHT11 讀取失敗：檢查 DATA 接線、供電和上拉							
+SHT30 没有应答：检查 I2C 接线和上拉电阻	SHT30 not responding: check the I2C wiring and pull-up resistors	SHT30 沒有應答：檢查 I2C 接線和上拉電阻							
+超声波没有回波：检查 TRIG、ECHO 接线和 5V 供电	No ultrasonic echo: check the TRIG and ECHO wiring and 5 V supply	超聲波沒有回波：檢查 TRIG、ECHO 接線和 5V 供電							
+这块板子没有 WiFi，需要外接 WiFi 或 4G 模块	This board has no WiFi; add a WiFi or 4G module	這塊板子沒有 WiFi，需要外接 WiFi 或 4G 模組							
+拍照需要 ESP32-CAM	Taking photos needs an ESP32-CAM	拍照需要 ESP32-CAM							
+I2C 没有应答（NACK）：SDA、SCL 需要上拉电阻	I2C not acknowledged (NACK): SDA and SCL need pull-up resistors	I2C 沒有應答（NACK）：SDA、SCL 需要上拉電阻							
+找不到屏幕：检查屏幕的供电、地和信号线	Display not found: check its power, ground and signal wires	找不到螢幕：檢查螢幕的供電、地和訊號線							
+电源电压掉到 {}，单片机复位	Supply dropped to {}, the MCU reset	電源電壓掉到 {}，微控制器復位							
+5V 引脚电压 {}，超过 5.5V 会损坏板子	5V pin is at {}; above 5.5 V the board is damaged	5V 引腳電壓 {}，超過 5.5V 會損壞板子							
+3.3V 引脚接了 {}，会烧坏单片机	3.3V pin has {} on it; this burns the MCU	3.3V 引腳接了 {}，會燒壞微控制器							
+引脚 {} 输出电流 {}，超过最大 {}	Pin {} sources {}, above the {} maximum	引腳 {} 輸出電流 {}，超過最大 {}							
+引脚 {} 被灌进 {}（外部电压比单片机电源高，可能是 5V 信号接进了 3.3V 引脚）	Pin {} is being fed {} (the external voltage is above the MCU supply; maybe a 5 V signal on a 3.3 V pin)	引腳 {} 被灌進 {}（外部電壓比微控制器電源高，可能是 5V 訊號接進了 3.3V 引腳）							
+引脚 {} 电压低于地（负压）	Pin {} is below ground (negative voltage)	引腳 {} 電壓低於地（負壓）							
+两个 I2C 设备地址都是 {}，冲突了	Two I2C devices share address {}: conflict	兩個 I2C 裝置地址都是 {}，衝突了							
+锂电池充电电流太大	Li-ion charge current is too high	鋰電池充電電流太大							
+电解电容接反了（正极电压比负极低），会鼓包甚至炸开	Electrolytic capacitor is reversed (+ is lower than −); it will bulge or even burst	電解電容接反了（正極電壓比負極低），會鼓包甚至炸開							
+稳压芯片输入输出接反了	Regulator input and output are swapped	穩壓晶片輸入輸出接反了							
+电源正负接反了	Supply polarity is reversed	電源正負接反了							
+功率 {} 超过额定 {}	Power {} exceeds the {} rating	功率 {} 超過額定 {}							
+电流 {}，LED 最大只能 {}	Current {}; the LED allows at most {}	電流 {}，LED 最大隻能 {}							
+反向电压 {}，LED 最多承受 5 V	Reverse voltage {}; an LED withstands at most 5 V	反向電壓 {}，LED 最多承受 5 V							
+电流 {} 超过额定 {}	Current {} exceeds the {} rating	電流 {} 超過額定 {}							
+反向电压 {} 超过额定 {}	Reverse voltage {} exceeds the {} rating	反向電壓 {} 超過額定 {}							
+集电极电流 {} 超过额定 {}	Collector current {} exceeds the {} rating	集電極電流 {} 超過額定 {}							
+发热 {} 超过额定 {}	Dissipation {} exceeds the {} rating	發熱 {} 超過額定 {}							
+C、E 之间电压 {} 超过耐压 {}（感性负载没加续流二极管？）	C–E voltage {} exceeds the {} rating (inductive load without a flyback diode?)	C、E 之間電壓 {} 超過耐壓 {}（感性負載沒加續流二極體？）							
+D、S 之间电压 {} 超过耐压 {}（感性负载没加续流二极管？）	D–S voltage {} exceeds the {} rating (inductive load without a flyback diode?)	D、S 之間電壓 {} 超過耐壓 {}（感性負載沒加續流二極體？）							
+栅极电压 {} 超过最大 {}	Gate voltage {} exceeds the {} maximum	柵極電壓 {} 超過最大 {}							
+电压 {} 超过耐压 {}	Voltage {} exceeds the {} rating	電壓 {} 超過耐壓 {}							
+保险丝熔断：电流 {}	Fuse blown: current {}	保險絲熔斷：電流 {}							
+电源电压 {} 超过 555 的最大 16V	Supply {} exceeds the 555's 16 V maximum	電源電壓 {} 超過 555 的最大 16V							
+输入电压 {} 超过最大 {}	Input voltage {} exceeds the {} maximum	輸入電壓 {} 超過最大 {}							
+供电 {} 超过模块最大 {}	Supply {} exceeds the module's {} maximum	供電 {} 超過模組最大 {}							
+LED 接反了：长脚（A）要接正，短脚（K）接负，现在不会亮	LED is reversed: the long leg (A) goes to +, the short leg (K) to −; it won't light like this	LED 接反了：長腳（A）要接正，短腳（K）接負，現在不會亮							
+二极管反接在电源上，不导通	Diode is reversed across the supply and won't conduct	二極體反接在電源上，不導通							
+{} 的正负极直接连在一起：短路，电源会发烫、电池会鼓包	{}'s + and − are tied together: a short circuit; the supply heats up and batteries swell	{} 的正負極直接連在一起：短路，電源會發燙、電池會鼓包							
+{} 的 {} 脚和 {} 脚插在面包板同一列，被短接了；把它转个方向或跨到另一列	{}'s {} and {} pins are in the same breadboard column and shorted; rotate it or move it across columns	{} 的 {} 腳和 {} 腳插在麵包板同一列，被短接了；把它轉個方向或跨到另一列							
+{} 的 {} 脚还没接	{}'s {} pin isn't connected yet	{} 的 {} 腳還沒接							
+{} 直接接在 {}V 电源上，没有串限流电阻，通电就会烧	{} is wired straight to {} V with no current-limiting resistor and will burn on power-up	{} 直接接在 {}V 電源上，沒有串限流電阻，通電就會燒							
+{} 电解电容接反了：+ 极要接高电压，反接会鼓包甚至爆开	{} electrolytic is reversed: + goes to the higher voltage; reversed it bulges or bursts	{} 電解電容接反了：+ 極要接高電壓，反接會鼓包甚至爆開							
+{} 最高只能接 {}V，现在接的是 {}V，会烧坏	{} takes at most {} V but has {} V: it will burn	{} 最高只能接 {}V，現在接的是 {}V，會燒壞							
+{} 至少要 {}V 才能正常工作，现在只有 {}V	{} needs at least {} V to work but has only {} V	{} 至少要 {}V 才能正常工作，現在只有 {}V							
+{} 的 GND 没接，模块不工作	{}'s GND isn't connected, so the module won't work	{} 的 GND 沒接，模組不工作							
+{} 的 {} 设成输出，却直接接到了 {}V（电源 / 地）：输出时会短路烧引脚	{}'s {} is an output but tied straight to {} V (supply/ground): driving it shorts and burns the pin	{} 的 {} 設成輸出，卻直接接到了 {}V（電源 / 地）：輸出時會短路燒引腳							
+{} 的 {} 接了按键但设成浮空输入，没按时读数乱跳；改成上拉输入	{}'s {} has a button but is a floating input, so it reads randomly when not pressed; use input pull-up	{} 的 {} 接了按鍵但設成浮空輸入，沒按時讀數亂跳；改成上拉輸入							
+{} 的 {} 是 3.3V 引脚（不耐 5V），直接接了 5V 会损坏	{}'s {} is a 3.3 V pin (not 5 V tolerant); 5 V on it causes damage	{} 的 {} 是 3.3V 引腳（不耐 5V），直接接了 5V 會損壞							
+{} 用 5V 供电，它的 {} 输出 5V 信号接到 {} 的 {}（3.3V 不耐 5V）：加分压电阻或电平转换	{} runs on 5 V and its {} drives 5 V into {}'s {} (3.3 V, not 5 V tolerant): add a divider or level shifter	{} 用 5V 供電，它的 {} 輸出 5V 訊號接到 {} 的 {}（3.3V 不耐 5V）：加分壓電阻或電平轉換							
+{} 的 {} 接到了 {} 的 TX：串口要交叉接，TX 接对方 RX	{}'s {} is wired to {}'s TX: UART lines cross over, TX goes to the other side's RX	{} 的 {} 接到了 {} 的 TX：串列埠要交叉接，TX 接對方 RX							
+{} 和 {} 之间有信号线，但 GND 没连在一起（没共地），信号不可靠	{} and {} share signal wires but not ground, so the signals are unreliable	{} 和 {} 之間有訊號線，但 GND 沒連在一起（沒共地），訊號不可靠							

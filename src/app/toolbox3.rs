@@ -236,6 +236,12 @@ impl App {
         if self.s.tb.tool == Tool::Ssh {
             return self.ssh_drop(vec![p]);
         }
+        if self.s.tb.tool == Tool::Circuit {
+            if let Some(cv) = &mut self.circ {
+                cv.drop_file(&p);
+            }
+            return;
+        }
         let s = p.to_string_lossy().into_owned();
         let c = &mut self.s.tb.z;
         match self.s.tb.tool {

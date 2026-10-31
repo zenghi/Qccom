@@ -405,6 +405,8 @@ pub struct App {
     code: CodeView,
     gitv: GitView,
     cmpv: crate::compareview::CompareView,
+    /// 电路页（第一次打开时才创建）
+    circ: Option<Box<crate::circuitview::CircuitView>>,
     /// 其他进程转来的打开 / 比较请求（系统右键菜单）
     fwd: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::shellint::Req>>>>,
     /// 比较页有未保存修改时第一次关窗口被拦下，再关一次就直接退出
@@ -607,6 +609,7 @@ impl App {
             code,
             gitv,
             cmpv,
+            circ: None,
             close_anyway: false,
             fwd: None,
             shells,
@@ -2961,7 +2964,13 @@ impl App {
         }
         if self.vcom.is_some() {
             ui.add_space(6.0);
-            if chip(ui, t("已共享给其他软件").to_string(), OK(), t("串口已虚拟给其他软件同时使用：点击停止")).clicked() {
+            let other = self
+                .vcom
+                .as_ref()
+                .and_then(|v| v.names.first())
+                .map(|n| n.rsplit(['/', '\\']).next().unwrap_or(n).to_string())
+                .unwrap_or_default();
+            if chip(ui, format!("{} {other}", t("虚拟串口")), OK(), t("其他软件正通过虚拟串口同时使用设备：点击关闭")).clicked() {
                 self.toggle_vcom();
             }
         }
@@ -4540,6 +4549,10 @@ impl eframe::App for App {
         // 设置里记着 SVD 路径时，启动后代码页的寄存器悬停不用先打开工具也能用（路径没变就只是比较一下字符串）
         self.svd_sync();
         self.code.reg_window(ctx);
+        // 电路仿真在后台照常运行（切到调试页看仿真串口时也要跑）
+        if let Some(cv) = &mut self.circ {
+            cv.tick(ctx);
+        }
         match self.page {
             Page::Code => {
                 self.code.ui(ctx, &acts, &self.km);

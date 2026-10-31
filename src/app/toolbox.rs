@@ -52,11 +52,12 @@ pub enum Tool {
     Decode,
     Vcd,
     Qr,
+    Circuit,
 }
 
 /// 工具列表的分组
 /// 第一组「通信调试」最常用，一直展开；其余分组同一时间只展开一个
-pub(super) fn groups() -> [(&'static str, &'static [Tool]); 6] {
+pub(super) fn groups() -> [(&'static str, &'static [Tool]); 7] {
     [
         (
             t("通信调试"),
@@ -83,6 +84,7 @@ pub(super) fn groups() -> [(&'static str, &'static [Tool]); 6] {
         ),
         (t("数据和协议"), &[Tool::Struct, Tool::Decode, Tool::Vcd, Tool::Qr]),
         (t("显示"), &[Tool::Font, Tool::Color, Tool::Ascii]),
+        (t("电路和接线"), &[Tool::Circuit]),
     ]
 }
 
@@ -232,6 +234,11 @@ pub(super) const MONO: fn(f32) -> FontId = |s| FontId::new(s, FontFamily::Monosp
 
 impl App {
     pub(super) fn toolbox_page(&mut self, ctx: &egui::Context) {
+        // 电路页占满整个工具箱区域，左上角返回
+        if self.s.tb.tool == Tool::Circuit {
+            self.circuit_page(ctx);
+            return;
+        }
         egui::SidePanel::left("toolbox_nav")
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 14,

@@ -89,6 +89,10 @@ pub(super) struct SerialUi {
     pub alias_edit: Option<(String, String)>,
     pub profile_new: Option<String>,
     pub bridge_err: Option<String>,
+    /// Windows：打开虚拟串口时发现没装 com0com，显示安装提示
+    pub vc_need_install: bool,
+    pub vc_installing: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    pub vc_err: Option<String>,
 }
 
 impl App {
@@ -310,26 +314,49 @@ impl App {
 
     pub(super) fn toggle_vcom(&mut self) {
         if self.vcom.take().is_some() {
-            self.buf.sys(t("已停止共享给其他软件"));
+            self.buf.sys(t("虚拟串口已关闭"));
             return;
         }
+        self.serial_ui.vc_err = None;
         #[cfg(unix)]
         let r = crate::vcom::Vcom::start_pty(1, self.ctx.clone());
         #[cfg(not(unix))]
-        let r = if self.s.vcom_port.is_empty() {
-            Err(t("先选一个虚拟串口（需要安装 com0com）").to_string())
-        } else {
-            crate::vcom::Vcom::start_port(&self.s.vcom_port, self.s.cfg.baud, self.ctx.clone())
+        let r = {
+            let pairs = crate::vcom::pairs();
+            // 记住上次用的那一对；没有就用第一对
+            let Some(pair) = pairs.iter().find(|p| p.mine == self.s.vcom_port).or(pairs.first()).cloned() else {
+                // 没装 com0com：在侧边栏提示一键安装（用户点了才装）
+                self.serial_ui.vc_need_install = true;
+                return;
+            };
+            self.s.vcom_port = pair.mine.clone();
+            crate::vcom::Vcom::start_port(&pair.mine, self.s.cfg.baud, self.ctx.clone()).map(|mut v| {
+                v.names = vec![pair.other.clone()];
+                v
+            })
         };
         match r {
             Ok(v) => {
+                self.serial_ui.vc_need_install = false;
                 for n in &v.names {
-                    self.buf.sys(tf("串口已共享给其他软件，在那边打开：{}", &[n]));
+                    self.buf.sys(tf("虚拟串口已打开，其他软件请打开：{}（和 QCCOM 同时收发，不占用真实 COM 口）", &[n]));
                 }
                 self.vcom = Some(v);
             }
-            Err(e) => self.toast(tf("无法共享：{}", &[&e]), ERR()),
+            Err(e) => self.serial_ui.vc_err = Some(tf("虚拟串口打不开：{}", &[&e])),
         }
+    }
+
+    #[cfg(windows)]
+    fn start_com0com_install(&mut self) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::vcom::install_com0com());
+            ctx.request_repaint();
+        });
+        self.serial_ui.vc_installing = Some(rx);
+        self.serial_ui.vc_err = None;
     }
 
     pub(super) fn poll_vcom(&mut self) {
@@ -355,37 +382,32 @@ impl App {
 
     fn vcom_ui(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
+        // 安装进行中 / 结束
+        if let Some(rx) = &self.serial_ui.vc_installing {
+            match rx.try_recv() {
+                Ok(Ok(())) => {
+                    self.serial_ui.vc_installing = None;
+                    self.serial_ui.vc_need_install = false;
+                    self.toast(t("虚拟串口驱动装好了"), OK());
+                    self.toggle_vcom();
+                }
+                Ok(Err(e)) => {
+                    self.serial_ui.vc_installing = None;
+                    self.serial_ui.vc_err = Some(e);
+                }
+                Err(_) => ui.ctx().request_repaint_after(Duration::from_millis(300)),
+            }
+        }
         ui.horizontal(|ui| {
             let mut on = self.vcom.is_some();
-            let tip = if cfg!(unix) {
-                t("虚拟出一个串口给其他软件（烧录工具、别的串口助手）同时用，不用抢 COM 口")
-            } else {
-                t("通过 com0com 虚拟串口对共享：QCCOM 占一头，其他软件打开另一头，不用抢 COM 口")
-            };
-            if toggle_chip(ui, &mut on, t("共享给其他软件"), tip) {
+            let tip = t("再给其他软件（烧录工具、别的串口助手）一个虚拟串口：大家同时收发同一个设备，不占用 COM 口，不用来回断开");
+            if toggle_chip(ui, &mut on, t("虚拟串口"), tip) {
                 self.toggle_vcom();
-            }
-            #[cfg(not(unix))]
-            if self.vcom.is_none() {
-                let pairs = crate::vcom::virtual_pairs();
-                if pairs.is_empty() {
-                    ui.hyperlink_to(RichText::new(t("需要 com0com")).small(), "https://sourceforge.net/projects/com0com/files/com0com/3.0.0.0/")
-                        .on_hover_text(t("Windows 不允许软件直接创建 COM 口，要装免费的 com0com 虚拟串口驱动（有签名）；装好后这里会列出虚拟串口"));
-                } else {
-                    if !pairs.contains(&self.s.vcom_port) {
-                        self.s.vcom_port = pairs[0].clone();
-                    }
-                    egui::ComboBox::from_id_salt("vcom-port").width(90.0).selected_text(self.s.vcom_port.clone()).show_ui(ui, |ui| {
-                        for p in &pairs {
-                            ui.selectable_value(&mut self.s.vcom_port, p.clone(), p);
-                        }
-                    });
-                }
             }
         });
         let names: Vec<String> = self.vcom.as_ref().map(|v| v.names.clone()).unwrap_or_default();
         for n in names {
-            // 「/dev/pts/5  →  …/vcom/ttyQCCOM0」：固定名字的链接更好记，显示短一点，复制完整路径
+            // Linux「/dev/pts/5  →  …/vcom/ttyQCCOM0」：固定名字的链接更好记，显示短一点，复制完整路径
             let path = n.split("  →  ").last().unwrap_or(&n).to_string();
             let short = match n.split_once("  →  ") {
                 Some((dev, link)) => format!("{} · {dev}", link.rsplit(['/', '\\']).next().unwrap_or(link)),
@@ -395,12 +417,54 @@ impl App {
                 if icon_button(ui, Icon::Copy, &tf("复制：{}", &[&path]), false).clicked() {
                     ui.ctx().copy_text(path.clone());
                 }
-                ui.add(egui::Label::new(RichText::new(&short).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT2())).truncate())
-                    .on_hover_text(if cfg!(unix) {
-                        tf("在其他软件里打开：{}", &[&path])
-                    } else {
-                        t("在其他软件里打开这个口在 com0com 里配对的另一头").to_string()
+                ui.label(RichText::new(t("其他软件打开")).size(11.5).color(TEXT3()));
+                ui.add(egui::Label::new(RichText::new(&short).font(FontId::new(12.0, FontFamily::Monospace)).strong().color(OK())).truncate())
+                    .on_hover_text(tf("在烧录工具或别的串口助手里打开 {}，和 QCCOM 同时用，不用断开", &[&path]));
+            });
+        }
+        // Windows 没装驱动：用户点了「虚拟串口」才提示，点按钮一键装
+        if self.vcom.is_none() && (self.serial_ui.vc_need_install || self.serial_ui.vc_installing.is_some()) {
+            egui::Frame::new()
+                .fill(BG2())
+                .stroke(st(1.0, LINE()))
+                .corner_radius(CornerRadius::same(6))
+                .inner_margin(egui::Margin::same(8))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(t("Windows 要先装一次虚拟串口驱动")).size(12.5).strong().color(TEXT()));
+                    ui.label(
+                        RichText::new(t("用的是免费开源的 com0com，已经内置，不用另外下载。装好后自动建一对串口，以后直接用"))
+                            .size(11.5)
+                            .color(TEXT2()),
+                    );
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        if self.serial_ui.vc_installing.is_some() {
+                            ui.spinner();
+                            ui.label(RichText::new(t("正在安装…请在弹出的窗口里点「是」")).size(12.0).color(TEXT2()));
+                        } else {
+                            if ui
+                                .add(egui::Button::new(RichText::new(t("一键安装")).color(ON_ACCENT())).fill(ACCENT()))
+                                .on_hover_text(t("会弹出一次 Windows 管理员确认"))
+                                .clicked()
+                            {
+                                #[cfg(windows)]
+                                self.start_com0com_install();
+                            }
+                            if ui.button(t("以后再说")).clicked() {
+                                self.serial_ui.vc_need_install = false;
+                                self.serial_ui.vc_err = None;
+                            }
+                        }
                     });
+                });
+        }
+        if let Some(e) = self.serial_ui.vc_err.clone() {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(e).size(11.5).color(ERR()));
+                if cfg!(windows) && self.serial_ui.vc_need_install {
+                    ui.hyperlink_to(RichText::new(t("手动下载 com0com")).size(11.5), "https://sourceforge.net/projects/com0com/files/com0com/3.0.0.0/");
+                }
             });
         }
     }

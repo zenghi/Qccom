@@ -9,6 +9,8 @@ mod ble;
 mod bridge;
 mod checksum;
 mod cindex;
+mod circuit;
+mod circuitview;
 mod cmds;
 mod codegen;
 mod codeview;

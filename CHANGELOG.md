@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.9.0
+
+Circuits and wiring: build circuits on a virtual breadboard and power them up, keep a record of how the real hardware is wired, and let other apps share the serial port without locking it.
+
+- **Circuit simulation** (Toolbox → *Circuits & wiring*): drag a breadboard, supplies and parts onto the canvas and wire them; switch between the breadboard view and a schematic. *Power on* runs a real nonlinear and transient solver: LEDs light, current flows as moving dots, transistors and MOSFETs show cutoff / active / saturation, parts that are overloaded smoke and burn (replace them with one click), fuses blow. Parts include resistors, pots, LDRs, capacitors, inductors, diodes, Zener, LEDs, BJTs, MOSFETs, 555, op-amps, optocouplers, relays, 74HC595, ULN2003, regulators and DC-DC modules, displays (7-segment, TM1637, OLED, LCD, TFT), sensors, cameras and development boards (Arduino UNO / Nano, STM32 Blue Pill, 8051, ESP32, ESP8266, Raspberry Pi Pico).
+- **Instruments**: multimeter (voltage, resistance, continuity), oscilloscope, logic analyzer with VCD export, a current meter with battery-life estimate and a power ranking, and readings from a real INA219 / INA226 over serial.
+- **Wiring check** before and during simulation: shorts, missing resistors, reversed LEDs and electrolytics, over-voltage, missing ground, outputs tied to supply, floating buttons, 5 V into 3.3 V pins, TX-to-TX, missing common ground.
+- **MCU pins without code**: set each pin's behavior (output, blink, PWM, servo, input with pull-up, ADC, UART) and add *if… then…* rules (button, voltage, temperature, distance, serial text → set pin, print, show on screen, publish MQTT…). *Generate code* writes the same behavior for Arduino, STM32 HAL, ESP-IDF or 8051.
+- **Modules with real firmware behavior**: ESP-01 / ESP32 AT, HC-05 / JDY / HM-10 Bluetooth, Air780E / EC800M / ML307 4G and NB-IoT, GPS. AT commands are answered with real timing, and TCP / UDP / HTTP / MQTT from the simulated module go out to the real network. A USB-TTL adapter or USB-powered board in the simulation appears as a serial port in QCCOM, and a Bluetooth module can be paired with a simulated phone.
+- **72 examples** in 8 groups (electricity basics, diodes and transistors, analog and timing, MCU basics, modules and small projects, common mistakes, displays and IoT, power), each with how it works, things to try, what you learn and build steps.
+- **Wiring log** (*Wiring log* switch in the circuit toolbar): a table of connections (from, to, wire color, note, done tick), device templates (USB-TTL, ST-Link, J-Link, ESP-Prog, CMSIS-DAP, logic analyzer, INA219), *From circuit* to list the canvas connections, photos of the real board (dropped photos are resized) with numbered marks for each row, a hardware change log, and Markdown export (also copied to the clipboard). Saved in the project folder under `.qccom/wiring/`, so it goes into Git with the code.
+- **Virtual port** (renamed from *Share with other apps*): other apps open a virtual port and use the device together with QCCOM, without locking the real COM port. On Windows, the first time you switch it on QCCOM offers a one-click install of the bundled com0com driver (one administrator prompt) and creates a COM port pair; nothing to download. Nothing to install on Linux and macOS.
+
 ## 1.8.1
 
 - **Input methods**: the code editor and all terminals (serial terminal, terminal panel, SSH / Telnet) now accept Chinese, Japanese, Korean and other IME input. The candidate window follows the cursor and the text being composed is shown in place.

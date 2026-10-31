@@ -54,6 +54,7 @@ impl Vcom {
         Ok(Self::spawn(eps, names, ctx))
     }
 
+    #[cfg_attr(unix, allow(dead_code))]
     /// 打开一个现有的串口（com0com 等虚拟串口对的一头）当作共享口
     pub fn start_port(name: &str, baud: u32, ctx: egui::Context) -> Result<Vcom, String> {
         let p = serialport::new(name, baud).timeout(Duration::from_millis(5)).open().map_err(|e| e.to_string())?;
@@ -124,6 +125,7 @@ fn run(mut eps: Vec<Box<dyn Endpoint>>, from_app: Receiver<Vec<u8>>, tx: Sender<
     }
 }
 
+#[cfg_attr(unix, allow(dead_code))]
 struct SerialEp(Box<dyn serialport::SerialPort>);
 
 impl Endpoint for SerialEp {
@@ -138,22 +140,104 @@ impl Endpoint for SerialEp {
     }
 }
 
-/// com0com 等虚拟串口：Windows 上按端口描述认出来
-pub fn virtual_pairs() -> Vec<String> {
-    serialport::available_ports()
-        .unwrap_or_default()
-        .into_iter()
-        .filter(|p| {
-            let n = p.port_name.to_ascii_uppercase();
-            let desc = match &p.port_type {
-                serialport::SerialPortType::UsbPort(u) => u.product.clone().unwrap_or_default(),
-                _ => String::new(),
-            }
-            .to_ascii_lowercase();
-            n.starts_with("CNC") || desc.contains("com0com") || desc.contains("virtual") || desc.contains("emulator")
-        })
-        .map(|p| p.port_name)
-        .collect()
+#[cfg_attr(unix, allow(dead_code))]
+/// com0com 的一对虚拟串口：QCCOM 打开 mine，其他软件打开 other
+#[derive(Clone, Debug, PartialEq)]
+pub struct Pair {
+    pub mine: String,
+    pub other: String,
+}
+
+#[cfg_attr(unix, allow(dead_code))]
+/// 系统里现有的 com0com 串口对。读注册表 HARDWARE\DEVICEMAP\SERIALCOMM（不用管理员）：
+/// A 头的设备名是 \Device\com0com1N，B 头是 \Device\com0com2N，N 是第几对
+pub fn pairs() -> Vec<Pair> {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let Ok(o) = std::process::Command::new("reg")
+            .args(["query", r"HKLM\HARDWARE\DEVICEMAP\SERIALCOMM"])
+            .creation_flags(0x0800_0000)
+            .output()
+        else {
+            return vec![];
+        };
+        parse_serialcomm(&String::from_utf8_lossy(&o.stdout))
+    }
+    #[cfg(not(windows))]
+    vec![]
+}
+
+#[cfg_attr(unix, allow(dead_code))]
+pub fn parse_serialcomm(out: &str) -> Vec<Pair> {
+    let mut a = std::collections::BTreeMap::new();
+    let mut b = std::collections::BTreeMap::new();
+    for l in out.lines() {
+        let mut it = l.split_whitespace();
+        let (Some(dev), Some(_), Some(port)) = (it.next(), it.next(), it.next()) else { continue };
+        let Some(rest) = dev.to_ascii_lowercase().strip_prefix(r"\device\com0com").map(|r| r.to_string()) else {
+            continue;
+        };
+        let (side, n) = rest.split_at(1.min(rest.len()));
+        match side {
+            "1" => a.insert(n.to_string(), port.to_string()),
+            "2" => b.insert(n.to_string(), port.to_string()),
+            _ => None,
+        };
+    }
+    a.into_iter().filter_map(|(n, mine)| b.get(&n).map(|other| Pair { mine, other: other.clone() })).collect()
+}
+
+/// Windows：一键安装 com0com（安装包已内置），并建好一对 COM 口。会弹一次管理员确认。阻塞，放线程里跑
+#[cfg(windows)]
+pub fn install_com0com() -> Result<(), String> {
+    use std::os::windows::process::CommandExt;
+    static SETUP: &[u8] = include_bytes!("../assets/com0com/setup_x64.exe");
+    let dir = std::env::temp_dir().join("qccom-com0com");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let exe = dir.join("setup_com0com_x64.exe");
+    std::fs::write(&exe, SETUP).map_err(|e| e.to_string())?;
+    let log = dir.join("install.log");
+    let _ = std::fs::remove_file(&log);
+    // 装驱动 → 去掉安装包默认建的 CNCA0/CNCB0 → 建一对用普通 COM 号的口（大多数软件只认 COMx）
+    let script = format!(
+        r#"$ErrorActionPreference = 'Continue'
+$dst = Join-Path $env:ProgramFiles 'com0com'
+Start-Process -FilePath '{exe}' -ArgumentList '/S', "/D=$dst" -Wait
+Start-Sleep -Seconds 2
+Set-Location $dst
+& .\setupc.exe --silent remove 0 *> $null
+& .\setupc.exe --silent install PortName=COM# PortName=COM# *> '{log}'
+"#,
+        exe = exe.display(),
+        log = log.display()
+    );
+    let ps1 = dir.join("install.ps1");
+    // PowerShell 5 读无 BOM 的脚本按本地编码，路径里有中文要带 BOM
+    let mut bytes = vec![0xEF, 0xBB, 0xBF];
+    bytes.extend(script.as_bytes());
+    std::fs::write(&ps1, bytes).map_err(|e| e.to_string())?;
+    let elevate = format!(
+        "try {{ Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','\"{}\"' }} catch {{ exit 2 }}",
+        ps1.display()
+    );
+    let st = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &elevate])
+        .creation_flags(0x0800_0000)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if st.code() == Some(2) {
+        return Err(crate::i18n::t("管理员确认被取消了").to_string());
+    }
+    // 驱动加载要一会儿
+    for _ in 0..20 {
+        if !pairs().is_empty() {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(500));
+    }
+    let detail = std::fs::read_to_string(&log).unwrap_or_default();
+    Err(format!("{} {}", crate::i18n::t("装好了但没找到虚拟串口"), detail.trim()))
 }
 
 #[cfg(unix)]
@@ -239,6 +323,22 @@ mod pty {
                 libc::close(self.slave);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod pair_tests {
+    #[test]
+    fn serialcomm_pairs() {
+        let out = "\r\nHKEY_LOCAL_MACHINE\\HARDWARE\\DEVICEMAP\\SERIALCOMM\r\n    \\Device\\Serial0    REG_SZ    COM1\r\n    \\Device\\com0com10    REG_SZ    COM20\r\n    \\Device\\com0com20    REG_SZ    COM21\r\n    \\Device\\com0com11    REG_SZ    CNCA1\r\n";
+        let p = super::parse_serialcomm(out);
+        assert_eq!(
+            p,
+            vec![super::Pair {
+                mine: "COM20".into(),
+                other: "COM21".into()
+            }]
+        );
     }
 }
 

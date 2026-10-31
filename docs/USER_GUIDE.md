@@ -211,6 +211,7 @@ Functions: `send(text)`, `sendln(text)`, `send_hex("AA 55")`, `wait(text, ms)`, 
 - DTR and RTS toggles and the CTS / DSR / RI / CD input lines, updated live.
 - **Reset**: a DTR or RTS pulse, or the ESP32 sequences that reset into the app or into the bootloader. Pick the default with the arrow; right-click for the others.
 - **Break** sends a 250 ms break.
+- **Virtual port** gives other apps (a flasher, another serial monitor) their own port to the same device while QCCOM stays connected; everyone receives the data and can send, and the real COM port isn't locked. The port to open is shown under the switch (copy button next to it). On Linux and macOS QCCOM creates it directly (`ttyQCCOM0` in the QCCOM data folder links to it). On Windows the first use offers a one-click install of the bundled com0com driver (one administrator prompt); it creates a COM port pair and QCCOM picks it up automatically.
 - **Share on network** opens a TCP port; every client that connects is bridged to the serial port both ways, so a colleague or another tool can use the device remotely.
 
 Right-click a port card to give it an alias (for example *Main board*) or to set it as **port B**. Port B is opened together with the main port and its data is shown in amber with a `B ›` prefix, which is handy for sniffing both directions of a link with two adapters.
@@ -373,6 +374,27 @@ Toolbox → *Communication* → **SSH / Telnet** logs in to boards, gateways and
 - **Edit host** sets a name, private key, upload folder, extra `ssh` arguments and commands to run after login (one per line).
 - **File transfer** (SSH with key login): drop files or folders on the terminal, or click the upload button, to copy them to the host's upload folder. *Download…* fetches a remote file or folder. Transfers use `scp` and fall back to the legacy protocol on servers without SFTP (common on BusyBox / Dropbear boards). For password-only hosts, use `rz` / `sz` or `scp` in the terminal.
 - Telnet negotiates the terminal type and window size, so full-screen programs fit the window. Telnet cannot transfer files.
+
+## Circuits and wiring
+
+Toolbox → *Circuits & wiring*. The left column has the parts and the examples, the canvas is in the middle, and the right column shows properties, an explanation of the selected part and the wiring check.
+
+- **Build**: drag parts onto the canvas (or click one, then click the canvas; `R` rotates, hold `Shift` to place several). Drag from a pin or breadboard hole to draw a wire, click to add bends, number keys change the wire color. The 5 holes in a breadboard column are connected; the long strips are power rails. *Breadboard* / *Schematic* switches the view.
+- **Power on** (`F5`) runs the simulation. Click buttons and switches, scroll on pots and LDRs. Overloaded parts smoke and burn; select one and click *Replace with a new one*. The speed menu slows time down; the output panel lists events such as burned parts and MCU prints.
+- **Instruments**: place a multimeter, an oscilloscope probe or a logic analyzer from *Instruments*. The current meter estimates battery life and ranks the parts by power; *Measure real current* reads an INA219 / INA226 over a serial port.
+- **MCU pins**: select a board and set each pin's mode, then add rules (*If… then…*). Text can use `{count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}`. *Generate code* writes Arduino, STM32 HAL, ESP-IDF or 8051 code with the same behavior.
+- **Modules** (ESP-01, ESP32, HC-05, JDY, HM-10, Air780E, EC800M, ML307, GPS) answer AT commands; their network connections are real. A USB-TTL adapter or a USB-powered board appears as a serial port on the Debug page, so QCCOM can talk to the simulated circuit.
+- **Examples**: 72 examples in 8 groups. Each has *How it works*, *Try it*, *What you learn* and build steps; *Reset to original example* undoes your changes.
+
+### Wiring log
+
+Click *Wiring log* in the circuit toolbar.
+
+- Each row is one wire: from, to, wire color, a note and a tick when it is connected. *From circuit* lists the connections on the canvas; *Device templates* adds the usual pins of a USB-TTL, ST-Link, J-Link, ESP-Prog, CMSIS-DAP, logic analyzer or INA219.
+- **Photos**: click **+** or drop a photo of the board (large photos are resized). Pick a row and click the photo to put its number there; the next unmarked row is selected automatically. Right-click a mark to remove it.
+- **Hardware changes**: note bodge wires, swapped parts and cut traces with the date.
+- *Export Markdown* saves a `.md` file next to the log and copies it to the clipboard.
+- Logs are saved in `.qccom/wiring/` in the project folder (or in QCCOM's data folder when no project is open), several per project.
 
 ## Toolbox
 

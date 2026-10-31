@@ -1,0 +1,292 @@
+# 电路页长文本：键	简体	繁体	英文。段落之间写 \n
+card.res	电阻限制电流。LED、三极管基极前面都要串一个。\n阻值看色环：前两环是数字，第三环是 0 的个数。220Ω = 红红棕。\n功率不够会发烫甚至烧焦：P = I²R。	電阻限制電流。LED、三極體基極前面都要串一個。\n阻值看色環：前兩環是數字，第三環是 0 的個數。220Ω = 紅紅棕。\n功率不夠會發燙甚至燒焦：P = I²R。	A resistor limits current. Put one in series with every LED and transistor base.\nRead the value from the bands: first two are digits, the third is the number of zeros. 220Ω = red-red-brown.\nIf its power rating is too low it gets hot and may burn: P = I²R.
+card.led	LED 长脚是正极（A），短脚是负极（K）。\n一定要串电阻：5V 供电红灯用 220Ω～1kΩ，电流 3～15 mA 就很亮了。\n不串电阻直接接电源，LED 会瞬间烧坏。	LED 長腳是正極（A），短腳是負極（K）。\n一定要串電阻：5V 供電紅燈用 220Ω～1kΩ，電流 3～15 mA 就很亮了。\n不串電阻直接接電源，LED 會瞬間燒壞。	The long leg of an LED is the anode (A), the short one the cathode (K).\nAlways add a series resistor: 220Ω–1kΩ for a red LED on 5V; 3–15 mA is plenty bright.\nConnected straight to a supply, an LED burns out instantly.
+card.bb_half	面包板：中间每一竖列 5 个孔（a–e、f–j）内部是连通的，中缝两边不通。\n上下两条长的是电源轨，红线 + 蓝线 −，一整排是通的。\n芯片要跨在中缝上插，这样每个引脚各占一列。	麵包板：中間每一豎列 5 個孔（a–e、f–j）內部是連通的，中縫兩邊不通。\n上下兩條長的是電源軌，紅線 + 藍線 −，一整排是通的。\n晶片要跨在中縫上插，這樣每個引腳各占一列。	Breadboard: in the middle, each column of 5 holes (a–e, f–j) is connected inside; the two halves are not.\nThe long strips at top and bottom are power rails, red + and blue −, connected along their length.\nPlace chips across the centre gap so every pin gets its own column.
+ex.A1.intro	9V 电池、1kΩ 电阻和电流表串成一圈。电流表读数就是 I = U / R ≈ 9 mA，万用表量的是电阻两端的电压。	9V 電池、1kΩ 電阻和電流表串成一圈。電流表讀數就是 I = U / R ≈ 9 mA，萬用表量的是電阻兩端的電壓。	A 9 V battery, a 1 kΩ resistor and an ammeter form one loop. The ammeter shows I = U / R ≈ 9 mA; the multimeter reads the voltage across the resistor.
+ex.A1.try	把 R1 改成 470Ω 或 2.2kΩ，看电流怎么变；算一下和读数对不对得上。	把 R1 改成 470Ω 或 2.2kΩ，看電流怎麼變；算一下和讀數對不對得上。	Change R1 to 470 Ω or 2.2 kΩ and watch the current. Does it match your calculation?
+ex.A1.learn	电流 = 电压 ÷ 电阻；电流表要串在电路里，电压表要并在元件两端。	電流 = 電壓 ÷ 電阻；電流表要串在電路里，電壓表要並在元件兩端。	Current = voltage ÷ resistance. An ammeter goes in series, a voltmeter goes across the part.
+ex.A2.intro	LED 正向压降约 2V，剩下的 3V 落在电阻上：(5 − 2) / 330 ≈ 9 mA，正好够亮。	LED 正向壓降約 2V，剩下的 3V 落在電阻上：(5 − 2) / 330 ≈ 9 mA，正好夠亮。	The LED drops about 2 V, the other 3 V sits on the resistor: (5 − 2) / 330 ≈ 9 mA, plenty bright.
+ex.A2.try	把 R1 改成 100Ω（更亮、更热）或 10kΩ（很暗）；再试试把 LED 反过来接。	把 R1 改成 100Ω（更亮、更熱）或 10kΩ（很暗）；再試試把 LED 反過來接。	Try 100 Ω (brighter, hotter) or 10 kΩ (dim). Then flip the LED around.
+ex.A2.learn	LED 必须串限流电阻：R = (电源 − LED 压降) / 想要的电流。	LED 必須串限流電阻：R = (電源 − LED 壓降) / 想要的電流。	Always add a series resistor: R = (supply − LED drop) / desired current.
+ex.A3.intro	上面两个 1kΩ 串联，总电阻 2kΩ，电流减半；下面两个并联，总电阻 500Ω，电流加倍。	上面兩個 1kΩ 串聯，總電阻 2kΩ，電流減半；下面兩個並聯，總電阻 500Ω，電流加倍。	Two 1 kΩ in series make 2 kΩ, so the current halves; two in parallel make 500 Ω, so it doubles.
+ex.A3.try	把鼠标停在每个电阻上看电流和电压，比较串联和并联的分配方式。	把滑鼠停在每個電阻上看電流和電壓，比較串聯和並聯的分配方式。	Hover each resistor to see its current and voltage and compare the two branches.
+ex.A3.learn	串联电流相同、电压按电阻分；并联电压相同、电流按电阻分。	串聯電流相同、電壓按電阻分；並聯電壓相同、電流按電阻分。	Series parts share the current and split the voltage; parallel parts share the voltage and split the current.
+ex.A4.intro	2kΩ 和 3.3kΩ 把 5V 分成约 3.1V。打开开关接上 1kΩ 负载后，下面等效电阻变小，电压明显下降。	2kΩ 和 3.3kΩ 把 5V 分成約 3.1V。開啟開關接上 1kΩ 負載後，下面等效電阻變小，電壓明顯下降。	2 kΩ and 3.3 kΩ divide 5 V down to about 3.1 V. Switch on the 1 kΩ load and the lower half's resistance drops, so the voltage sags.
+ex.A4.try	拨动开关看万用表；把两个电阻都换成小 10 倍的值，再接负载对比。	撥動開關看萬用表；把兩個電阻都換成小 10 倍的值，再接負載對比。	Flip the switch and watch the meter. Then make both resistors 10× smaller and compare.
+ex.A4.learn	分压只适合给高阻输入（ADC、运放）用，不能当电源给负载供电。	分壓只適合給高阻輸入（ADC、運放）用，不能當電源給負載供電。	A divider is fine for high-impedance inputs (ADC, op-amp), not for powering a load.
+ex.A5.intro	电位器的中间脚（滑片）在两端之间移动。这里用它的一端和滑片当可变电阻，改变 LED 的电流。	電位器的中間腳（滑片）在兩端之間移動。這裡用它的一端和滑片當可變電阻，改變 LED 的電流。	The middle pin (wiper) slides between the two ends. One end plus the wiper act as a variable resistor in series with the LED.
+ex.A5.try	选中电位器，用滚轮转动，看 LED 亮度和电流的变化。	選中電位器，用滾輪轉動，看 LED 亮度和電流的變化。	Select the potentiometer and scroll to turn it; watch the brightness and current.
+ex.A5.learn	电位器三个脚：两端是固定总阻值，中间脚是可调的分点。	電位器三個腳：兩端是固定總阻值，中間腳是可調的分點。	A pot has three pins: the ends span the full resistance, the wiper is the adjustable tap.
+ex.A6.intro	按键串在回路里，按下才接通。开关放在电阻前面还是 LED 后面，效果都一样。	按鍵串在迴路裡，按下才接通。開關放在電阻前面還是 LED 後面，效果都一樣。	The button is in series; the loop only closes while it's pressed. Before the resistor or after the LED makes no difference.
+ex.A6.try	按住按键看 LED；把按键挪到 LED 负极和地之间再试。	按住按鍵看 LED；把按鍵挪到 LED 負極和地之間再試。	Hold the button. Then move it between the LED and ground and try again.
+ex.A6.learn	串联回路里任何一处断开，整个回路就没有电流。	串聯迴路裡任何一處斷開，整個迴路就沒有電流。	Break a series loop anywhere and no current flows anywhere.
+ex.A7.intro	上面二极管正接，导通，压降约 0.7V；下面反接，几乎没有电流。	上面二極體正接，導通，壓降約 0.7V；下面反接，幾乎沒有電流。	The top diode is forward-biased and conducts with about 0.7 V across it; the bottom one is reversed and blocks.
+ex.A7.try	把万用表挪到下面那个二极管两端；把电源调到 1V、0.5V 看导通情况。	把萬用表挪到下面那個二極體兩端；把電源調到 1V、0.5V 看導通情況。	Move the meter to the lower diode. Lower the supply to 1 V and 0.5 V.
+ex.A7.learn	二极管只让电流从 A（阳极）流向 K（阴极），硅管导通压降约 0.7V。	二極體只讓電流從 A（陽極）流向 K（陰極），矽管導通壓降約 0.7V。	A diode only passes current from A (anode) to K (cathode); a silicon diode drops about 0.7 V.
+ex.A8.intro	9V 经过 470Ω 接到 5.1V 稳压管，多出来的电压落在电阻上，输出稳在 5.1V 左右。	9V 經過 470Ω 接到 5.1V 穩壓管，多出來的電壓落在電阻上，輸出穩在 5.1V 左右。	9 V feeds a 5.1 V Zener through 470 Ω. The extra voltage drops on the resistor and the output stays near 5.1 V.
+ex.A8.try	把电源从 7V 调到 12V，看输出电压几乎不变，而稳压管的电流在变。	把電源從 7V 調到 12V，看輸出電壓幾乎不變，而穩壓管的電流在變。	Sweep the supply from 7 V to 12 V: the output barely moves while the Zener current changes.
+ex.A8.learn	稳压管反向工作，靠串联电阻吸收多余电压；电流太大会烧。	穩壓管反向工作，靠串聯電阻吸收多餘電壓；電流太大會燒。	A Zener works reverse-biased; the series resistor takes up the difference. Too much current burns it.
+ex.A9.intro	按住按键给 1000µF 电容充电，松开后电容通过 LED 放电，LED 慢慢变暗。示波器探针看到充放电曲线。	按住按鍵給 1000µF 電容充電，鬆開後電容透過 LED 放電，LED 慢慢變暗。示波器探針看到充放電曲線。	Holding the button charges the 1000 µF capacitor; let go and it discharges through the LED, which fades slowly. The probe shows the curve.
+ex.A9.try	打开底部示波器，按一下松开看曲线；把电容改成 100µF 比较时间。	開啟底部示波器，按一下鬆開看曲線；把電容改成 100µF 比較時間。	Open the scope at the bottom, press and release. Try 100 µF and compare.
+ex.A9.learn	时间常数 τ = R × C，约 5τ 充满或放完。	時間常數 τ = R × C，約 5τ 充滿或放完。	Time constant τ = R × C; about 5τ to fully charge or discharge.
+ex.A10.intro	光敏电阻和 10kΩ 分压：天黑时光敏电阻阻值变大，中点电压升高，三极管导通点亮 LED。	光敏電阻和 10kΩ 分壓：天黑時光敏電阻阻值變大，中點電壓升高，三極體導通點亮 LED。	The LDR and 10 kΩ form a divider. In the dark the LDR's resistance rises, the midpoint goes up and the transistor turns the LED on.
+ex.A10.try	选中光敏电阻，把光照从 5 lux 调到 500 lux，看灯什么时候灭。	選中光敏電阻，把光照從 5 lux 調到 500 lux，看燈什麼時候滅。	Select the LDR and raise the light from 5 to 500 lux. When does the lamp switch off?
+ex.A10.learn	传感器常常先变成电压，再用三极管或比较器去控制负载。	感測器常常先變成電壓，再用三極體或比較器去控制負載。	Sensors usually become a voltage first; a transistor or comparator then drives the load.
+ex.B1.intro	开关接通后，1kΩ 给基极约 4mA 电流，三极管饱和，集电极几乎接地，LED 点亮。	開關接通後，1kΩ 給基極約 4mA 電流，三極體飽和，集電極幾乎接地，LED 點亮。	With the switch on, 1 kΩ gives about 4 mA into the base, the transistor saturates and pulls the LED's cathode to ground.
+ex.B1.try	拨动开关；把基极电阻改成 100kΩ，看 LED 为什么变暗。	撥動開關；把基極電阻改成 100kΩ，看 LED 為什麼變暗。	Flip the switch. Then make the base resistor 100 kΩ and see why the LED dims.
+ex.B1.learn	基极电阻要让 Ib 足够大（Ic / β 的几倍），三极管才会饱和，Vce 才小。	基極電阻要讓 Ib 足夠大（Ic / β 的幾倍），三極體才會飽和，Vce 才小。	Give the base a few times Ic / β so the transistor saturates and Vce stays small.
+ex.B2.intro	电位器调基极电流，两个电流表分别读 Ib 和 Ic。电流小时 Ic ≈ β × Ib（放大区），再大就饱和。	電位器調基極電流，兩個電流表分別讀 Ib 和 Ic。電流小時 Ic ≈ β × Ib（放大區），再大就飽和。	The pot sets the base current; the two ammeters read Ib and Ic. At low current Ic ≈ β × Ib (active region); push further and it saturates.
+ex.B2.try	慢慢转电位器，记下几组 Ib、Ic，看比例什么时候不再成立；点三极管看它在哪个区。	慢慢轉電位器，記下幾組 Ib、Ic，看比例什麼時候不再成立；點三極體看它在哪個區。	Turn the pot slowly, note a few Ib / Ic pairs and see where the ratio stops holding. Click the transistor to see its region.
+ex.B2.learn	三个工作区：截止（Ib≈0）、放大（Ic=β·Ib）、饱和（Vce 很小）。	三個工作區：截止（Ib≈0）、放大（Ic=β·Ib）、飽和（Vce 很小）。	Three regions: cut-off (Ib ≈ 0), active (Ic = β·Ib), saturation (Vce small).
+ex.B3.intro	有源蜂鸣器要 20~30mA，单片机 IO 推不动，用三极管放大一下。按下按键就响。	有源蜂鳴器要 20~30mA，微控制器 IO 推不動，用三極體放大一下。按下按鍵就響。	An active buzzer wants 20–30 mA, more than an IO pin should give, so a transistor switches it.
+ex.B3.try	按住按键；看三极管和蜂鸣器的电流。	按住按鍵；看三極體和蜂鳴器的電流。	Hold the button and look at the transistor and buzzer currents.
+ex.B3.learn	IO 口电流不够时，用三极管或 MOS 管当开关。	IO 口電流不夠時，用三極體或 MOS 管當開關。	When a pin can't supply enough current, switch the load with a transistor or MOSFET.
+ex.B4.intro	继电器线圈是电感，断电瞬间会产生很高的反向电压。并联的二极管把它泄放掉，保护三极管。	繼電器線圈是電感，斷電瞬間會產生很高的反向電壓。並聯的二極體把它洩放掉，保護三極體。	The relay coil is an inductor; switching it off creates a high reverse spike. The diode across it absorbs the spike and protects the transistor.
+ex.B4.try	开关几次后删掉 D1 再试，看三极管 C 极的电压尖峰和会不会烧。	開關幾次後刪掉 D1 再試，看三極體 C 極的電壓尖峰和會不會燒。	Toggle a few times, then delete D1 and try again. Watch the collector spike.
+ex.B4.learn	驱动继电器、电机等感性负载一定要加续流二极管。	驅動繼電器、電機等感性負載一定要加續流二極體。	Always put a flyback diode across relays, motors and other inductive loads.
+ex.B5.intro	PNP 管放在正电源一侧（高边），基极拉低才导通。适合开关「负载接地」的电路。	PNP 管放在正電源一側（高邊），基極拉低才導通。適合開關「負載接地」的電路。	A PNP sits on the positive side (high side) and turns on when its base is pulled low. Good when the load must stay grounded.
+ex.B5.try	拨动开关看 LED；和 B1 的 NPN 低边开关对比位置。	撥動開關看 LED；和 B1 的 NPN 低邊開關對比位置。	Flip the switch and compare with the NPN low-side switch in B1.
+ex.B5.learn	NPN 放低边（负载下面），PNP 放高边（负载上面）。	NPN 放低邊（負載下面），PNP 放高邊（負載上面）。	NPN goes on the low side, PNP on the high side.
+ex.B6.intro	N-MOS 栅极给高电平导通，电机转。10kΩ 下拉保证 IO 悬空时 MOS 关断，二极管给电机续流。	N-MOS 柵極給高電平導通，電機轉。10kΩ 下拉保證 IO 懸空時 MOS 關斷，二極體給電機續流。	A high gate turns the N-MOSFET on and the motor runs. The 10 kΩ pull-down keeps it off when the pin floats; the diode catches the motor's spike.
+ex.B6.try	拨开关；删掉下拉电阻，开关断开后看栅极电压是不是还留着。	撥開關；刪掉下拉電阻，開關斷開後看柵極電壓是不是還留著。	Flip the switch. Remove the pull-down and see whether the gate voltage lingers after switching off.
+ex.B6.learn	MOS 是电压控制，栅极要有下拉，感性负载要续流二极管。	MOS 是電壓控制，柵極要有下拉，感性負載要續流二極體。	MOSFETs are voltage-driven: add a gate pull-down, and a flyback diode for inductive loads.
+ex.B7.intro	P-MOS 放在电源正极，栅极被 10kΩ 上拉时关断。NPN 把栅极拉低，P-MOS 导通，后面的电路就有电了。	P-MOS 放在電源正極，柵極被 10kΩ 上拉時關斷。NPN 把柵極拉低，P-MOS 導通，後面的電路就有電了。	The P-MOSFET sits in the positive rail and is held off by the 10 kΩ pull-up. The NPN pulls its gate low, it turns on, and the downstream circuit gets power.
+ex.B7.try	拨开关看 LED；把 Q1 换成 IRF9540N 看压降变化。	撥開關看 LED；把 Q1 換成 IRF9540N 看壓降變化。	Flip the switch and watch the LED. Swap Q1 for IRF9540N and compare the drop.
+ex.B7.learn	用一个小 NPN 去控制 P-MOS，单片机就能开关一整路电源。	用一個小 NPN 去控制 P-MOS，微控制器就能開關一整路電源。	A small NPN driving a P-MOSFET lets an MCU switch a whole supply rail.
+ex.B8.intro	两个 MOS 都用 3.3V 驱动：IRF540N 要 10V 才完全导通，3.3V 下只半导通，灯暗、管子发热；IRLZ44N 是逻辑电平管，完全导通。	兩個 MOS 都用 3.3V 驅動：IRF540N 要 10V 才完全導通，3.3V 下只半導通，燈暗、管子發熱；IRLZ44N 是邏輯電平管，完全導通。	Both MOSFETs get 3.3 V on the gate. IRF540N needs about 10 V to fully turn on, so it half-conducts, the lamp is dim and the part heats up; the logic-level IRLZ44N is fully on.
+ex.B8.try	比较两只 MOS 的功率和温度；把 P2 调到 10V 再看。	比較兩隻 MOS 的功率和溫度；把 P2 調到 10V 再看。	Compare the power and temperature of both. Raise P2 to 10 V.
+ex.B8.learn	3.3V / 5V 单片机要选「逻辑电平」MOS（看 Vgs(th) 和 Rds(on) 在 4.5V / 2.5V 的值）。	3.3V / 5V 微控制器要選「邏輯電平」MOS（看 Vgs(th) 和 Rds(on) 在 4.5V / 2.5V 的值）。	For 3.3 V / 5 V MCUs pick a logic-level MOSFET (check Rds(on) at 4.5 V or 2.5 V).
+ex.B9.intro	电池正接时，P-MOS 的体二极管先导通，栅极被拉低后整个管子导通，压降很小；电池接反时栅极为正，MOS 关断，后面的电路不受伤。	電池正接時，P-MOS 的體二極體先導通，柵極被拉低後整個管子導通，壓降很小；電池接反時柵極為正，MOS 關斷，後面的電路不受傷。	With the battery the right way, the body diode conducts first, the gate goes low and the MOSFET turns fully on with a tiny drop. Reversed, the gate is positive and it stays off, protecting the circuit.
+ex.B9.try	选中电池旋转两次（接反），看 LED 和电流。	選中電池旋轉兩次（接反），看 LED 和電流。	Rotate the battery twice (reverse it) and watch the LED and current.
+ex.B9.learn	P-MOS 防反接比二极管压降小得多，适合电池供电。	P-MOS 防反接比二極體壓降小得多，適合電池供電。	P-MOSFET reverse protection drops far less voltage than a diode; great for batteries.
+ex.B10.intro	USB 和电池各经过一个二极管接到负载，谁电压高谁供电。肖特基管 SS34 压降只有约 0.3V，1N4007 约 0.7V。	USB 和電池各經過一個二極體接到負載，誰電壓高誰供電。肖特基管 SS34 壓降只有約 0.3V，1N4007 約 0.7V。	USB and the battery each feed the load through a diode; whichever is higher supplies it. The SS34 Schottky drops about 0.3 V, the 1N4007 about 0.7 V.
+ex.B10.try	看两个二极管的电流；把 USB 断电（删掉 P1 的线）看电池接管。	看兩個二極體的電流；把 USB 斷電（刪掉 P1 的線）看電池接管。	Compare the two diode currents. Disconnect the USB and watch the battery take over.
+ex.B10.learn	二极管「或」电路可以做双电源自动切换；肖特基管压降小、发热少。	二極體「或」電路可以做雙電源自動切換；肖特基管壓降小、發熱少。	Diode OR-ing switches between two supplies automatically; Schottky diodes drop less and run cooler.
+ex.B11.intro	按键点亮光耦里的 LED，光照让另一侧的光敏三极管导通。两边的电源完全分开，不共地。	按鍵點亮光耦裡的 LED，光照讓另一側的光敏三極體導通。兩邊的電源完全分開，不共地。	The button lights the LED inside the optocoupler; the light turns on the phototransistor on the other side. The two supplies share no ground.
+ex.B11.try	按住按键看右边的 LED；注意两边的地没有连在一起。	按住按鍵看右邊的 LED；注意兩邊的地沒有連在一起。	Hold the button and watch the right-hand LED. Note that the grounds are separate.
+ex.B11.learn	光耦用光传信号，常用于强弱电隔离、不同地之间通信。	光耦用光傳訊號，常用於強弱電隔離、不同地之間通訊。	An optocoupler passes signals with light; used for isolation and between different grounds.
+ex.B12.intro	经典 BSS138 / 2N7002 双向电平转换：低压侧 3.3V、高压侧 5V，任意一侧拉低，另一侧也跟着变低。	經典 BSS138 / 2N7002 雙向電平轉換：低壓側 3.3V、高壓側 5V，任意一側拉低，另一側也跟著變低。	The classic BSS138 / 2N7002 bidirectional shifter: 3.3 V on one side, 5 V on the other. Pull either side low and the other follows.
+ex.B12.try	按住按键（拉低 5V 侧），看两只万用表都变低；松开都回到各自的高电平。	按住按鍵（拉低 5V 側），看兩隻萬用表都變低；鬆開都回到各自的高電平。	Hold the button (pulls the 5 V side low): both meters drop. Release and each returns to its own high level.
+ex.B12.learn	I2C 等开漏总线可以用一只 N-MOS + 两个上拉电阻做 3.3V / 5V 双向转换。	I2C 等開漏匯流排可以用一隻 N-MOS + 兩個上拉電阻做 3.3V / 5V 雙向轉換。	Open-drain buses like I2C can be level-shifted with one N-MOSFET and two pull-ups.
+ex.C1.intro	555 无稳态振荡：电容通过 RA+RB 充电、通过 RB 放电，输出方波，LED 闪烁。f ≈ 1.44 / ((RA + 2RB) × C)。	555 無穩態振盪：電容透過 RA+RB 充電、透過 RB 放電，輸出方波，LED 閃爍。f ≈ 1.44 / ((RA + 2RB) × C)。	A 555 astable: the capacitor charges through RA + RB and discharges through RB, giving a square wave that blinks the LED. f ≈ 1.44 / ((RA + 2RB) × C).
+ex.C1.try	打开示波器看 OUT 的方波；把 C1 改成 1µF，频率变成多少？	開啟示波器看 OUT 的方波；把 C1 改成 1µF，頻率變成多少？	Open the scope on OUT. Change C1 to 1 µF; what's the new frequency?
+ex.C1.learn	改电阻电容就能改频率和占空比。	改電阻電容就能改頻率和佔空比。	Resistors and the capacitor set the frequency and duty cycle.
+ex.C2.intro	按键把 TRIG 拉低，555 输出变高，电容开始充电；充到 2/3 VCC 时输出变低。亮的时间 ≈ 1.1 × R × C。	按鍵把 TRIG 拉低，555 輸出變高，電容開始充電；充到 2/3 VCC 時輸出變低。亮的時間 ≈ 1.1 × R × C。	The button pulls TRIG low, the output goes high and the capacitor charges; at 2/3 VCC the output drops. On time ≈ 1.1 × R × C.
+ex.C2.try	按一下按键，数一数 LED 亮了几秒；把 RT 改成 47kΩ 再试。	按一下按鍵，數一數 LED 亮了幾秒；把 RT 改成 47kΩ 再試。	Press once and count the seconds. Try RT = 47 kΩ.
+ex.C2.learn	单稳态：触发一次，输出固定时间的高电平。	單穩態：觸發一次，輸出固定時間的高電平。	Monostable: one trigger, one fixed-length pulse.
+ex.C3.intro	运放当比较器：IN+ 是光敏分压，IN− 是电位器设的门限。光线一暗，IN+ 超过门限，输出变高点亮 LED。	運放當比較器：IN+ 是光敏分壓，IN− 是電位器設的門限。光線一暗，IN+ 超過門限，輸出變高點亮 LED。	The op-amp works as a comparator: IN+ is the LDR divider, IN− is the threshold from the pot. When it gets dark IN+ crosses the threshold and the output goes high.
+ex.C3.try	调光照和电位器，找到切换点；看输出电压是不是只有高低两种。	調光照和電位器，找到切換點；看輸出電壓是不是隻有高低兩種。	Adjust the light and the pot to find the switching point; the output only has two levels.
+ex.C3.learn	比较器把连续变化的模拟量变成开 / 关。	比較器把連續變化的模擬量變成開 / 關。	A comparator turns a continuous analog value into on / off.
+ex.C4.intro	两个 100kΩ 分压后直接接 1kΩ 负载，电压会被拉低很多；中间加一个电压跟随器，输出电压等于输入，还能带负载。	兩個 100kΩ 分壓後直接接 1kΩ 負載，電壓會被拉低很多；中間加一個電壓跟隨器，輸出電壓等於輸入，還能帶負載。	A 100 kΩ / 100 kΩ divider would collapse under a 1 kΩ load; a voltage follower copies the voltage and drives the load.
+ex.C4.try	删掉运放，把 RL 直接接分压中点，比较电压。	刪掉運放，把 RL 直接接分壓中點，比較電壓。	Remove the op-amp, hang RL straight on the divider and compare.
+ex.C4.learn	跟随器输入阻抗高、输出阻抗低，用来「隔开」信号源和负载。	跟隨器輸入阻抗高、輸出阻抗低，用來「隔開」訊號源和負載。	A follower has high input impedance and low output impedance: it buffers the source from the load.
+ex.C5.intro	1kHz、30% 占空比的方波经过 RC 低通滤波，变成约 1.5V 的平滑电压，示波器上能看到小纹波。	1kHz、30% 佔空比的方波經過 RC 低通濾波，變成約 1.5V 的平滑電壓，示波器上能看到小紋波。	A 1 kHz, 30 % square wave through an RC low-pass becomes a smooth ~1.5 V with a little ripple on the scope.
+ex.C5.try	调信号源的占空比，看平均电压；把电容改成 100nF，纹波变大。	調訊號源的佔空比，看平均電壓；把電容改成 100nF，紋波變大。	Change the duty cycle and watch the average. Use 100 nF and the ripple grows.
+ex.C5.learn	PWM + RC 滤波就是最简单的 DAC：平均电压 = 幅度 × 占空比。	PWM + RC 濾波就是最簡單的 DAC：平均電壓 = 幅度 × 佔空比。	PWM plus an RC filter is the simplest DAC: average = amplitude × duty.
+ex.C6.intro	整流桥把交流的负半周翻上来，电解电容在波峰之间供电，变成直流。负载电流越大、电容越小，纹波越大。	整流橋把交流的負半周翻上來，電解電容在波峰之間供電，變成直流。負載電流越大、電容越小，紋波越大。	The bridge flips the negative half-cycles up and the capacitor carries the load between peaks. More load or less capacitance means more ripple.
+ex.C6.try	把电容改成 47µF 看纹波；把负载改成 100Ω。	把電容改成 47µF 看紋波；把負載改成 100Ω。	Try 47 µF and watch the ripple. Make the load 100 Ω.
+ex.C6.learn	整流 + 滤波电容 = 最简单的直流电源，纹波 ≈ I / (2·f·C)。	整流 + 濾波電容 = 最簡單的直流電源，紋波 ≈ I / (2·f·C)。	Rectifier plus capacitor is the simplest DC supply; ripple ≈ I / (2·f·C).
+ex.D1.intro	D13 每 500ms 翻转一次，经过 330Ω 点亮 LED。	D13 每 500ms 翻轉一次，經過 330Ω 點亮 LED。	D13 toggles every 500 ms and lights the LED through 330 Ω.
+ex.D1.try	在右侧单片机设置里把闪烁间隔改成 100ms；点「生成代码」看 Arduino 代码。	在右側微控制器設定裡把閃爍間隔改成 100ms；點「生成程式碼」看 Arduino 程式碼。	Change the blink interval to 100 ms in the MCU panel on the right; click Generate code to see the Arduino sketch.
+ex.D1.learn	GPIO 输出高电平就是给外部电路供电。	GPIO 輸出高電平就是給外部電路供電。	A GPIO output driven high sources current into the circuit.
+ex.D2.intro	D4~D7 依次点亮，每个 200ms，形成流水灯。	D4~D7 依次點亮，每個 200ms，形成流水燈。	D4 to D7 light one after another for 200 ms each.
+ex.D2.try	把间隔改成 80ms；再加一个 LED 接 D8 放进同一组。	把間隔改成 80ms；再加一個 LED 接 D8 放進同一組。	Make it 80 ms. Add a fifth LED on D8 in the same group.
+ex.D2.learn	流水灯就是多个 IO 按顺序轮流输出。	流水燈就是多個 IO 按順序輪流輸出。	Running lights are just several outputs taking turns.
+ex.D3.intro	D2 设为上拉输入，按键按下时接地变低（下降沿），每按一下 D13 翻转一次。	D2 設為上拉輸入，按鍵按下時接地變低（下降沿），每按一下 D13 翻轉一次。	D2 is an input with pull-up; pressing the button grounds it (falling edge) and D13 toggles.
+ex.D3.try	打开逻辑分析仪看 D2 的按键抖动；把规则改成「一直按住才亮」。	開啟邏輯分析儀看 D2 的按鍵抖動；把規則改成「一直按住才亮」。	Use the logic analyser on D2 to see bounce. Change the rule to light only while held.
+ex.D3.learn	按键常用「上拉 + 接地」，按下为低电平；机械按键会抖动。	按鍵常用「上拉 + 接地」，按下為低電平；機械按鍵會抖動。	Buttons usually use a pull-up to ground: pressed = low. Mechanical contacts bounce.
+ex.D4.intro	D9 用 PWM 输出，占空比在 0~100% 之间来回变，LED 像呼吸一样渐亮渐暗。	D9 用 PWM 輸出，佔空比在 0~100% 之間來回變，LED 像呼吸一樣漸亮漸暗。	D9 outputs PWM whose duty cycle sweeps 0–100 % and back, so the LED breathes.
+ex.D4.try	把周期改成 4000ms；用示波器看 D9 的波形。	把週期改成 4000ms；用示波器看 D9 的波形。	Make the period 4000 ms and look at D9 on the scope.
+ex.D4.learn	PWM 用快速开关的占空比控制平均功率。	PWM 用快速開關的佔空比控制平均功率。	PWM controls average power with the duty cycle of fast switching.
+ex.D5.intro	电位器把 0~5V 送到 A0，每 500ms 读一次 ADC 打印出来。Uno 是 10 位 ADC，0~1023。	電位器把 0~5V 送到 A0，每 500ms 讀一次 ADC 列印出來。Uno 是 10 位 ADC，0~1023。	The pot feeds 0–5 V into A0; every 500 ms the ADC value is printed. The Uno's ADC is 10-bit, 0–1023.
+ex.D5.try	在 QCCOM 调试页打开仿真串口 SIM:U1 看打印；转动电位器。	在 QCCOM 除錯頁開啟模擬串列埠 SIM:U1 看列印；轉動電位器。	Open the simulated port SIM:U1 on the debug page and turn the pot.
+ex.D5.learn	ADC 把电压变成数字：读数 = 电压 / 参考电压 × 1023。	ADC 把電壓變成數字：讀數 = 電壓 / 參考電壓 × 1023。	An ADC turns a voltage into a number: reading = V / Vref × 1023.
+ex.D6.intro	Uno 的 TX（D1）接 USB 转 TTL 的 RXD，地接地。在 QCCOM 的串口列表里打开 SIM:T1 就能看到每秒一行 Hello。	Uno 的 TX（D1）接 USB 轉 TTL 的 RXD，地接地。在 QCCOM 的串列埠列表裡開啟 SIM:T1 就能看到每秒一行 Hello。	The Uno's TX (D1) goes to the adapter's RXD and the grounds are joined. Open SIM:T1 in QCCOM's port list and a Hello line arrives every second.
+ex.D6.try	在调试页打开 SIM:T1，波特率选 115200；再故意选 9600 看乱码。	在除錯頁開啟 SIM:T1，波特率選 115200；再故意選 9600 看亂碼。	Open SIM:T1 at 115200, then try 9600 and see the garbage.
+ex.D6.learn	串口要交叉接（TX→RX）、共地、波特率一致。	串列埠要交叉接（TX→RX）、共地、波特率一致。	Serial needs crossed lines (TX → RX), a common ground and matching baud rates.
+ex.D7.intro	在 QCCOM 打开 SIM:U1，发送 ON 或 OFF（带换行），单片机收到后控制 LED 并回一句话。	在 QCCOM 開啟 SIM:U1，傳送 ON 或 OFF（帶換行），微控制器收到後控制 LED 並回一句話。	Open SIM:U1 in QCCOM and send ON or OFF (with a newline); the board switches the LED and replies.
+ex.D7.try	把快捷命令里加两条 ON / OFF 一键发送。	把快捷命令里加兩條 ON / OFF 一鍵傳送。	Add ON / OFF as quick commands for one-click sending.
+ex.D7.learn	串口命令是调试和控制设备最常用的方式。	串列埠命令是除錯和控制裝置最常用的方式。	Serial commands are the everyday way to control and debug a device.
+ex.D8.intro	无源蜂鸣器要靠单片机输出方波才响，频率决定音高。这里依次播放 do、mi、sol。	無源蜂鳴器要靠微控制器輸出方波才響，頻率決定音高。這裡依次播放 do、mi、sol。	A passive buzzer only sounds when driven with a square wave; the frequency sets the pitch. Here it plays C, E, G.
+ex.D8.try	把频率改成 262、294、330 试试；用示波器看 D8。	把頻率改成 262、294、330 試試；用示波器看 D8。	Try 262, 294 and 330 Hz. Look at D8 on the scope.
+ex.D8.learn	有源蜂鸣器给电就响一个固定音；无源蜂鸣器能放不同音调。	有源蜂鳴器給電就響一個固定音；無源蜂鳴器能放不同音調。	Active buzzers beep one tone on DC; passive ones play any pitch.
+ex.D9.intro	共阴数码管：COM 经电阻接地，a~g 哪段给高电平哪段亮。每秒显示的数字加 1。	共陰數碼管：COM 經電阻接地，a~g 哪段給高電平哪段亮。每秒顯示的數字加 1。	Common-cathode display: COM goes to ground through a resistor, and each segment a–g lights when its pin is high. The digit counts up every second.
+ex.D9.try	把数码管改成共阳（ca），想想 COM 和规则要怎么改。	把數碼管改成共陽（ca），想想 COM 和規則要怎麼改。	Switch the display to common anode (ca); what must change in the wiring and rules?
+ex.D9.learn	段码就是每个数字对应哪几段亮。	段碼就是每個數字對應哪幾段亮。	Segment codes map each digit to the segments that light.
+ex.D10.intro	3 根线（数据 SER、时钟 SRCLK、锁存 RCLK）控制 8 路输出。每次把一个字节移进去再锁存，LED 显示二进制计数。	3 根線（資料 SER、時鐘 SRCLK、鎖存 RCLK）控制 8 路輸出。每次把一個位元組移進去再鎖存，LED 顯示二進位制計數。	Three wires (SER data, SRCLK clock, RCLK latch) drive eight outputs. Each byte is shifted in and latched, so the LEDs count in binary.
+ex.D10.try	用逻辑分析仪看三根线的时序；数一数 LED 的二进制。	用邏輯分析儀看三根線的時序；數一數 LED 的二進位制。	Watch the three lines on the logic analyser and read the binary count.
+ex.D10.learn	74HC595 用串行转并行，几根 IO 就能扩展很多输出。	74HC595 用序列轉並行，幾根 IO 就能擴充套件很多輸出。	A 74HC595 turns serial into parallel and expands outputs with a few pins.
+ex.D11.intro	舵机要 50Hz 的 PWM，脉宽 0.5~2.5ms 对应 0~180°。电位器读 ADC，换算成角度。	舵機要 50Hz 的 PWM，脈寬 0.5~2.5ms 對應 0~180°。電位器讀 ADC，換算成角度。	A servo wants 50 Hz PWM; a 0.5–2.5 ms pulse maps to 0–180°. The pot is read by the ADC and turned into an angle.
+ex.D11.try	转电位器看舵机臂；示波器看 D9 的脉宽变化。	轉電位器看舵機臂；示波器看 D9 的脈寬變化。	Turn the pot and watch the arm; look at the pulse width on the scope.
+ex.D11.learn	舵机角度由脉宽决定，不是占空比。	舵機角度由脈寬決定，不是佔空比。	Servo angle is set by pulse width, not duty cycle.
+ex.D12.intro	继电器模块自带三极管和续流二极管，IO 口直接控制 IN。触点那一侧单独接电池和灯泡（这里只仿真低压）。	繼電器模組自帶三極體和續流二極體，IO 口直接控制 IN。觸點那一側單獨接電池和燈泡（這裡只模擬低壓）。	A relay module already has a transistor and flyback diode, so the IO pin drives IN directly. The contacts switch a separate battery and lamp (low voltage only here).
+ex.D12.try	听继电器「咔哒」，看灯泡；把 trig 改成 low 比较。	聽繼電器「咔噠」，看燈泡；把 trig 改成 low 比較。	Watch the lamp follow the relay. Change trig to low and compare.
+ex.D12.learn	继电器用小电流控制另一路电，两边电气隔离。	繼電器用小電流控制另一路電，兩邊電氣隔離。	A relay lets a small current switch a separate circuit, with isolation between them.
+ex.E1.intro	OLED 用 I2C，只要 4 根线：VCC、GND、SCL、SDA。地址 0x3C。屏上显示文字和运行时间。	OLED 用 I2C，只要 4 根線：VCC、GND、SCL、SDA。地址 0x3C。屏上顯示文字和執行時間。	The OLED uses I2C, just four wires: VCC, GND, SCL, SDA. Address 0x3C. It shows text and the uptime.
+ex.E1.try	把文字改成你的名字；把屏的地址改成 0x3D，看会怎样。	把文字改成你的名字；把屏的地址改成 0x3D，看會怎樣。	Put your name on it. Change the screen address to 0x3D and see what happens.
+ex.E1.learn	I2C 两根线挂多个设备，靠地址区分。	I2C 兩根線掛多個裝置，靠地址區分。	I2C shares two wires among many devices, told apart by address.
+ex.E2.intro	LCD1602 背面的 PCF8574 转接板把并口变成 I2C，同样 4 根线。	LCD1602 背面的 PCF8574 轉接板把並口變成 I2C，同樣 4 根線。	The PCF8574 backpack turns the LCD1602's parallel bus into I2C, again four wires.
+ex.E2.try	改显示内容；地址常见 0x27 或 0x3F。	改顯示內容；地址常見 0x27 或 0x3F。	Change the text. Typical addresses are 0x27 and 0x3F.
+ex.E2.learn	转接板能省下很多 IO。	轉接板能省下很多 IO。	An I2C backpack saves a lot of pins.
+ex.E3.intro	DHT11 单总线，每 2 秒读一次温湿度并打印 temp=…,hum=…。在 QCCOM 打开 SIM:U1，用「曲线」就能画出来。	DHT11 單匯流排，每 2 秒讀一次溫溼度並列印 temp=…,hum=…。在 QCCOM 開啟 SIM:U1，用「曲線」就能畫出來。	The DHT11 uses a single data wire. Every 2 s the board prints temp=…,hum=…; open SIM:U1 in QCCOM and use Plot to chart it.
+ex.E3.try	选中 DHT11 改温度，看曲线变化；DHT11 读得太快会失败。	選中 DHT11 改溫度，看曲線變化；DHT11 讀得太快會失敗。	Change the DHT11 temperature and watch the chart. Reading too often fails.
+ex.E3.learn	单总线只用一根数据线，时序由传感器决定。	單匯流排只用一根資料線，時序由感測器決定。	Single-wire sensors use one data line with timing set by the sensor.
+ex.E4.intro	TRIG 给 10µs 脉冲，ECHO 返回的高电平宽度和距离成正比：距离 = 时间 × 340 m/s / 2。	TRIG 給 10µs 脈衝，ECHO 返回的高電平寬度和距離成正比：距離 = 時間 × 340 m/s / 2。	TRIG gets a 10 µs pulse and ECHO stays high for a time proportional to distance: d = t × 340 m/s / 2.
+ex.E4.try	改 HC-SR04 的距离；用示波器看 ECHO 的脉宽。	改 HC-SR04 的距離；用示波器看 ECHO 的脈寬。	Change the distance and look at ECHO's pulse width on the scope.
+ex.E4.learn	超声波测距靠测回波时间，ECHO 是 5V，接 3.3V 板要分压。	超聲波測距靠測回波時間，ECHO 是 5V，接 3.3V 板要分壓。	Ultrasonic ranging measures echo time. ECHO is 5 V; divide it for 3.3 V boards.
+ex.E5.intro	TB6612 是 H 桥：AIN1、AIN2 决定转向，PWMA 决定速度，STBY 要拉高。每 2 秒换一次方向。	TB6612 是 H 橋：AIN1、AIN2 決定轉向，PWMA 決定速度，STBY 要拉高。每 2 秒換一次方向。	The TB6612 is an H-bridge: AIN1 / AIN2 set direction, PWMA sets speed, STBY must be high. The direction flips every 2 s.
+ex.E5.try	改 D5 的占空比看转速；把 STBY 接地看会怎样。	改 D5 的佔空比看轉速；把 STBY 接地看會怎樣。	Change D5's duty cycle and watch the speed. Ground STBY.
+ex.E5.learn	H 桥用四个开关让电流正反两个方向流过电机。	H 橋用四個開關讓電流正反兩個方向流過電機。	An H-bridge uses four switches to drive current through the motor either way.
+ex.E6.intro	DHT11 读温度，超过 28°C 用 PWM 打开风扇，低于 26°C 关掉。两个门限不同，避免在临界点来回开关。	DHT11 讀溫度，超過 28°C 用 PWM 開啟風扇，低於 26°C 關掉。兩個門限不同，避免在臨界點來回開關。	The DHT11 reads the temperature; above 28 °C the fan runs on PWM, below 26 °C it stops. Two thresholds stop it chattering at the edge.
+ex.E6.try	把 DHT11 的温度从 25 调到 32 再调回来，看风扇。	把 DHT11 的溫度從 25 調到 32 再調回來，看風扇。	Sweep the DHT11 from 25 to 32 °C and back; watch the fan.
+ex.E6.learn	传感器 + MOS + PWM 就是最常见的小控制系统；用回差防抖。	感測器 + MOS + PWM 就是最常見的小控制系統；用回差防抖。	Sensor + MOSFET + PWM is the classic small control loop; hysteresis prevents chatter.
+ex.F1.intro	两边的 TX 接在一起：都在发，没人收。QCCOM 里打开 SIM:T1 什么也收不到。检查面板会报「TX 接 TX」。	兩邊的 TX 接在一起：都在發，沒人收。QCCOM 裡開啟 SIM:T1 什麼也收不到。檢查面板會報「TX 接 TX」。	Both TX pins are joined: both talk, nobody listens. SIM:T1 shows nothing, and the checker reports TX-to-TX.
+ex.F1.try	把 T1 的线从 TXD 挪到 RXD 修好它。	把 T1 的線從 TXD 挪到 RXD 修好它。	Move T1's wire from TXD to RXD to fix it.
+ex.F1.learn	串口要交叉：自己的 TX 接对方的 RX。	串列埠要交叉：自己的 TX 接對方的 RX。	Cross the lines: your TX goes to their RX.
+ex.F2.intro	信号线接了，但地没接，接收端没有参考电平，收到的是乱码或者时有时无。	訊號線接了，但地沒接，接收端沒有參考電平，收到的是亂碼或者時有時無。	The signal wires are there but the grounds aren't joined, so the receiver has no reference: garbage or nothing.
+ex.F2.try	打开 SIM:T1 看现象；补一根 GND 线。	開啟 SIM:T1 看現象；補一根 GND 線。	Open SIM:T1, then add a GND wire.
+ex.F2.learn	任何两个设备之间传信号，都要共地。	任何兩個裝置之間傳訊號，都要共地。	Any two devices exchanging signals need a common ground.
+ex.F3.intro	LED 直接接 5V，没有限流电阻，电流远超 20mA，通电后 LED 立刻烧毁。	LED 直接接 5V，沒有限流電阻，電流遠超 20mA，通電後 LED 立刻燒燬。	The LED goes straight onto 5 V with no resistor; the current shoots far past 20 mA and it burns instantly.
+ex.F3.try	按 F5 通电看结果；修好（右键「修复」）后串一个 330Ω。	按 F5 通電看結果；修好（右鍵「修復」）後串一個 330Ω。	Press F5 to power up. Repair it, then add 330 Ω in series.
+ex.F3.learn	LED 一定要串电阻。	LED 一定要串電阻。	Never connect an LED without a series resistor.
+ex.F4.intro	ESP32 的 IO 是 3.3V，不耐 5V。按键把 5V 直接送到 IO13，引脚会损坏。	ESP32 的 IO 是 3.3V，不耐 5V。按鍵把 5V 直接送到 IO13，引腳會損壞。	ESP32 pins are 3.3 V and not 5 V-tolerant. The button sends 5 V straight into IO13 and damages it.
+ex.F4.try	通电按一下按键；改成接 3V3 或加分压。	通電按一下按鍵；改成接 3V3 或加分壓。	Power up and press. Then feed it from 3V3 or add a divider.
+ex.F4.learn	3.3V 芯片的引脚不能直接接 5V 信号，除非数据手册写明 5V 容忍（FT）。	3.3V 晶片的引腳不能直接接 5V 訊號，除非資料手冊寫明 5V 容忍（FT）。	Don't put 5 V on a 3.3 V pin unless the datasheet says it's 5 V-tolerant (FT).
+ex.F5.intro	继电器线圈要 70mA 左右，IO 口最多 20~40mA，直接驱动吸不上，还可能损坏引脚，断开时也没有续流二极管。	繼電器線圈要 70mA 左右，IO 口最多 20~40mA，直接驅動吸不上，還可能損壞引腳，斷開時也沒有續流二極體。	A relay coil wants about 70 mA; an IO pin gives 20–40 mA at most. It may not pull in, the pin is overloaded, and there's no flyback diode.
+ex.F5.try	通电看 IO 的电流和继电器；改成 B4 那样用三极管驱动。	通電看 IO 的電流和繼電器；改成 B4 那樣用三極體驅動。	Power up and look at the pin current. Rebuild it like B4 with a transistor.
+ex.F5.learn	感性大电流负载不要直接接 IO。	感性大電流負載不要直接接 IO。	Don't drive inductive or high-current loads straight from a pin.
+ex.F6.intro	I2C 是开漏总线，必须有上拉电阻。没有上拉，SCL、SDA 拉不回高电平，读不到传感器（打印 NaN）。	I2C 是開漏匯流排，必須有上拉電阻。沒有上拉，SCL、SDA 拉不回高電平，讀不到感測器（列印 NaN）。	I2C is open-drain and needs pull-ups. Without them SCL and SDA never return high and the sensor can't be read (prints NaN).
+ex.F6.try	通电看串口；在 SCL、SDA 各加一个 4.7kΩ 上拉到 3V3。	通電看串列埠；在 SCL、SDA 各加一個 4.7kΩ 上拉到 3V3。	Power up and read the serial output. Add 4.7 kΩ pull-ups from SCL and SDA to 3V3.
+ex.F6.learn	I2C 两根线都要上拉（模块上常已经带了，要确认）。	I2C 兩根線都要上拉（模組上常已經帶了，要確認）。	Both I2C lines need pull-ups (modules often have them; check).
+ex.F7.intro	电解电容有正负极，接反后漏电流大、发热，严重时会鼓包甚至炸开。	電解電容有正負極，接反後漏電流大、發熱，嚴重時會鼓包甚至炸開。	Electrolytics are polarised. Reversed, they leak, heat up and can bulge or burst.
+ex.F7.try	通电看电容温度和状态；把它转过来接对。	通電看電容溫度和狀態；把它轉過來接對。	Power up and watch the capacitor. Turn it around.
+ex.F7.learn	电解电容的负极（白条那一侧）接低电位。	電解電容的負極（白條那一側）接低電位。	The negative lead (stripe side) of an electrolytic goes to the lower voltage.
+ex.F8.intro	STM32 串口下载要进入 bootloader：BOOT0 接高电平再复位。这里 BOOT0 没处理，下载工具连不上。	STM32 串列埠下載要進入 bootloader：BOOT0 接高電平再復位。這裡 BOOT0 沒處理，下載工具連不上。	Serial flashing an STM32 needs the bootloader: BOOT0 high, then reset. BOOT0 isn't handled here, so the flasher can't connect.
+ex.F8.try	想想 BOOT0 和 NRST 该怎么接；或者用 ST-Link 走 SWD。	想想 BOOT0 和 NRST 該怎麼接；或者用 ST-Link 走 SWD。	Work out how BOOT0 and NRST should be wired, or use an ST-Link over SWD.
+ex.F8.learn	下载失败先查：交叉接线、共地、BOOT0、复位、波特率。	下載失敗先查：交叉接線、共地、BOOT0、復位、波特率。	When flashing fails check: crossed lines, ground, BOOT0, reset, baud rate.
+ex.G1.intro	ST7789 屏用 SPI：SCL 时钟、SDA 数据、CS 片选、DC 区分命令和数据、RES 复位、BLK 背光。	ST7789 屏用 SPI：SCL 時鐘、SDA 資料、CS 片選、DC 區分命令和資料、RES 復位、BLK 背光。	The ST7789 is SPI: SCL clock, SDA data, CS select, DC command / data, RES reset, BLK backlight.
+ex.G1.try	换一张图片；用 v1.8 的「图片转 C 数组」做 RGB565 数据。	換一張圖片；用 v1.8 的「圖片轉 C 陣列」做 RGB565 資料。	Show another picture; use the image-to-C-array tool for RGB565 data.
+ex.G1.learn	SPI 屏比 I2C 快很多，适合显示图片。	SPI 屏比 I2C 快很多，適合顯示圖片。	SPI screens are much faster than I2C and suit images.
+ex.G2.intro	同样的 OLED，I2C 版只要 2 根信号线，SPI 版要 5 根，但刷新快得多。	同樣的 OLED，I2C 版只要 2 根訊號線，SPI 版要 5 根，但重新整理快得多。	The same OLED in I2C needs two signal wires, in SPI five, but refreshes much faster.
+ex.G2.try	比较两块屏的刷新；数一数各自用了几根线。	比較兩塊屏的重新整理；數一數各自用了幾根線。	Compare the refresh rates and count the wires.
+ex.G2.learn	I2C 省线，SPI 快；按需要选。	I2C 省線，SPI 快；按需要選。	I2C saves pins, SPI is faster; pick by need.
+ex.G3.intro	ILI9341 屏和 XPT2046 触摸芯片共用 SPI 的时钟和数据线，各有自己的片选。T_IRQ 在按下时变低。	ILI9341 屏和 XPT2046 觸控晶片共用 SPI 的時鐘和資料線，各有自己的片選。T_IRQ 在按下時變低。	The ILI9341 display and XPT2046 touch chip share SPI clock and data but have separate chip selects. T_IRQ goes low on touch.
+ex.G3.try	用逻辑分析仪接 CS 和 T_CS，看两个片选怎么轮流选中设备。	用邏輯分析儀接 CS 和 T_CS，看兩個片選怎麼輪流選中裝置。	Put the logic analyser on CS and T_CS and see the two chip selects take turns.
+ex.G3.learn	多个 SPI 设备共用总线，靠片选区分。	多個 SPI 裝置共用匯流排，靠片選區分。	Several SPI devices share the bus and are selected by CS.
+ex.G4.intro	ESP32-CAM 要 5V、电流尖峰大；按下按键拍照，串口打印 photo taken。OV2640 摄像头用 DVP 并口接在模块背面。	ESP32-CAM 要 5V、電流尖峰大；按下按鍵拍照，串列埠列印 photo taken。OV2640 攝像頭用 DVP 並口接在模組背面。	The ESP32-CAM needs 5 V with big current spikes; press the button to take a photo and the serial port prints photo taken. The OV2640 sits on the DVP connector on the back.
+ex.G4.try	按一下按键；把供电换成 3.3V 看会不会重启。	按一下按鍵；把供電換成 3.3V 看會不會重啟。	Press the button. Power it from 3.3 V and see whether it resets.
+ex.G4.learn	摄像头模块要稳的电源，DVP 接口线很多。	攝像頭模組要穩的電源，DVP 介面線很多。	Camera modules need a solid supply; DVP uses many wires.
+ex.G5.intro	MIPI 屏和摄像头用高速差分对（CLK±、D0±、D1±），要用 FPC 排线和等长走线，不能用杜邦线。这里只讲接线，不仿真像素。	MIPI 屏和攝像頭用高速差分對（CLK±、D0±、D1±），要用 FPC 排線和等長走線，不能用杜邦線。這裡只講接線，不模擬畫素。	MIPI screens and cameras use fast differential pairs (CLK±, D0±, D1±) on FPC cables with matched lengths; jumper wires won't work. Wiring only, no pixels.
+ex.G5.try	看每一对差分线怎么配对；想想为什么要等长。	看每一對差分線怎麼配對；想想為什麼要等長。	See how each pair is matched and think about why lengths must match.
+ex.G5.learn	高速信号靠差分对和阻抗控制，飞线会失败。	高速訊號靠差分對和阻抗控制，飛線會失敗。	High-speed signals rely on differential pairs and controlled impedance.
+ex.G6.intro	USB 转 TTL 交叉接 ESP-01，3.3V 供电，EN 拉高。在 QCCOM 打开 SIM:T1（115200），发 AT、AT+CWJAP="QCCOM-Lab","12345678"、AT+CIPSTART="TCP","127.0.0.1",8080。	USB 轉 TTL 交叉接 ESP-01，3.3V 供電，EN 拉高。在 QCCOM 開啟 SIM:T1（115200），發 AT、AT+CWJAP="QCCOM-Lab","12345678"、AT+CIPSTART="TCP","127.0.0.1",8080。	The USB-TTL adapter is crossed to the ESP-01, powered from 3.3 V with EN high. Open SIM:T1 at 115200 and send AT, AT+CWJAP="QCCOM-Lab","12345678", AT+CIPSTART="TCP","127.0.0.1",8080.
+ex.G6.try	先在工具箱开一个 TCP 服务器（8080），再用 AT+CIPSEND 发数据，服务器那边能收到。	先在工具箱開一個 TCP 伺服器（8080），再用 AT+CIPSEND 發資料，伺服器那邊能收到。	Start a TCP server on 8080 in the toolbox first, then send with AT+CIPSEND and see it arrive.
+ex.G6.learn	ESP8266 的 AT 固件：连 WiFi → 建 TCP → 发数据。	ESP8266 的 AT 韌體：連 WiFi → 建 TCP → 發資料。	ESP8266 AT firmware: join WiFi → open TCP → send.
+ex.G7.intro	ESP32 每 5 秒读 DHT11，把 JSON 发到 127.0.0.1:1883 的 qccom/sensor 主题。	ESP32 每 5 秒讀 DHT11，把 JSON 發到 127.0.0.1:1883 的 qccom/sensor 主題。	Every 5 s the ESP32 reads the DHT11 and publishes JSON to qccom/sensor on 127.0.0.1:1883.
+ex.G7.try	在工具箱开「MQTT 服务器」，再用 MQTT 连接订阅 qccom/sensor 画曲线。	在工具箱開「MQTT 伺服器」，再用 MQTT 連線訂閱 qccom/sensor 畫曲線。	Start the MQTT broker in the toolbox, subscribe to qccom/sensor and plot it.
+ex.G7.learn	物联网设备常用 MQTT 发布 / 订阅上报数据。	物聯網裝置常用 MQTT 釋出 / 訂閱上報資料。	IoT devices commonly report with MQTT publish / subscribe.
+ex.G8.intro	4G 模块发射时电流尖峰可达 2A，要锂电池直供，旁边加大电容。用 SIM:T1 发 AT+CSQ 看信号、AT+CREG? 看注册。	4G 模組發射時電流尖峰可達 2A，要鋰電池直供，旁邊加大電容。用 SIM:T1 發 AT+CSQ 看訊號、AT+CREG? 看註冊。	A 4G module draws spikes up to 2 A while transmitting, so it runs straight off a Li-ion cell with a big capacitor. Send AT+CSQ for signal and AT+CREG? for registration on SIM:T1.
+ex.G8.try	把模块型号改成 EC800M 或 ML307，看 AT 指令的不同；把信号强度调成 0。	把模組型號改成 EC800M 或 ML307，看 AT 指令的不同；把訊號強度調成 0。	Switch the model to EC800M or ML307 and compare the commands. Set the signal to 0.
+ex.G8.learn	4G 模块：电源要够、SIM 卡、信号，三者缺一不可。	4G 模組：電源要夠、SIM 卡、訊號，三者缺一不可。	4G needs enough power, a SIM card and signal; miss one and it won't connect.
+ex.G9.intro	W5500 用 SPI 提供硬件 TCP/IP，ESP32 每 3 秒往 127.0.0.1:8080 发一行。	W5500 用 SPI 提供硬體 TCP/IP，ESP32 每 3 秒往 127.0.0.1:8080 發一行。	The W5500 offers hardware TCP/IP over SPI; the ESP32 sends a line to 127.0.0.1:8080 every 3 s.
+ex.G9.try	在工具箱开 TCP 服务器（8080）看收到的数据。	在工具箱開 TCP 伺服器（8080）看收到的資料。	Start a TCP server on 8080 in the toolbox to see the data.
+ex.G9.learn	有线网口模块把以太网协议栈做在芯片里，单片机只管 SPI 读写。	有線網口模組把乙太網協議棧做在晶片裡，微控制器只管 SPI 讀寫。	Wired Ethernet modules keep the network stack in the chip; the MCU just talks SPI.
+ex.G10.intro	两个 MAX485 用 A、B 双绞线相连，两端加 120Ω 终端电阻。电脑这边 DE / RE 接高，一直发送。	兩個 MAX485 用 A、B 雙絞線相連，兩端加 120Ω 終端電阻。電腦這邊 DE / RE 接高，一直髮送。	Two MAX485s are linked by the A / B twisted pair with a 120 Ω terminator. On the PC side DE / RE are tied high, so it always transmits.
+ex.G10.try	在工具箱的 Modbus 调试里发读寄存器命令；去掉 R1 想想长线会怎样。	在工具箱的 Modbus 除錯裡發讀暫存器命令；去掉 R1 想想長線會怎樣。	Send a read-registers request from the Modbus tool. Remove R1 and think about long cables.
+ex.G10.learn	RS485 差分传输抗干扰、距离远，两端要终端电阻，半双工要控制收发方向。	RS485 差分傳輸抗干擾、距離遠，兩端要終端電阻，半雙工要控制收發方向。	RS485 is differential, robust and long-range; terminate both ends and control direction in half-duplex.
+ex.H1.intro	电流表串在 USB 和开发板之间，读的是整块板子的电流；LED 每秒亮灭，电流跟着跳。	電流表串在 USB 和開發板之間，讀的是整塊板子的電流；LED 每秒亮滅，電流跟著跳。	The ammeter sits between USB and the board, so it reads the whole board. The LED blinks and the current steps with it.
+ex.H1.try	打开右侧「耗电」看平均电流；把 LED 电阻改成 1kΩ。	開啟右側「耗電」看平均電流；把 LED 電阻改成 1kΩ。	Open Power on the right for the average. Make the LED resistor 1 kΩ.
+ex.H1.learn	测电流要把电路断开，把电流表串进去。	測電流要把電路斷開，把電流表串進去。	To measure current, break the circuit and put the meter in series.
+ex.H2.intro	1000mAh 锂电池给 ESP32-C3 供电，右侧「耗电」面板按平均电流估算还能用多久。	1000mAh 鋰電池給 ESP32-C3 供電，右側「耗電」面板按平均電流估算還能用多久。	A 1000 mAh cell powers an ESP32-C3; the Power panel estimates the life from the average current.
+ex.H2.try	把电池容量改成 3000mAh；让 LED 一直亮，看续航减少多少。	把電池容量改成 3000mAh；讓 LED 一直亮，看續航減少多少。	Make it 3000 mAh. Keep the LED on and see how much life you lose.
+ex.H2.learn	续航 ≈ 容量 × 可用比例 / 平均电流。	續航 ≈ 容量 × 可用比例 / 平均電流。	Battery life ≈ capacity × usable fraction / average current.
+ex.H3.intro	每 5 秒醒来 200ms 点一下 LED，其余时间睡眠。平均电流大幅下降，续航从几小时变成几天。	每 5 秒醒來 200ms 點一下 LED，其餘時間睡眠。平均電流大幅下降，續航從幾小時變成幾天。	The board wakes every 5 s for 200 ms to flash the LED and sleeps otherwise. Average current drops and life goes from hours to days.
+ex.H3.try	把睡眠时间改短或改长，比较续航；看哪些元件在睡眠时还在耗电。	把睡眠時間改短或改長，比較續航；看哪些元件在睡眠時還在耗電。	Change the sleep time and compare. Find what still draws current while asleep.
+ex.H3.learn	低功耗的关键是「大部分时间在睡」，还要注意上拉电阻和指示灯。	低功耗的關鍵是「大部分時間在睡」，還要注意上拉電阻和指示燈。	Low power means sleeping most of the time; watch pull-ups and indicator LEDs.
+ex.H4.intro	12V 输入、3.3V 输出、150mA 负载：LDO 上的功耗 = (12 − 3.3) × 0.15 ≈ 1.3W，温度很快升高。	12V 輸入、3.3V 輸出、150mA 負載：LDO 上的功耗 = (12 − 3.3) × 0.15 ≈ 1.3W，溫度很快升高。	12 V in, 3.3 V out, 150 mA load: the LDO dissipates (12 − 3.3) × 0.15 ≈ 1.3 W and heats up fast.
+ex.H4.try	把输入改成 5V，看功耗和温度降了多少。	把輸入改成 5V，看功耗和溫度降了多少。	Drop the input to 5 V and compare power and temperature.
+ex.H4.learn	LDO 的发热 = 压差 × 电流；压差大时用 DC-DC。	LDO 的發熱 = 壓差 × 電流；壓差大時用 DC-DC。	LDO heat = drop × current. Use a buck converter for large drops.
+ex.H5.intro	降压模块把 12V 变成 3.3V，示波器上能看到输出的小纹波；输入电流比输出电流小得多。	降壓模組把 12V 變成 3.3V，示波器上能看到輸出的小紋波；輸入電流比輸出電流小得多。	The buck module turns 12 V into 3.3 V; the scope shows a little ripple, and the input current is far below the output current.
+ex.H5.try	比较输入和输出功率算效率；把负载改成 100Ω。	比較輸入和輸出功率算效率；把負載改成 100Ω。	Compare input and output power for efficiency. Make the load 100 Ω.
+ex.H5.learn	DC-DC 效率高（80~95%），但有开关纹波。	DC-DC 效率高（80~95%），但有開關紋波。	DC-DC converters are efficient (80–95 %) but add switching ripple.
+ex.H6.intro	同样的锂电池、同样的负载，一个用 LDO，一个用 DC-DC。看「耗电」面板里两颗电池的续航对比。	同樣的鋰電池、同樣的負載，一個用 LDO，一個用 DC-DC。看「耗電」面板裡兩顆電池的續航對比。	Same cell, same load: one through an LDO, one through a buck converter. Compare the two battery lives in the Power panel.
+ex.H6.try	把负载电阻改大（电流变小），看差距是变大还是变小。	把負載電阻改大（電流變小），看差距是變大還是變小。	Make the loads lighter and see whether the gap grows or shrinks.
+ex.H6.learn	压差小、电流小时 LDO 也不错；压差大、电流大时 DC-DC 更省电。	壓差小、電流小時 LDO 也不錯；壓差大、電流大時 DC-DC 更省電。	LDOs are fine for small drops and currents; DC-DC wins for large ones.
+ex.H7.intro	TP4056 从 USB 给锂电池充电（这里设成 500mA），保护电路防止过放；OUT 端同时给负载供电。	TP4056 從 USB 給鋰電池充電（這裡設成 500mA），保護電路防止過放；OUT 端同時給負載供電。	The TP4056 charges the Li-ion cell from USB (set to 500 mA) and protects it from over-discharge; OUT also powers the load.
+ex.H7.try	看电池电量慢慢上升；把充电电流改成 1000mA。	看電池電量慢慢上升；把充電電流改成 1000mA。	Watch the charge level rise. Set the charge current to 1000 mA.
+ex.H7.learn	锂电池要专用充电芯片和保护板，不能直接接 5V。	鋰電池要專用充電晶片和保護板，不能直接接 5V。	Li-ion cells need a proper charger and protection, never raw 5 V.
+ex.H8.intro	电源限流 0.5A，还串了一段 0.5Ω 的细线。4G 发射时电流尖峰把电压拉到 3.3V 以下，模块掉电重启（串口里又出现 RDY）。	電源限流 0.5A，還串了一段 0.5Ω 的細線。4G 發射時電流尖峰把電壓拉到 3.3V 以下，模組掉電重啟（串列埠裡又出現 RDY）。	The supply is limited to 0.5 A and a thin 0.5 Ω trace is in series. Transmit spikes pull VBAT below 3.3 V and the module resets (RDY shows up again).
+ex.H8.try	把电源限流改成 2A，把 R1 改成 0.05Ω，再在 VBAT 加一个 470µF 电容。	把電源限流改成 2A，把 R1 改成 0.05Ω，再在 VBAT 加一個 470µF 電容。	Raise the limit to 2 A, make R1 0.05 Ω and add 470 µF at VBAT.
+ex.H8.learn	4G 供电要能扛 2A 尖峰：电源够大、走线够粗、电容就近放。	4G 供電要能扛 2A 尖峰：電源夠大、走線夠粗、電容就近放。	4G supplies must handle 2 A spikes: enough current, thick traces, a capacitor close by.
+ex.A1.title	欧姆定律	歐姆定律	
+ex.A2.title	点亮一个 LED	點亮一個 LED	
+ex.A3.title	串联和并联	串聯和並聯	
+ex.A4.title	电阻分压	電阻分壓	
+ex.A5.title	电位器调光	電位器調光	
+ex.A6.title	按键开关灯	按鍵開關燈	
+ex.A7.title	二极管单向导电	二極體單向導電	
+ex.A8.title	稳压管稳压	穩壓管穩壓	
+ex.A9.title	RC 充放电延时灯	RC 充放電延時燈	
+ex.A10.title	光敏电阻小夜灯	光敏電阻小夜燈	
+ex.B1.title	三极管当开关点灯	三極體當開關點燈	
+ex.B2.title	三极管放大区	三極體放大區	
+ex.B3.title	三极管驱动蜂鸣器	三極體驅動蜂鳴器	
+ex.B4.title	三极管驱动继电器	三極體驅動繼電器	
+ex.B5.title	PNP 高边开关	PNP 高邊開關	
+ex.B6.title	N-MOS 低边驱动电机	N-MOS 低邊驅動電機	
+ex.B7.title	P-MOS 高边电源开关	P-MOS 高邊電源開關	
+ex.B8.title	3.3V 推不动普通 MOS	3.3V 推不動普通 MOS	
+ex.B9.title	MOS 防反接电路	MOS 防反接電路	
+ex.B10.title	二极管防反接和双电源切换	二極體防反接和雙電源切換	
+ex.B11.title	光耦隔离	光耦隔離	
+ex.B12.title	电平转换（MOS 双向）	電平轉換（MOS 雙向）	
+ex.C1.title	555 闪烁灯	555 閃爍燈	
+ex.C2.title	555 延时开关	555 延時開關	
+ex.C3.title	运放比较器光控灯	運放比較器光控燈	
+ex.C4.title	运放电压跟随器	運放電壓跟隨器	
+ex.C5.title	PWM 加 RC 滤波变模拟电压	PWM 加 RC 濾波變模擬電壓	
+ex.C6.title	整流滤波	整流濾波	
+ex.D1.title	点灯	點燈	
+ex.D2.title	流水灯	流水燈	
+ex.D3.title	按键控制 LED	按鍵控制 LED	
+ex.D4.title	呼吸灯	呼吸燈	
+ex.D5.title	电位器读 ADC	電位器讀 ADC	
+ex.D6.title	串口打印 Hello	串列埠列印 Hello	
+ex.D7.title	串口命令控制 LED	串列埠命令控制 LED	
+ex.D8.title	无源蜂鸣器放音调	無源蜂鳴器放音調	
+ex.D9.title	数码管显示数字	數碼管顯示數字	
+ex.D10.title	74HC595 扩展 IO	74HC595 擴充套件 IO	
+ex.D11.title	舵机角度控制	舵機角度控制	
+ex.D12.title	继电器控制台灯	繼電器控制檯燈	
+ex.E1.title	OLED 显示文字	OLED 顯示文字	
+ex.E2.title	LCD1602 显示	LCD1602 顯示	
+ex.E3.title	DHT11 温湿度上报串口	DHT11 溫溼度上報串列埠	
+ex.E4.title	超声波测距	超聲波測距	
+ex.E5.title	电机正反转	電機正反轉	
+ex.E6.title	温控风扇	溫控風扇	
+ex.F1.title	TX 接 TX	TX 接 TX	
+ex.F2.title	忘记共地	忘記共地	
+ex.F3.title	LED 不加电阻	LED 不加電阻	
+ex.F4.title	5V 信号直接进 3.3V 引脚	5V 訊號直接進 3.3V 引腳	
+ex.F5.title	IO 口直接驱动继电器	IO 口直接驅動繼電器	
+ex.F6.title	I2C 忘接上拉	I2C 忘接上拉	
+ex.F7.title	电解电容接反	電解電容接反	
+ex.F8.title	用 USB 转 TTL 下载程序失败	用 USB 轉 TTL 下載程式失敗	
+ex.G1.title	SPI TFT 显示图片	SPI TFT 顯示圖片	
+ex.G2.title	OLED 的 I2C 和 SPI 对比	OLED 的 I2C 和 SPI 對比	
+ex.G3.title	TFT 触摸画板	TFT 觸控畫板	
+ex.G4.title	ESP32-CAM 拍照	ESP32-CAM 拍照	
+ex.G5.title	MIPI 屏和摄像头怎么接	MIPI 屏和攝像頭怎麼接	
+ex.G6.title	ESP8266 用 AT 指令连 WiFi	ESP8266 用 AT 指令連 WiFi	
+ex.G7.title	ESP32 上报 MQTT	ESP32 上報 MQTT	
+ex.G8.title	4G Cat1 模块上网	4G Cat1 模組上網	
+ex.G9.title	W5500 网口 TCP 通信	W5500 網口 TCP 通訊	
+ex.G10.title	RS485 读 Modbus 传感器	RS485 讀 Modbus 感測器	
+ex.H1.title	电流表看 LED 和单片机耗电	電流表看 LED 和微控制器耗電	
+ex.H2.title	电池续航估算	電池續航估算	
+ex.H3.title	睡眠模式省电	睡眠模式省電	
+ex.H4.title	LDO 为什么发烫	LDO 為什麼發燙	
+ex.H5.title	DC-DC 降压波形	DC-DC 降壓波形	
+ex.H6.title	LDO 和 DC-DC 续航对比	LDO 和 DC-DC 續航對比	
+ex.H7.title	锂电池充电和保护	鋰電池充電和保護	
+ex.H8.title	4G 发射时掉电重启	4G 發射時掉電重啟	

@@ -46,8 +46,9 @@ impl App {
         self.tb.ssh.tabs.iter().any(|s| s.alive())
     }
 
-    pub(super) fn ssh_page(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("ssh_hosts")
+    pub(super) fn ssh_page(&mut self, ui: &mut egui::Ui, compact: bool) {
+        let ctx = &ui.ctx().clone();
+        egui::SidePanel::left(ui.id().with("ssh_hosts"))
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 14,
                 right: 12,
@@ -57,7 +58,7 @@ impl App {
             .exact_width(250.0)
             .resizable(false)
             .show_separator_line(true)
-            .show(ctx, |ui| self.ssh_hosts(ui));
+            .show_animated_inside(ui, !compact, |ui| self.ssh_hosts(ui));
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 10,
@@ -65,7 +66,7 @@ impl App {
                 top: 8,
                 bottom: 10,
             }))
-            .show(ctx, |ui| self.ssh_sessions(ui));
+            .show_inside(ui, |ui| self.ssh_sessions(ui));
         self.ssh_editor(ctx);
     }
 

@@ -50,7 +50,11 @@ pub fn paint_avatar(p: &egui::Painter, rect: Rect, seed: &str, tex: Option<egui:
         for i in 0..=n {
             let a = i as f32 / n as f32 * std::f32::consts::TAU;
             let d = vec2(a.cos(), a.sin());
-            mesh.vertices.push(egui::epaint::Vertex { pos: c + d * r, uv: pos2(0.5 + d.x * 0.5, 0.5 + d.y * 0.5), color: Color32::WHITE });
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: c + d * r,
+                uv: pos2(0.5 + d.x * 0.5, 0.5 + d.y * 0.5),
+                color: Color32::WHITE,
+            });
             if i > 0 {
                 mesh.add_triangle(0, i as u32, i as u32 + 1);
             }
@@ -61,7 +65,11 @@ pub fn paint_avatar(p: &egui::Painter, rect: Rect, seed: &str, tex: Option<egui:
     }
     let h = hash(seed);
     let hue = (h % 360) as f32;
-    let (fg, bg) = if is_light() { (hsl(hue, 0.55, 0.48), hsl(hue, 0.45, 0.90)) } else { (hsl(hue, 0.62, 0.58), hsl(hue, 0.30, 0.18)) };
+    let (fg, bg) = if is_light() {
+        (hsl(hue, 0.55, 0.48), hsl(hue, 0.45, 0.90))
+    } else {
+        (hsl(hue, 0.62, 0.58), hsl(hue, 0.30, 0.18))
+    };
     p.circle_filled(rect.center(), r, bg);
     // 7×7 的格子里画中间 5×5，左右对称
     let cell = rect.width() / 7.0 * 0.92;
@@ -128,7 +136,13 @@ pub fn vote_capsule(ui: &mut Ui, id: egui::Id, score: i64, voted: bool, enabled:
     let c = lerp(if hov { ACCENT() } else { TEXT2() }, on, t);
     let a = pos2(rect.center().x, rect.top() + 14.0 - 2.0 * k);
     p.add(egui::Shape::convex_polygon(vec![a + vec2(0.0, -4.0), a + vec2(5.0, 2.5), a + vec2(-5.0, 2.5)], c, Stroke::NONE));
-    p.text(pos2(rect.center().x, rect.bottom() - 13.5), Align2::CENTER_CENTER, score.to_string(), FontId::new(13.0, mono_bold()), lerp(TEXT(), on, t));
+    p.text(
+        pos2(rect.center().x, rect.bottom() - 13.5),
+        Align2::CENTER_CENTER,
+        score.to_string(),
+        FontId::new(13.0, mono_bold()),
+        lerp(TEXT(), on, t),
+    );
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -172,7 +186,11 @@ pub fn vote_pill(ui: &mut Ui, score: i64, voted: bool, enabled: bool) -> Respons
     let a = pos2(rect.left() + 16.0, rect.center().y);
     p.add(egui::Shape::convex_polygon(vec![a + vec2(0.0, -5.0), a + vec2(5.5, 2.5), a + vec2(-5.5, 2.5)], c, Stroke::NONE));
     p.text(pos2(rect.left() + 28.0, rect.center().y), Align2::LEFT_CENTER, super::t("票"), FontId::proportional(12.0), c);
-    p.galley(pos2(rect.right() - 12.0 - g.size().x, rect.center().y - g.size().y / 2.0), g, if voted { Color32::WHITE } else { TEXT() });
+    p.galley(
+        pos2(rect.right() - 12.0 - g.size().x, rect.center().y - g.size().y / 2.0),
+        g,
+        if voted { Color32::WHITE } else { TEXT() },
+    );
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -209,7 +227,15 @@ pub fn board_icon(p: &egui::Painter, r: Rect, b: Board, c: Color32) {
         }
         Board::Help => {
             p.circle_stroke(o, 6.4, s);
-            let pts = [o + vec2(-2.2, -1.6), o + vec2(-1.6, -3.4), o + vec2(0.4, -3.8), o + vec2(2.2, -2.6), o + vec2(1.8, -0.8), o + vec2(0.0, 0.4), o + vec2(0.0, 1.6)];
+            let pts = [
+                o + vec2(-2.2, -1.6),
+                o + vec2(-1.6, -3.4),
+                o + vec2(0.4, -3.8),
+                o + vec2(2.2, -2.6),
+                o + vec2(1.8, -0.8),
+                o + vec2(0.0, 0.4),
+                o + vec2(0.0, 1.6),
+            ];
             p.add(egui::Shape::line(pts.to_vec(), s));
             p.circle_filled(o + vec2(0.0, 3.6), 0.9, c);
         }
@@ -224,7 +250,14 @@ pub fn board_icon(p: &egui::Painter, r: Rect, b: Board, c: Color32) {
             }
         }
         Board::Notice => {
-            let pts = vec![o + vec2(-5.5, -2.0), o + vec2(-2.0, -2.0), o + vec2(4.5, -5.5), o + vec2(4.5, 5.5), o + vec2(-2.0, 2.0), o + vec2(-5.5, 2.0)];
+            let pts = vec![
+                o + vec2(-5.5, -2.0),
+                o + vec2(-2.0, -2.0),
+                o + vec2(4.5, -5.5),
+                o + vec2(4.5, 5.5),
+                o + vec2(-2.0, 2.0),
+                o + vec2(-5.5, 2.0),
+            ];
             p.add(egui::Shape::closed_line(pts, s));
             p.line_segment([o + vec2(-3.0, 2.0), o + vec2(-1.5, 6.0)], s);
         }
@@ -284,7 +317,12 @@ pub fn heart(p: &egui::Painter, o: egui::Pos2, c: Color32, filled: bool) {
         }
         p.add(mesh);
     }
-    p.add(egui::Shape::Path(egui::epaint::PathShape { points: pts, closed: true, fill: Color32::TRANSPARENT, stroke: st(1.3, c).into() }));
+    p.add(egui::Shape::Path(egui::epaint::PathShape {
+        points: pts,
+        closed: true,
+        fill: Color32::TRANSPARENT,
+        stroke: st(1.3, c).into(),
+    }));
 }
 
 /// 骨架屏：一条会微微闪的圆角条
@@ -343,7 +381,13 @@ pub fn ghost(ui: &mut Ui, text: &str) -> Response {
     let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 22.0, 28.0), Sense::click());
     let p = ui.painter();
     let hov = resp.hovered();
-    p.rect(r, CornerRadius::same(6), if hov { BG3() } else { BG2() }, st(1.0, if hov { LINE_HI() } else { LINE() }), egui::StrokeKind::Inside);
+    p.rect(
+        r,
+        CornerRadius::same(6),
+        if hov { BG3() } else { BG2() },
+        st(1.0, if hov { LINE_HI() } else { LINE() }),
+        egui::StrokeKind::Inside,
+    );
     p.galley(r.center() - g.size() / 2.0, g, if hov { TEXT() } else { TEXT2() });
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

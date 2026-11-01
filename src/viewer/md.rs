@@ -426,7 +426,8 @@ impl MdView {
                                     }
                                 }
                                 if self.copied.is_some_and(|t0| now - t0 < 1.2) && ui.rect_contains_pointer(r) {
-                                    ui.painter().text(egui::pos2(r.right() - 66.0, r.top() + 17.0), egui::Align2::RIGHT_CENTER, t("已复制"), FontId::proportional(11.5), OK());
+                                    ui.painter()
+                                        .text(egui::pos2(r.right() - 66.0, r.top() + 17.0), egui::Align2::RIGHT_CENTER, t("已复制"), FontId::proportional(11.5), OK());
                                 }
                                 ui.add_space(6.0);
                             }

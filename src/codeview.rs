@@ -502,6 +502,8 @@ pub enum CodeEvt {
     Merge(PathBuf, PathBuf, PathBuf),
     /// 右键「发到社区求助」：(选中的代码, 语言)
     Ask(String, String),
+    /// 右键「用工具打开」：("convert" / "crc", 选中的内容)
+    Tool(&'static str, String),
 }
 
 pub struct CodeView {
@@ -572,8 +574,13 @@ pub struct CodeView {
     ins: insight::Insight,
     /// 分屏：另一侧显示的文件（用路径记，标签增删、拖动都不受影响）
     split: Option<Split>,
+    /// 资源管理器画在别处（比较页左边）时：点文件只记下来
+    pick_mode: bool,
+    picked: Vec<PathBuf>,
     /// 正在拖动的标签
     tab_drag: Option<usize>,
+    /// 开始拖文件标签：(文件, 按下的位置)，工作台取走
+    pub tab_out: Option<(PathBuf, egui::Pos2)>,
     /// 文件树里正在输入的新建 / 重命名
     tree_edit: Option<TreeEdit>,
     /// 右键菜单里“删除”点了一次，等确认
@@ -668,7 +675,10 @@ impl CodeView {
             relations: false,
             ins: insight::Insight::default(),
             split: None,
+            pick_mode: false,
+            picked: vec![],
             tab_drag: None,
+            tab_out: None,
             git_jobs: None,
             tree_edit: None,
             delete_armed: None,
@@ -877,6 +887,10 @@ impl CodeView {
     }
 
     pub fn open_file(&mut self, p: &Path, goto: Option<(usize, Option<(usize, usize)>)>) {
+        if self.pick_mode {
+            self.picked.push(p.to_path_buf());
+            return;
+        }
         // 记录跳转前的位置，给"后退"用
         if let Some(d) = self.tabs.get(self.active) {
             let cur = (d.path.clone(), d.cursor.0);
@@ -1777,6 +1791,24 @@ impl CodeView {
     // ------------------------------------------------------------ 主界面
 
     pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act], km: &crate::keymap::Keymap) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.ui_in(ui, acts, km, false));
+    }
+
+    /// 只画资源管理器（比较页左边、副页面「文件」）
+    /// pick = 点文件不在编辑器里打开，而是返回给调用方（比较页拿来选左右两边）
+    pub fn files_ui(&mut self, ui: &mut egui::Ui, pick: bool) -> Vec<PathBuf> {
+        let keep = self.side;
+        self.side = Side::Files;
+        self.pick_mode = pick;
+        self.side_panel(ui);
+        self.pick_mode = false;
+        self.side = keep;
+        std::mem::take(&mut self.picked)
+    }
+
+    /// 代码页画进一块区域；compact = 副页面：不要左边的资源管理器和右边的调用关系
+    pub fn ui_in(&mut self, ui: &mut egui::Ui, acts: &[Act], km: &crate::keymap::Keymap, compact: bool) {
+        let ctx = &ui.ctx().clone();
         self.poll(ctx);
         self.tree_keys(ctx);
         if self.key_labels.is_empty() || ctx.input(|i| i.pointer.secondary_pressed()) {
@@ -1786,25 +1818,29 @@ impl CodeView {
         all.extend_from_slice(acts);
         self.shortcuts(ctx, &all);
 
-        egui::SidePanel::left("code-side")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 0 }))
-            .default_width(self.s.side_width)
-            .width_range(200.0..=520.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                self.s.side_width = ui.available_width();
-                self.side_panel(ui);
-            });
+        // 副页面够宽时也带资源管理器
+        let wide = !compact || ui.available_width() > 1000.0;
+        if wide {
+            egui::SidePanel::left("code-side")
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 0, right: 0, top: 0, bottom: 0 }))
+                .default_width(self.s.side_width)
+                .width_range(200.0..=520.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    self.s.side_width = ui.available_width();
+                    self.side_panel(ui);
+                });
+        }
         self.poll_insight();
-        if self.relations && !self.tabs.is_empty() {
+        if self.relations && !self.tabs.is_empty() && !compact {
             egui::SidePanel::right("code-rel")
                 .frame(egui::Frame::new().fill(BG1()))
                 .default_width(300.0)
                 .width_range(220.0..=560.0)
                 .resizable(true)
-                .show(ctx, |ui| self.relations_ui(ui));
+                .show_inside(ui, |ui| self.relations_ui(ui));
         }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| {
             if self.tabs.is_empty() {
                 self.notice_bars(ui);
                 self.welcome(ui);
@@ -2014,6 +2050,40 @@ impl CodeView {
         let d = self.tabs.get(self.active)?;
         let t = d.ed.selected_text(&d.buf);
         (!t.is_empty()).then_some(t)
+    }
+
+    /// 选中的一小段文字（printf 的格式串等）：日志里高亮匹配的行。去掉引号，截到第一个 % 或 \ 前
+    pub fn link_term(&self) -> Option<String> {
+        let d = self.tabs.get(self.active)?;
+        let t = d.ed.selected_text(&d.buf);
+        if t.contains('\n') || t.len() > 120 {
+            return None;
+        }
+        let t = t.trim().trim_matches('"');
+        let t = t.split(['%', '\\']).next().unwrap_or("").trim();
+        (t.chars().count() >= 3).then(|| t.to_string())
+    }
+
+    /// 日志里的 `main.c:42`：在工程里找到这个文件（绝对路径、相对工程、或只按文件名）
+    pub fn find_src(&self, name: &str) -> Option<PathBuf> {
+        let p = Path::new(name);
+        if p.is_absolute() && p.is_file() {
+            return Some(p.to_path_buf());
+        }
+        let root = self.root.as_ref()?;
+        let j = root.join(p);
+        if j.is_file() {
+            return Some(j);
+        }
+        let idx = self.index.as_ref()?;
+        let want: Vec<_> = p.components().filter(|c| matches!(c, std::path::Component::Normal(_))).collect();
+        idx.files
+            .iter()
+            .find(|f| {
+                let fc: Vec<_> = f.components().collect();
+                fc.len() >= want.len() && fc[fc.len() - want.len()..] == want[..]
+            })
+            .map(|f| root.join(f))
     }
 
     fn cursor_word(&self) -> Option<String> {
@@ -2730,7 +2800,11 @@ impl CodeView {
         } else if !self.results_for.is_empty() {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                let secs = if self.search_secs < 1.0 { format!("{:.0} ms", self.search_secs * 1000.0) } else { format!("{:.1} s", self.search_secs) };
+                let secs = if self.search_secs < 1.0 {
+                    format!("{:.0} ms", self.search_secs * 1000.0)
+                } else {
+                    format!("{:.1} s", self.search_secs)
+                };
                 ui.label(RichText::new(tf("{} 个结果，{} 个文件", &[&self.results.len(), &n_files])).small().color(TEXT3()))
                     .on_hover_text(tf("搜了 {} 个文件，用时 {}", &[&self.search_total, &secs]));
                 if self.results.len() >= self.search_limit {
@@ -2968,29 +3042,45 @@ impl CodeView {
                 draw_icon(ui.painter(), r.shrink(4.0), Icon::Close, c);
                 if resp.on_hover_text(t("恢复搜索整个工程")).clicked() {
                     let keep = (self.scope.gitignore, self.scope.no_build);
-                    self.scope = cindex::Scope { gitignore: keep.0, no_build: keep.1, ..Default::default() };
+                    self.scope = cindex::Scope {
+                        gitignore: keep.0,
+                        no_build: keep.1,
+                        ..Default::default()
+                    };
                     changed = true;
                 }
             }
         });
         if self.scope_open {
             ui.add_space(4.0);
-            egui::Frame::new().inner_margin(egui::Margin { left: 22, right: 6, top: 0, bottom: 0 }).show(ui, |ui| ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                let sc = &mut self.scope;
-                changed |= chip(ui, &mut sc.only_c, t("仅 C/H"), &cindex::C_FILES.join(", "));
-                changed |= chip(ui, &mut sc.no_vendor, t("排除厂商库"), &cindex::VENDOR_DIRS.join(", "));
-                changed |= chip(ui, &mut sc.no_build, t("排除编译产物"), t("build/、Objects/、*.o、*.map 等"));
-                changed |= chip(ui, &mut sc.gitignore, ".gitignore", t("按工程的 .gitignore 排除"));
-                changed |= chip(ui, &mut sc.open_only, t("仅已打开"), t("只搜编辑器里打开的文件"));
-            }));
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: 22,
+                    right: 6,
+                    top: 0,
+                    bottom: 0,
+                })
+                .show(ui, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                        let sc = &mut self.scope;
+                        changed |= chip(ui, &mut sc.only_c, t("仅 C/H"), &cindex::C_FILES.join(", "));
+                        changed |= chip(ui, &mut sc.no_vendor, t("排除厂商库"), &cindex::VENDOR_DIRS.join(", "));
+                        changed |= chip(ui, &mut sc.no_build, t("排除编译产物"), t("build/、Objects/、*.o、*.map 等"));
+                        changed |= chip(ui, &mut sc.gitignore, ".gitignore", t("按工程的 .gitignore 排除"));
+                        changed |= chip(ui, &mut sc.open_only, t("仅已打开"), t("只搜编辑器里打开的文件"));
+                    })
+                });
             ui.add_space(4.0);
             for (label, hint, inc) in [(t("包含"), t("如 *.c, src/"), true), (t("排除"), t("如 Drivers/, *.txt, !main.c"), false)] {
                 ui.horizontal(|ui| {
                     ui.add_space(22.0);
                     ui.add_sized(vec2(32.0, 24.0), egui::Label::new(RichText::new(label).small().color(TEXT3())));
                     let v = if inc { &mut self.scope.include } else { &mut self.scope.exclude };
-                    let r = ui.add_sized(vec2(ui.available_width() - 6.0, 24.0), egui::TextEdit::singleline(v).hint_text(hint).margin(vec2(6.0, 3.0)).font(FontId::new(12.0, FontFamily::Monospace)));
+                    let r = ui.add_sized(
+                        vec2(ui.available_width() - 6.0, 24.0),
+                        egui::TextEdit::singleline(v).hint_text(hint).margin(vec2(6.0, 3.0)).font(FontId::new(12.0, FontFamily::Monospace)),
+                    );
                     if r.changed() {
                         self.search_due = Some(now + 0.4);
                     }
@@ -3308,6 +3398,27 @@ impl CodeView {
 
     // ------------------------------------------------------------ 标签栏、面包屑
 
+    /// 把某个文件放到右边分屏（文件标签拖到右边）
+    pub fn split_with(&mut self, f: &Path) {
+        let Some(i) = self.tabs.iter().position(|d| d.path == f) else { return };
+        if i == self.active {
+            let last = self.back.iter().rev().map(|(p, _)| p.clone()).find(|p| p != f && self.tabs.iter().any(|d| &d.path == p));
+            match last.and_then(|p| self.tabs.iter().position(|d| d.path == p)).or_else(|| self.tabs.iter().position(|d| d.path != f)) {
+                Some(j) => self.active = j,
+                None => {
+                    self.toast(t("再打开一个文件才能分屏"), WARN());
+                    return;
+                }
+            }
+        }
+        let cur = self.tabs[self.active].path.clone();
+        self.split = Some(Split {
+            other: f.to_path_buf(),
+            active_left: true,
+            last: cur,
+        });
+    }
+
     /// 分屏开 / 关。另一侧显示最近用过的另一个文件
     fn toggle_split(&mut self) {
         if self.split.take().is_some() {
@@ -3544,9 +3655,13 @@ impl CodeView {
         // 拖动标签换位置：松手时按指针位置落到对应的空位
         if let Some(i) = drag_start {
             self.tab_drag = Some(i);
+            // 拖出标签栏：交给工作台（拖到右边 = 拆分编辑器）
+            if let (Some(d), Some(h)) = (self.tabs.get(i), ui.input(|i| i.pointer.press_origin())) {
+                self.tab_out = Some((d.path.clone(), h));
+            }
         }
         if let Some(from) = self.tab_drag {
-            let ptr = ui.input(|i| i.pointer.interact_pos());
+            let ptr = ui.input(|i| i.pointer.interact_pos()).filter(|p| p.y < bar.bottom() + 30.0);
             if let (Some(p), Some(r)) = (ptr, rects.get(from)) {
                 let to = rects.iter().position(|r| p.x < r.center().x).unwrap_or(rects.len()).min(rects.len());
                 let to = if to > from { to - 1 } else { to };

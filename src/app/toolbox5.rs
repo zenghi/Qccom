@@ -122,7 +122,7 @@ impl App {
     pub(super) fn open_struct(&mut self, src: String) {
         self.s.tb.z.y.st_src = src;
         self.s.tb.z.y.st_pick.clear();
-        self.open_tool(Tool::Struct);
+        self.reveal(super::work::Pane::Tool(Tool::Struct), "code.struct", super::work::Strength::Strong);
     }
 
     // ------------------------------------------------------------ 结构体
@@ -801,25 +801,10 @@ fn draw_signal(p: &egui::Painter, s: &vcd::Signal, row: Rect, wave: Rect, t0: f6
 
 impl App {
     /// 「电路和接线」页
-    pub(super) fn circuit_page(&mut self, ctx: &egui::Context) {
+    pub(super) fn circuit_page(&mut self, ui: &mut egui::Ui, compact: bool) {
         let root = self.code.root().map(|r| r.to_path_buf());
         let cv = self.circ.get_or_insert_with(|| Box::new(crate::circuitview::CircuitView::new()));
         cv.project = root;
-        cv.ui(ctx);
-        for e in std::mem::take(&mut cv.events) {
-            match e {
-                crate::circuitview::CvEvt::Toast(m, c) => self.toast(m, c),
-                crate::circuitview::CvEvt::OpenVcd(p) => {
-                    self.toast(t("已导出，在「VCD 波形」里打开"), OK());
-                    self.tool_drop5(Tool::Vcd, p);
-                    self.open_tool(Tool::Vcd);
-                }
-                crate::circuitview::CvEvt::Back => {
-                    // 回到工具箱：停在上一个用过的其它工具
-                    let back = self.s.tb.recent.iter().copied().find(|t| *t != Tool::Circuit).unwrap_or(Tool::Tftp);
-                    self.s.tb.tool = back;
-                }
-            }
-        }
+        cv.ui_in(ui, compact);
     }
 }

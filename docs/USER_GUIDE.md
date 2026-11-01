@@ -45,6 +45,22 @@ Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for exam
 - **`Ctrl+Tab`** shows the recently used pages, tools, comparisons and files in one list. Keep `Ctrl` held and press `Tab` (`Shift+Tab` goes back) to pick one, release to switch. `Ctrl+PgDn` still cycles the editor tabs.
 - In the toolbox, the tools you opened stay as **tabs** along the top (up to 8; a green dot means running). Click to switch, middle-click or × to close, drag to reorder. Hovering the toolbox icon lists the recent tools, and clicking it returns to the last one.
 
+### Side page
+
+![Side page](gif/demo-side.gif)
+
+Any page can sit next to the current one: Debug, Code, Git, Compare, Community, any toolbox tool and the circuit.
+
+- **Open**: middle-click an activity-bar icon or toolbox tab, or right-click it → *Open on the right* / *Open at the bottom*. You can also drag the icon, a toolbox tab or an editor tab to the right or bottom edge of the window; a preview shows where it will land, and dropping in the middle swaps it with the main page. In the command palette, type *side*.
+- **The side page is compact**: the serial port shows a connection chip instead of the sidebar, the code page hides the explorer on narrow widths, the circuit hides its part library. Double-click its tab to make it the main page.
+- **Title bar buttons**: ⇄ swap with the main page, ⬓ move between right and bottom, ↗ pop out into its own window (closing that window puts it back), × close. Several side pages become tabs; middle-click a tab to close it.
+- **Size**: drag the divider; double-click it to reset; drag it almost closed to close the side page.
+- **Opens by itself when it helps**, only the first time: the serial log after flashing, the simulated port when a circuit is powered, generated circuit code, Compare after *Compare with…* or for a Git conflict. Close one and next time it only shows a hint in the status bar. Nothing pops up while you are typing, and `F11` (focus mode) pauses all of it.
+- **Log hints**: a HardFault / assert or `file.c:123` in the log shows a status-bar hint. `file:line` references are underlined; `Ctrl+click` opens the file beside the log. Selecting a line in the code highlights matching log lines.
+- **View together**: switch between the same two pages 3 times within 2 minutes and a small hint offers to put them side by side. Accept it and that pair opens side by side from then on (listed in *Settings → Side page*, where you can remove it).
+- **Layouts**: the layout icon in the status bar (shown while a side page is open) offers single / side by side / stacked / three areas and the layouts *Firmware debug* (code + serial + terminal), *Simulation* (circuit + serial) and *Review* (compare + code + file tree). Save your own, and star one as the default for the current project. The last arrangement of each project is restored when you open it.
+- `Alt+←` restores the arrangement you came from, and `Ctrl+Tab` lists your pairs and layouts.
+
 ### Settings
 
 `Ctrl+,` opens the settings page: General, Appearance, Log, Connection, Code Editor, Keyboard Shortcuts and About. The search box at the top filters every option. Press Esc or click × to go back to where you were.
@@ -649,6 +665,10 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Shift+F12 | Find references |
 | Alt+← / Alt+→ | Back / forward (across pages too) |
 | Ctrl+Tab | Recently used pages, tools and files |
+| Ctrl+Alt+\\ | Open / close the side page |
+| Ctrl+Alt+Enter | Swap main and side page |
+| Ctrl+Alt+Shift+→ / ↓ | Side page on the right / at the bottom |
+| F11 | Focus mode (no automatic side pages) |
 | Ctrl+PgDn / Ctrl+W | Next tab / close tab |
 | Ctrl+S | Save |
 | Ctrl+= / Ctrl+- | Font size |

@@ -379,12 +379,8 @@ impl Default for Community {
     fn default() -> Self {
         let (tx, rx) = channel();
         let draft = std::fs::read_to_string(draft_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let cache: HashMap<String, Vec<Value>> =
-            std::fs::read_to_string(cache_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
-        let cache = cache
-            .into_iter()
-            .map(|(k, v)| (k, v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect()))
-            .collect();
+        let cache: HashMap<String, Vec<Value>> = std::fs::read_to_string(cache_path()).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let cache = cache.into_iter().map(|(k, v)| (k, v.into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect())).collect();
         let c = hub::creds();
         let me_user = c.user.and_then(|u| serde_json::from_value(u).ok());
         Community {
@@ -462,7 +458,10 @@ pub struct ListPage {
 }
 
 fn parse_page(v: Value) -> ListPage {
-    let mut pg = ListPage { total: v["total"].as_i64().unwrap_or(0), ..Default::default() };
+    let mut pg = ListPage {
+        total: v["total"].as_i64().unwrap_or(0),
+        ..Default::default()
+    };
     for x in v["items"].as_array().cloned().unwrap_or_default() {
         match serde_json::from_value::<Post>(x) {
             Ok(p) => pg.items.push(p),
@@ -682,7 +681,17 @@ impl Community {
         }
         self.detail_loading = true;
         self.detail_err = None;
-        self.spawn(move || Res::Detail(id, hub::request("GET", &format!("/posts/{id}"), Body::None).and_then(|v| serde_json::from_value(v).map_err(|e| HubErr { code: "bad".into(), msg: e.to_string() }))));
+        self.spawn(move || {
+            Res::Detail(
+                id,
+                hub::request("GET", &format!("/posts/{id}"), Body::None).and_then(|v| {
+                    serde_json::from_value(v).map_err(|e| HubErr {
+                        code: "bad".into(),
+                        msg: e.to_string(),
+                    })
+                }),
+            )
+        });
         // 这帖的提醒服务器那边会标已读，本地先减掉
         let n = self.notifs.iter().filter(|x| x.post_id == id && !x.read).count() as i64;
         if n > 0 {
@@ -814,7 +823,13 @@ impl Community {
     }
 
     pub fn edit_post(&mut self, p: &Post) {
-        self.draft = Draft { board: p.board.clone(), title: p.title.clone(), body: p.body.clone(), anonymous: p.author.anonymous, edit: Some(p.id) };
+        self.draft = Draft {
+            board: p.board.clone(),
+            title: p.title.clone(),
+            body: p.body.clone(),
+            anonymous: p.author.anonymous,
+            edit: Some(p.id),
+        };
         self.enter_compose();
     }
 
@@ -852,7 +867,12 @@ impl Community {
                 Some(id) => hub::request("PATCH", &format!("/posts/{id}"), Body::Json(json!({ "title": d.title, "body": d.body }))),
                 None => hub::request("POST", "/posts", Body::Json(json!({ "board": d.board, "title": d.title, "body": d.body, "anonymous": d.anonymous }))),
             });
-            Res::Posted(r.and_then(|v| serde_json::from_value(v).map_err(|e| HubErr { code: "bad".into(), msg: e.to_string() })))
+            Res::Posted(r.and_then(|v| {
+                serde_json::from_value(v).map_err(|e| HubErr {
+                    code: "bad".into(),
+                    msg: e.to_string(),
+                })
+            }))
         });
     }
 
@@ -1014,7 +1034,9 @@ impl Community {
         let img = arboard::Clipboard::new().and_then(|mut c| c.get_image());
         match img {
             Ok(img) => {
-                let Some(buf) = image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned()) else { return false };
+                let Some(buf) = image::RgbaImage::from_raw(img.width as u32, img.height as u32, img.bytes.into_owned()) else {
+                    return false;
+                };
                 let mut out = std::io::Cursor::new(Vec::new());
                 if image::DynamicImage::ImageRgba8(buf).write_to(&mut out, image::ImageFormat::Png).is_ok() {
                     self.upload(target, out.into_inner());
@@ -1042,12 +1064,15 @@ impl Community {
         self.spawn(move || {
             let url = format!("{}/img/{id2}", hub::base_url());
             let r = (|| -> Result<Vec<u8>, HubErr> {
-                let resp = hub::agent()
-                    .get(&url)
-                    .call()
-                    .map_err(|e| HubErr { code: "network".into(), msg: e.to_string() })?;
+                let resp = hub::agent().get(&url).call().map_err(|e| HubErr {
+                    code: "network".into(),
+                    msg: e.to_string(),
+                })?;
                 let mut b = vec![];
-                std::io::Read::read_to_end(&mut std::io::Read::take(resp.into_reader(), 8 * 1024 * 1024), &mut b).map_err(|e| HubErr { code: "network".into(), msg: e.to_string() })?;
+                std::io::Read::read_to_end(&mut std::io::Read::take(resp.into_reader(), 8 * 1024 * 1024), &mut b).map_err(|e| HubErr {
+                    code: "network".into(),
+                    msg: e.to_string(),
+                })?;
                 Ok(b)
             })();
             Res::Img(id2, r)
@@ -1123,7 +1148,13 @@ impl Community {
                 self.loading = false;
                 match r {
                     Ok(pg) => {
-                        let ListPage { items, total, skipped, skip_err, hidden_other } = pg;
+                        let ListPage {
+                            items,
+                            total,
+                            skipped,
+                            skip_err,
+                            hidden_other,
+                        } = pg;
                         self.offline = false;
                         self.total = total;
                         self.hidden_other = hidden_other;
@@ -1438,7 +1469,11 @@ impl Community {
 /// 太大的图片先在本地缩到最长边 2560 再上传
 fn shrink(b: &[u8]) -> Option<Vec<u8>> {
     let img = image::load_from_memory(b).ok()?;
-    let img = if img.width().max(img.height()) > 2560 { img.resize(2560, 2560, image::imageops::FilterType::Triangle) } else { img };
+    let img = if img.width().max(img.height()) > 2560 {
+        img.resize(2560, 2560, image::imageops::FilterType::Triangle)
+    } else {
+        img
+    };
     let mut out = std::io::Cursor::new(Vec::new());
     img.to_rgb8().write_to(&mut out, image::ImageFormat::Jpeg).ok()?;
     let v = out.into_inner();
@@ -1458,7 +1493,9 @@ pub fn ago(ts: i64) -> String {
     } else if s < 86400 * 30 {
         tf("{} 天前", &[&(s / 86400)])
     } else {
-        chrono::DateTime::from_timestamp(ts, 0).map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string()).unwrap_or_default()
+        chrono::DateTime::from_timestamp(ts, 0)
+            .map(|d| d.with_timezone(&chrono::Local).format("%Y-%m-%d").to_string())
+            .unwrap_or_default()
     }
 }
 

@@ -559,6 +559,7 @@ impl CircuitView {
                 self.code_board = Some(id);
                 self.btab = super::BTab::Code;
                 self.bottom = true;
+                self.events.push(super::CvEvt::GenCode);
             }
         }
         // 通电时：读数

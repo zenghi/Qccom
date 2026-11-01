@@ -35,6 +35,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **低功耗蓝牙（BLE）**：扫描附近设备（带信号格），连接后列出服务和特征，订阅通知、读取，在命令栏直接写入。Nordic UART、HM-10（FFE0）这类蓝牙串口模块自动识别写入特征。
 - **HTTP 接口调试**：类似 Postman 的 **API** 标签，调开发板上的 REST 接口：各种方法、参数、请求头、JSON / 表单 / 文本请求体、Bearer / Basic 认证、`{{变量}}`、收藏和历史、彩色 JSON 响应，支持 cURL 导入导出（浏览器里「复制为 cURL」直接粘到地址栏）。
 - **快捷命令**：多组一键发送的命令（文本或 HEX），每条可单独设换行符，`Alt+1…9` 快捷发送，可按间隔依次发送整组。
+- **两个页面并排看**：串口日志放在代码旁边、仿真串口放在电路旁边、比较放在文件旁边——中键点或把任意页面、工具拖到右边或下方即可。第一次用得上时会自动出现（烧录后、电路通电、日志里出现 HardFault），来回切页时提示放在一起，按工程记住布局，还能弹出到第二块屏幕。
 - **代码浏览器**：在日志旁打开固件工程，文件树、多标签、12 类语言语法高亮、按文件名快速打开、全工程搜索；C / C++ 支持跳转到定义、查找引用、宏展开并计算出数值。
 - **完整的代码编辑器**：多光标、列选择、代码折叠、括号匹配、粘性滚动、行操作，以及 Source Insight 式的上下文窗口、调用关系、书签和语义着色。装了 clangd 且工程有 `compile_commands.json` 时自动使用 clangd。
 - **代码生成**：F8 多色高亮，`#if 0` / 未定义 `#ifdef` 的代码变灰，`#ifdef` 和 `#if 0` 一键包裹，按类型自动选格式的变量打印，Doxygen 和文件头说明，16 个可自定义宏动作，按键录制，导航历史，可切换 VS Code / Source Insight / Keil 快捷键方案。代码、Git、终端、文件服务器共用一个工程文件夹。
@@ -89,6 +90,8 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 | ![终端](docs/gif/demo-terminal.gif) | ![代码](docs/gif/demo-code.gif) |
 | **HTTP 接口调试** | **工具箱** |
 | ![API](docs/gif/demo-api.gif) | ![工具箱](docs/gif/demo-toolbox.gif) |
+| **串口日志放在代码旁边** | |
+| ![副页面](docs/gif/demo-side.gif) | |
 
 更多见[使用手册](docs/USER_GUIDE.zh-CN.md)。
 

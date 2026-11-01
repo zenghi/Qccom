@@ -238,6 +238,12 @@ pub enum Act {
     FindRefs,
     NavBack,
     NavFwd,
+    // 副页面
+    SideToggle,
+    SideRight,
+    SideBottom,
+    SideSwap,
+    FocusMode,
     // Git 页
     GitRefresh,
     GitFetch,
@@ -394,6 +400,11 @@ acts! {
     Act::FindRefs, "code.refs", "查找引用", Code, ["Shift+F12"];
     Act::NavBack, "nav.back", "后退", Global, ["Alt+←"];
     Act::NavFwd, "nav.forward", "前进", Global, ["Alt+→"];
+    Act::SideToggle, "side.toggle", "打开 / 收起副页面", Global, ["Ctrl+Alt+\\"];
+    Act::SideRight, "side.right", "副页面放右边", Global, ["Ctrl+Alt+Shift+→"];
+    Act::SideBottom, "side.bottom", "副页面放下方", Global, ["Ctrl+Alt+Shift+↓"];
+    Act::SideSwap, "side.swap", "主页面和副页面互换", Global, ["Ctrl+Alt+Enter"];
+    Act::FocusMode, "side.focus", "专注模式（暂停自动弹出副页面）", Global, ["F11"];
     Act::GitRefresh, "git.refresh", "刷新仓库", Git, ["F5"];
     Act::GitFetch, "git.fetch", "从所有远程拉取", Git, [];
     Act::GitFind, "git.find", "搜索提交", Git, ["Ctrl+F"];

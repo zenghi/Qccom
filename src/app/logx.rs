@@ -311,6 +311,7 @@ impl App {
         if !KEYS.iter().any(|k| s.contains(k)) {
             return;
         }
+        self.flash_side();
         let Some(id) = self.code.checkpoint_now(&tf("烧录：{}", &[&name])) else { return };
         let text = format!("──────  {}  {}  ──────", tf("烧录 · 存档 #{}", &[&id]), chrono::Local::now().format("%H:%M:%S"));
         self.buf.sys(text);

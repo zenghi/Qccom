@@ -46,19 +46,29 @@ fn notif_text(n: &Notif) -> String {
 impl Community {
     /// 整个社区页
     pub fn ui(&mut self, ctx: &egui::Context) {
-        self.activate(ctx);
-        let total_w = ctx.available_rect().width();
-        let narrow = total_w < 900.0;
-        self.keys(ctx, narrow);
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.ui_in(ui, false));
+    }
 
-        egui::SidePanel::left("comm-nav")
-            .resizable(false)
-            .exact_width(if narrow { NAV_W_SLIM } else { NAV_W })
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin::symmetric(if narrow { 7 } else { 10 }, 12)))
-            .show(ctx, |ui| self.nav_ui(ui, narrow));
+    /// compact = 副页面：不要左边的板块栏，列表和详情来回切
+    pub fn ui_in(&mut self, ui: &mut egui::Ui, compact: bool) {
+        let ctx = &ui.ctx().clone();
+        self.activate(ctx);
+        let total_w = ui.available_width();
+        let narrow = total_w < 900.0;
+        if !compact || total_w > 700.0 {
+            self.keys(ctx, narrow);
+        }
+
+        if !compact {
+            egui::SidePanel::left("comm-nav")
+                .resizable(false)
+                .exact_width(if narrow { NAV_W_SLIM } else { NAV_W })
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin::symmetric(if narrow { 7 } else { 10 }, 12)))
+                .show_inside(ui, |ui| self.nav_ui(ui, narrow));
+        }
 
         if narrow {
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| {
                 // 窄窗口里列表和详情来回切：淡入一下，不至于“啪”地跳过去
                 let open = self.pane != Pane::Empty;
                 let k = ctx.animate_bool_with_time(egui::Id::new("comm-narrow-pane"), open, 0.16);
@@ -75,8 +85,8 @@ impl Community {
                 .default_width(((total_w - NAV_W) * 0.40).clamp(320.0, 460.0))
                 .width_range(300.0..=560.0)
                 .frame(egui::Frame::new().fill(BG0()))
-                .show(ctx, |ui| self.list_ui(ui));
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| self.pane_ui(ui, false));
+                .show_inside(ui, |ui| self.list_ui(ui));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.pane_ui(ui, false));
         }
         self.lightbox_ui(ctx);
     }
@@ -297,7 +307,13 @@ impl Community {
                 let g = p.layout_no_wrap(crate::app::truncate(&name, 12), FontId::new(12.5, bold()), TEXT());
                 p.galley(pos2(x, rect.center().y - 15.0), g, TEXT());
                 let _ = tw;
-                p.text(pos2(x, rect.center().y + 7.0), Align2::LEFT_CENTER, sub, FontId::proportional(11.0), if self.logged_in() { TEXT3() } else { ACCENT() });
+                p.text(
+                    pos2(x, rect.center().y + 7.0),
+                    Align2::LEFT_CENTER,
+                    sub,
+                    FontId::proportional(11.0),
+                    if self.logged_in() { TEXT3() } else { ACCENT() },
+                );
             }
             if resp.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
@@ -318,100 +334,118 @@ impl Community {
             Nav::Mine(_) => (t("我的内容").to_string(), self.mine_hint()),
             Nav::Notifs => (t("提醒").to_string(), t("回复、引用、采纳和需求状态变化").to_string()),
         };
-        egui::Frame::new().inner_margin(egui::Margin { left: 16, right: 14, top: 14, bottom: 8 }).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.label(RichText::new(&title).font(FontId::new(18.0, bold())).color(TEXT()));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if self.nav == Nav::Notifs {
-                        if self.unread > 0 && w::link(ui, t("全部已读"), ACCENT()).clicked() {
-                            self.mark_all_read();
-                        }
-                    } else if icon_button(ui, Icon::Refresh, t("刷新"), false).clicked() {
-                        self.reload();
-                        self.refresh_me();
-                    }
-                });
-            });
-            ui.label(RichText::new(desc).size(12.0).color(TEXT3()));
-            if self.nav == Nav::Notifs {
-                return;
-            }
-            ui.add_space(10.0);
-            // 搜索
-            let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
-            let focused = ui.memory(|m| m.has_focus(search_id()));
-            ui.painter().rect(rect, CornerRadius::same(7), BG1(), st(1.0, if focused { ACCENT().gamma_multiply(0.6) } else { LINE() }), egui::StrokeKind::Inside);
-            draw_icon(ui.painter(), Rect::from_center_size(pos2(rect.left() + 15.0, rect.center().y), vec2(14.0, 14.0)), Icon::Search, TEXT3());
-            let inner = Rect::from_min_max(pos2(rect.left() + 28.0, rect.top() + 1.0), pos2(rect.right() - 30.0, rect.bottom() - 1.0));
-            ui.put(
-                inner,
-                egui::TextEdit::singleline(&mut self.query).id(search_id()).hint_text(t("搜索标题和内容")).frame(false).margin(vec2(4.0, 6.0)).font(FontId::proportional(13.0)),
-            );
-            let kr = Rect::from_center_size(pos2(rect.right() - 15.0, rect.center().y), vec2(16.0, 17.0));
-            if self.query.is_empty() {
-                ui.scope_builder(egui::UiBuilder::new().max_rect(kr), |ui| w::kbd(ui, "/"));
-            } else {
-                // 自己画 ×：按钮控件最小高度比这里大，会把下面一行顶下去
-                let xr = ui.interact(kr, ui.id().with("comm-q-clear"), Sense::click());
-                let c = if xr.hovered() { TEXT() } else { TEXT3() };
-                let m = kr.center();
-                ui.painter().line_segment([m + vec2(-3.5, -3.5), m + vec2(3.5, 3.5)], st(1.3, c));
-                ui.painter().line_segment([m + vec2(-3.5, 3.5), m + vec2(3.5, -3.5)], st(1.3, c));
-                if xr.on_hover_text(t("清空")).clicked() {
-                    self.query.clear();
-                }
-            }
-            ui.add_space(8.0);
-            if let Nav::Mine(cur) = self.nav {
+        egui::Frame::new()
+            .inner_margin(egui::Margin {
+                left: 16,
+                right: 14,
+                top: 14,
+                bottom: 8,
+            })
+            .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    for (m, name) in [(Mine::Posted, t("我发的")), (Mine::Voted, t("我投的")), (Mine::Replied, t("我回复的"))] {
-                        if seg(ui, name, cur == m).clicked() && cur != m {
-                            self.go(Nav::Mine(m));
-                        }
-                    }
-                });
-            }
-            // 排序 / 筛选
-            if let Nav::Board(b) = self.nav {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    let opts: &[(Sort, &str)] = match b {
-                        Board::Idea => &[(Sort::Hot, t("热门")), (Sort::Top, t("票数")), (Sort::New, t("最新"))],
-                        Board::Notice => &[(Sort::New, t("最新"))],
-                        _ => &[(Sort::Active, t("最近回复")), (Sort::New, t("最新")), (Sort::Hot, t("热门"))],
-                    };
-                    let cur = self.cur_sort();
-                    for (s, name) in opts {
-                        if seg(ui, name, cur == *s).clicked() && cur != *s {
-                            self.set_sort(*s);
-                        }
-                    }
-                    if b == Board::Idea {
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let f = self.idea_filter;
-                            let name = |f: IdeaFilter| match f {
-                                IdeaFilter::Open => t("进行中"),
-                                IdeaFilter::Planned => t("计划中"),
-                                IdeaFilter::Done => t("已完成"),
-                                IdeaFilter::All => t("全部"),
-                            };
-                            // 从右往左排，所以倒着放
-                            for x in [IdeaFilter::All, IdeaFilter::Done, IdeaFilter::Planned, IdeaFilter::Open] {
-                                let r = seg(ui, name(x), f == x);
-                                let r = if x == IdeaFilter::Open { r.on_hover_text(t("待评估和计划中")) } else { r };
-                                if r.clicked() && f != x {
-                                    self.idea_filter = x;
-                                    let key = self.list_key();
-                                    self.items = self.cache.get(&key).cloned().unwrap_or_default();
-                                    self.reload();
-                                }
+                    ui.label(RichText::new(&title).font(FontId::new(18.0, bold())).color(TEXT()));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if self.nav == Nav::Notifs {
+                            if self.unread > 0 && w::link(ui, t("全部已读"), ACCENT()).clicked() {
+                                self.mark_all_read();
                             }
-                        });
-                    }
+                        } else if icon_button(ui, Icon::Refresh, t("刷新"), false).clicked() {
+                            self.reload();
+                            self.refresh_me();
+                        }
+                    });
                 });
-            }
-        });
+                ui.label(RichText::new(desc).size(12.0).color(TEXT3()));
+                if self.nav == Nav::Notifs {
+                    return;
+                }
+                ui.add_space(10.0);
+                // 搜索
+                let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+                let focused = ui.memory(|m| m.has_focus(search_id()));
+                ui.painter().rect(
+                    rect,
+                    CornerRadius::same(7),
+                    BG1(),
+                    st(1.0, if focused { ACCENT().gamma_multiply(0.6) } else { LINE() }),
+                    egui::StrokeKind::Inside,
+                );
+                draw_icon(ui.painter(), Rect::from_center_size(pos2(rect.left() + 15.0, rect.center().y), vec2(14.0, 14.0)), Icon::Search, TEXT3());
+                let inner = Rect::from_min_max(pos2(rect.left() + 28.0, rect.top() + 1.0), pos2(rect.right() - 30.0, rect.bottom() - 1.0));
+                ui.put(
+                    inner,
+                    egui::TextEdit::singleline(&mut self.query)
+                        .id(search_id())
+                        .hint_text(t("搜索标题和内容"))
+                        .frame(false)
+                        .margin(vec2(4.0, 6.0))
+                        .font(FontId::proportional(13.0)),
+                );
+                let kr = Rect::from_center_size(pos2(rect.right() - 15.0, rect.center().y), vec2(16.0, 17.0));
+                if self.query.is_empty() {
+                    ui.scope_builder(egui::UiBuilder::new().max_rect(kr), |ui| w::kbd(ui, "/"));
+                } else {
+                    // 自己画 ×：按钮控件最小高度比这里大，会把下面一行顶下去
+                    let xr = ui.interact(kr, ui.id().with("comm-q-clear"), Sense::click());
+                    let c = if xr.hovered() { TEXT() } else { TEXT3() };
+                    let m = kr.center();
+                    ui.painter().line_segment([m + vec2(-3.5, -3.5), m + vec2(3.5, 3.5)], st(1.3, c));
+                    ui.painter().line_segment([m + vec2(-3.5, 3.5), m + vec2(3.5, -3.5)], st(1.3, c));
+                    if xr.on_hover_text(t("清空")).clicked() {
+                        self.query.clear();
+                    }
+                }
+                ui.add_space(8.0);
+                if let Nav::Mine(cur) = self.nav {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        for (m, name) in [(Mine::Posted, t("我发的")), (Mine::Voted, t("我投的")), (Mine::Replied, t("我回复的"))] {
+                            if seg(ui, name, cur == m).clicked() && cur != m {
+                                self.go(Nav::Mine(m));
+                            }
+                        }
+                    });
+                }
+                // 排序 / 筛选
+                if let Nav::Board(b) = self.nav {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        let opts: &[(Sort, &str)] = match b {
+                            Board::Idea => &[(Sort::Hot, t("热门")), (Sort::Top, t("票数")), (Sort::New, t("最新"))],
+                            Board::Notice => &[(Sort::New, t("最新"))],
+                            _ => &[(Sort::Active, t("最近回复")), (Sort::New, t("最新")), (Sort::Hot, t("热门"))],
+                        };
+                        let cur = self.cur_sort();
+                        for (s, name) in opts {
+                            if seg(ui, name, cur == *s).clicked() && cur != *s {
+                                self.set_sort(*s);
+                            }
+                        }
+                        if b == Board::Idea {
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                let f = self.idea_filter;
+                                let name = |f: IdeaFilter| match f {
+                                    IdeaFilter::Open => t("进行中"),
+                                    IdeaFilter::Planned => t("计划中"),
+                                    IdeaFilter::Done => t("已完成"),
+                                    IdeaFilter::All => t("全部"),
+                                };
+                                // 从右往左排，所以倒着放
+                                for x in [IdeaFilter::All, IdeaFilter::Done, IdeaFilter::Planned, IdeaFilter::Open] {
+                                    let r = seg(ui, name(x), f == x);
+                                    let r = if x == IdeaFilter::Open { r.on_hover_text(t("待评估和计划中")) } else { r };
+                                    if r.clicked() && f != x {
+                                        self.idea_filter = x;
+                                        let key = self.list_key();
+                                        self.items = self.cache.get(&key).cloned().unwrap_or_default();
+                                        self.reload();
+                                    }
+                                }
+                            });
+                        }
+                    });
+                }
+            });
         let r = ui.available_rect_before_wrap();
         ui.painter().hline(r.x_range(), r.top(), st(1.0, LINE()));
 
@@ -583,7 +617,11 @@ impl Community {
             painter.vline(rect.left() + 1.0, rect.y_range().shrink(12.0), st(2.5, ACCENT()));
         }
         let inner = rect.shrink2(vec2(14.0, 12.0));
-        let mut child = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_min_size(inner.min, vec2(inner.width(), 1000.0))).layout(Layout::left_to_right(Align::Min)));
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_min_size(inner.min, vec2(inner.width(), 1000.0)))
+                .layout(Layout::left_to_right(Align::Min)),
+        );
         let board = Board::from_id(&p.board);
         let is_idea = board == Board::Idea;
         if is_idea {
@@ -597,7 +635,11 @@ impl Community {
         let show_status = is_idea && (p.status != "open" || self.idea_filter == IdeaFilter::All);
         child.vertical(|ui| {
             ui.spacing_mut().item_spacing.y = 5.0;
-            let tf_ = |c: Color32, f: FontId| egui::TextFormat { font_id: f, color: c, ..Default::default() };
+            let tf_ = |c: Color32, f: FontId| egui::TextFormat {
+                font_id: f,
+                color: c,
+                ..Default::default()
+            };
             // 标题行：标题在左，状态在右上角对齐
             ui.horizontal_top(|ui| {
                 let badge_w = if show_status { 64.0 } else { 0.0 };
@@ -639,13 +681,21 @@ impl Community {
                 ui.spacing_mut().item_spacing.x = 5.0;
                 let tex = p.author.avatar.clone().and_then(|id| self.image(ui.ctx(), &id)).map(|x| x.0);
                 w::avatar(ui, &p.author.seed(), tex, 16.0);
-                ui.label(RichText::new(crate::app::truncate(&p.author.name, 14)).size(11.5).color(if p.author.staff { ACCENT() } else { TEXT2() }));
+                ui.label(
+                    RichText::new(crate::app::truncate(&p.author.name, 14))
+                        .size(11.5)
+                        .color(if p.author.staff { ACCENT() } else { TEXT2() }),
+                );
                 if p.author.staff {
                     w::tag(ui, t("作者"), ACCENT());
                 }
                 let dot = |ui: &mut Ui| ui.label(RichText::new("·").size(11.5).color(TEXT3()));
                 dot(ui);
-                ui.label(RichText::new(ago(if p.last_reply_at > 0 && !is_idea { p.last_reply_at } else { p.created_at })).size(11.5).color(TEXT3()));
+                ui.label(
+                    RichText::new(ago(if p.last_reply_at > 0 && !is_idea { p.last_reply_at } else { p.created_at }))
+                        .size(11.5)
+                        .color(TEXT3()),
+                );
                 if p.reply_count > 0 {
                     dot(ui);
                     let (r, _) = ui.allocate_exact_size(vec2(13.0, 13.0), Sense::hover());
@@ -708,8 +758,17 @@ impl Community {
                 }
                 let x = ic.right() + 12.0;
                 let maxw = rect.right() - x - 30.0;
-                let g = p.layout(notif_text(&n), FontId::new(13.0, if n.read { FontFamily::Proportional } else { bold() }), if n.read { TEXT2() } else { TEXT() }, maxw);
-                let g = if g.rows.len() > 1 { p.layout_no_wrap(crate::app::truncate(&notif_text(&n), 26), FontId::proportional(13.0), TEXT()) } else { g };
+                let g = p.layout(
+                    notif_text(&n),
+                    FontId::new(13.0, if n.read { FontFamily::Proportional } else { bold() }),
+                    if n.read { TEXT2() } else { TEXT() },
+                    maxw,
+                );
+                let g = if g.rows.len() > 1 {
+                    p.layout_no_wrap(crate::app::truncate(&notif_text(&n), 26), FontId::proportional(13.0), TEXT())
+                } else {
+                    g
+                };
                 p.galley(pos2(x, rect.top() + 11.0), g, TEXT());
                 p.text(
                     pos2(x, rect.top() + 39.0),
@@ -746,20 +805,27 @@ impl Community {
     }
 
     fn back_bar(&mut self, ui: &mut Ui, narrow: bool, title: &str, right: impl FnOnce(&mut Self, &mut Ui)) {
-        egui::Frame::new().inner_margin(egui::Margin { left: 10, right: 12, top: 8, bottom: 8 }).show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.set_min_height(28.0);
-                if narrow {
-                    if icon_button(ui, Icon::Back, t("返回（Esc）"), false).clicked() {
-                        self.close_pane();
+        egui::Frame::new()
+            .inner_margin(egui::Margin {
+                left: 10,
+                right: 12,
+                top: 8,
+                bottom: 8,
+            })
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.set_min_height(28.0);
+                    if narrow {
+                        if icon_button(ui, Icon::Back, t("返回（Esc）"), false).clicked() {
+                            self.close_pane();
+                        }
+                    } else {
+                        ui.add_space(6.0);
                     }
-                } else {
-                    ui.add_space(6.0);
-                }
-                ui.label(RichText::new(title).size(12.5).color(TEXT3()));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| right(self, ui));
+                    ui.label(RichText::new(title).size(12.5).color(TEXT3()));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| right(self, ui));
+                });
             });
-        });
         let r = ui.available_rect_before_wrap();
         ui.painter().hline(r.x_range(), r.top(), st(1.0, LINE()));
     }
@@ -772,7 +838,11 @@ impl Community {
         p.circle_stroke(c, 34.0, st(1.0, ACCENT().gamma_multiply(0.3)));
         w::chat_icon(p, Rect::from_center_size(c, vec2(30.0, 30.0)), ACCENT());
         p.text(c + vec2(0.0, 58.0), Align2::CENTER_CENTER, t("选一个帖子查看"), FontId::new(15.0, bold()), TEXT2());
-        let mut ui2 = ui.new_child(egui::UiBuilder::new().max_rect(Rect::from_center_size(c + vec2(0.0, 98.0), vec2(320.0, 40.0))).layout(Layout::left_to_right(Align::Center)));
+        let mut ui2 = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(Rect::from_center_size(c + vec2(0.0, 98.0), vec2(320.0, 40.0)))
+                .layout(Layout::left_to_right(Align::Center)),
+        );
         ui2.spacing_mut().item_spacing.x = 4.0;
         let keys = [("J", t("下一个")), ("K", t("上一个")), ("V", t("投票")), ("N", t("发帖"))];
         let total: f32 = 4.0 * 62.0;
@@ -880,7 +950,12 @@ impl Community {
 
         // 底部回复框
         egui::TopBottomPanel::bottom(egui::Id::new("comm-reply-panel"))
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 20, right: 20, top: 10, bottom: 10 }))
+            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                left: 20,
+                right: 20,
+                top: 10,
+                bottom: 10,
+            }))
             .show_separator_line(true)
             .show_inside(ui, |ui| self.reply_box(ui, &p));
 
@@ -894,132 +969,151 @@ impl Community {
         sa.show(ui, |ui| {
             let maxw = 720.0f32.min(ui.available_width() - 40.0);
             let pad = ((ui.available_width() - maxw) / 2.0).max(20.0);
-            egui::Frame::new().inner_margin(egui::Margin { left: pad as i8, right: pad as i8, top: 20, bottom: 24 }).show(ui, |ui| {
-                ui.set_max_width(maxw);
-                ui.spacing_mut().item_spacing.y = 6.0;
-                // 标题
-                ui.horizontal_top(|ui| {
-                    if board == Board::Idea {
-                        let r = ui.add_space(0.0);
-                        let _ = r;
-                    }
-                    ui.add(egui::Label::new(RichText::new(&p.title).font(FontId::new(20.0, bold())).color(TEXT())).wrap());
-                });
-                // 信息条：作者、时间、标记；需求再加投票和状态
-                ui.add_space(4.0);
-                egui::Frame::new().fill(BG1()).stroke(st(1.0, LINE().gamma_multiply(0.7))).corner_radius(R_CARD).inner_margin(egui::Margin::symmetric(12, 9)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 6.0;
-                    let tex = p.author.avatar.clone().and_then(|id| self.image(&ctx, &id)).map(|x| x.0);
-                    w::avatar(ui, &p.author.seed(), tex, 22.0);
-                    ui.label(RichText::new(&p.author.name).size(12.5).color(if p.author.staff { ACCENT() } else { TEXT() }));
-                    if p.author.staff {
-                        w::tag(ui, t("作者"), ACCENT());
-                    }
-                    if p.author.me {
-                        w::tag(ui, t("我"), TEXT3());
-                    }
-                    let mut meta = ago(p.created_at);
-                    if p.edited_at.is_some() {
-                        meta.push_str(&format!(" · {}", t("已编辑")));
-                    }
-                    ui.label(RichText::new(format!("· {meta}")).size(12.0).color(TEXT3()));
-                    if p.pinned {
-                        w::tag(ui, t("置顶"), WARN());
-                    }
-                    if p.locked {
-                        w::tag(ui, t("已锁定"), TEXT3());
-                    }
-                    if p.pending {
-                        w::tag(ui, t("审核中"), WARN());
-                    }
-                    if board == Board::Help && p.solved_reply.is_some() {
-                        w::tag(ui, t("已解决"), OK());
-                    }
-                });
-                // 需求：投票 + 状态
-                if board == Board::Idea {
-                    ui.add_space(4.0);
-                    let r = ui.available_rect_before_wrap();
-                    ui.painter().hline(r.x_range(), r.top(), st(1.0, LINE().gamma_multiply(0.6)));
-                    ui.add_space(6.0);
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
-                        if w::vote_pill(ui, p.score, p.voted, !self.banned).on_hover_text(if p.voted { t("取消投票（V）") } else { t("我也想要（V）") }).clicked() {
-                            self.vote(p.id);
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: pad as i8,
+                    right: pad as i8,
+                    top: 20,
+                    bottom: 24,
+                })
+                .show(ui, |ui| {
+                    ui.set_max_width(maxw);
+                    ui.spacing_mut().item_spacing.y = 6.0;
+                    // 标题
+                    ui.horizontal_top(|ui| {
+                        if board == Board::Idea {
+                            let r = ui.add_space(0.0);
+                            let _ = r;
                         }
-                        if admin {
-                            let mut s = p.status.clone();
-                            egui::ComboBox::from_id_salt("comm-status").selected_text(status_name(&s)).width(90.0).show_ui(ui, |ui| {
-                                for x in ["open", "planned", "done", "declined"] {
-                                    ui.selectable_value(&mut s, x.to_string(), status_name(x));
+                        ui.add(egui::Label::new(RichText::new(&p.title).font(FontId::new(20.0, bold())).color(TEXT())).wrap());
+                    });
+                    // 信息条：作者、时间、标记；需求再加投票和状态
+                    ui.add_space(4.0);
+                    egui::Frame::new()
+                        .fill(BG1())
+                        .stroke(st(1.0, LINE().gamma_multiply(0.7)))
+                        .corner_radius(R_CARD)
+                        .inner_margin(egui::Margin::symmetric(12, 9))
+                        .show(ui, |ui| {
+                            ui.set_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                let tex = p.author.avatar.clone().and_then(|id| self.image(&ctx, &id)).map(|x| x.0);
+                                w::avatar(ui, &p.author.seed(), tex, 22.0);
+                                ui.label(RichText::new(&p.author.name).size(12.5).color(if p.author.staff { ACCENT() } else { TEXT() }));
+                                if p.author.staff {
+                                    w::tag(ui, t("作者"), ACCENT());
+                                }
+                                if p.author.me {
+                                    w::tag(ui, t("我"), TEXT3());
+                                }
+                                let mut meta = ago(p.created_at);
+                                if p.edited_at.is_some() {
+                                    meta.push_str(&format!(" · {}", t("已编辑")));
+                                }
+                                ui.label(RichText::new(format!("· {meta}")).size(12.0).color(TEXT3()));
+                                if p.pinned {
+                                    w::tag(ui, t("置顶"), WARN());
+                                }
+                                if p.locked {
+                                    w::tag(ui, t("已锁定"), TEXT3());
+                                }
+                                if p.pending {
+                                    w::tag(ui, t("审核中"), WARN());
+                                }
+                                if board == Board::Help && p.solved_reply.is_some() {
+                                    w::tag(ui, t("已解决"), OK());
                                 }
                             });
-                            if s != p.status {
-                                self.admin_patch(p.id, json!({ "status": s }), "状态已更新");
-                                if let Some(d) = self.detail.as_mut() {
-                                    d.status = s;
-                                }
+                            // 需求：投票 + 状态
+                            if board == Board::Idea {
+                                ui.add_space(4.0);
+                                let r = ui.available_rect_before_wrap();
+                                ui.painter().hline(r.x_range(), r.top(), st(1.0, LINE().gamma_multiply(0.6)));
+                                ui.add_space(6.0);
+                                ui.horizontal(|ui| {
+                                    ui.spacing_mut().item_spacing.x = 10.0;
+                                    if w::vote_pill(ui, p.score, p.voted, !self.banned)
+                                        .on_hover_text(if p.voted { t("取消投票（V）") } else { t("我也想要（V）") })
+                                        .clicked()
+                                    {
+                                        self.vote(p.id);
+                                    }
+                                    if admin {
+                                        let mut s = p.status.clone();
+                                        egui::ComboBox::from_id_salt("comm-status").selected_text(status_name(&s)).width(90.0).show_ui(ui, |ui| {
+                                            for x in ["open", "planned", "done", "declined"] {
+                                                ui.selectable_value(&mut s, x.to_string(), status_name(x));
+                                            }
+                                        });
+                                        if s != p.status {
+                                            self.admin_patch(p.id, json!({ "status": s }), "状态已更新");
+                                            if let Some(d) = self.detail.as_mut() {
+                                                d.status = s;
+                                            }
+                                        }
+                                    } else {
+                                        w::status_badge(ui, &p.status);
+                                    }
+                                    if p.status == "done" && !p.done_version.is_empty() {
+                                        ui.label(RichText::new(tf("已在 {} 完成", &[&p.done_version])).size(12.0).color(OK()));
+                                    }
+                                    if p.voted {
+                                        ui.label(RichText::new(t("有进展会提醒你")).size(11.5).color(TEXT3()));
+                                    }
+                                });
                             }
-                        } else {
-                            w::status_badge(ui, &p.status);
+                        });
+                    if let (Some(_), Some(mt)) = (p.merged_into, &p.merged_title) {
+                        ui.add_space(6.0);
+                        let r = note_card(ui, VIOLET(), t("已合并"), &tf("这个需求和「{}」重复，票数已经合并过去", &[mt]));
+                        if r.clicked() {
+                            if let Some(m) = p.merged_into {
+                                self.open_post(m);
+                            }
                         }
-                        if p.status == "done" && !p.done_version.is_empty() {
-                            ui.label(RichText::new(tf("已在 {} 完成", &[&p.done_version])).size(12.0).color(OK()));
+                    }
+                    // 作者回复（需求的官方说明）
+                    if !p.admin_note.is_empty() || admin && board == Board::Idea {
+                        ui.add_space(6.0);
+                        self.admin_note_ui(ui, &p, admin);
+                    }
+                    ui.add_space(12.0);
+                    // 正文
+                    if p.body.trim().is_empty() {
+                        ui.label(RichText::new(t("（没有补充说明）")).color(TEXT3()));
+                    } else {
+                        let clicked = super::md::body(ui, &p.body, &mut |id| self.image(&ctx, id));
+                        if clicked.is_some() {
+                            self.lightbox = clicked;
                         }
-                        if p.voted {
-                            ui.label(RichText::new(t("有进展会提醒你")).size(11.5).color(TEXT3()));
-                        }
+                    }
+                    ui.add_space(22.0);
+                    // 回复
+                    let n = p.replies.iter().filter(|r| !r.deleted).count();
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new(if n == 0 { t("还没有回复").to_string() } else { tf("{} 条回复", &[&n]) })
+                                .font(FontId::new(13.0, bold()))
+                                .color(TEXT2()),
+                        );
                     });
-                }
-                });
-                if let (Some(_), Some(mt)) = (p.merged_into, &p.merged_title) {
-                    ui.add_space(6.0);
-                    let r = note_card(ui, VIOLET(), t("已合并"), &tf("这个需求和「{}」重复，票数已经合并过去", &[mt]));
-                    if r.clicked() {
-                        if let Some(m) = p.merged_into {
-                            self.open_post(m);
+                    let r = ui.available_rect_before_wrap();
+                    ui.painter().hline(r.x_range(), r.top() + 2.0, st(1.0, LINE()));
+                    ui.add_space(8.0);
+                    let last = p.replies.last().map(|r| r.id);
+                    for r in &p.replies {
+                        let resp = self.reply_ui(ui, &p, r, &ctx);
+                        if jump == Some(r.id) {
+                            resp.scroll_to_me(Some(Align::Center));
+                            ctx.data_mut(|d| d.remove::<i64>(egui::Id::new("comm-jump-reply")));
+                            ctx.data_mut(|d| d.insert_temp(egui::Id::new(("comm-flash", r.id)), ctx.input(|i| i.time)));
+                        }
+                        if bottom && last == Some(r.id) {
+                            resp.scroll_to_me(Some(Align::Max));
                         }
                     }
-                }
-                // 作者回复（需求的官方说明）
-                if !p.admin_note.is_empty() || admin && board == Board::Idea {
-                    ui.add_space(6.0);
-                    self.admin_note_ui(ui, &p, admin);
-                }
-                ui.add_space(12.0);
-                // 正文
-                if p.body.trim().is_empty() {
-                    ui.label(RichText::new(t("（没有补充说明）")).color(TEXT3()));
-                } else {
-                    let clicked = super::md::body(ui, &p.body, &mut |id| self.image(&ctx, id));
-                    if clicked.is_some() {
-                        self.lightbox = clicked;
-                    }
-                }
-                ui.add_space(22.0);
-                // 回复
-                let n = p.replies.iter().filter(|r| !r.deleted).count();
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(if n == 0 { t("还没有回复").to_string() } else { tf("{} 条回复", &[&n]) }).font(FontId::new(13.0, bold())).color(TEXT2()));
                 });
-                let r = ui.available_rect_before_wrap();
-                ui.painter().hline(r.x_range(), r.top() + 2.0, st(1.0, LINE()));
-                ui.add_space(8.0);
-                let last = p.replies.last().map(|r| r.id);
-                for r in &p.replies {
-                    let resp = self.reply_ui(ui, &p, r, &ctx);
-                    if jump == Some(r.id) {
-                        resp.scroll_to_me(Some(Align::Center));
-                        ctx.data_mut(|d| d.remove::<i64>(egui::Id::new("comm-jump-reply")));
-                        ctx.data_mut(|d| d.insert_temp(egui::Id::new(("comm-flash", r.id)), ctx.input(|i| i.time)));
-                    }
-                    if bottom && last == Some(r.id) {
-                        resp.scroll_to_me(Some(Align::Max));
-                    }
-                }
-            });
         });
     }
 
@@ -1027,24 +1121,29 @@ impl Community {
         let editing = self.admin_note.as_ref().is_some_and(|x| x.0 == p.id);
         if editing {
             let mut done = None;
-            egui::Frame::new().fill(ACCENT().gamma_multiply(0.06)).stroke(st(1.0, ACCENT().gamma_multiply(0.4))).corner_radius(R_CARD).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                let (_, note, ver) = self.admin_note.as_mut().unwrap();
-                ui.label(RichText::new(t("作者回复")).size(12.0).color(ACCENT()));
-                ui.add(egui::TextEdit::multiline(note).desired_rows(3).desired_width(f32::INFINITY).hint_text(t("说明打算怎么做、为什么不做…")));
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new(t("完成版本")).size(12.0).color(TEXT2()));
-                    ui.add(egui::TextEdit::singleline(ver).desired_width(90.0).hint_text("v1.9.0"));
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if w::primary(ui, t("保存"), true).clicked() {
-                            done = Some(true);
-                        }
-                        if w::link(ui, t("取消"), TEXT2()).clicked() {
-                            done = Some(false);
-                        }
+            egui::Frame::new()
+                .fill(ACCENT().gamma_multiply(0.06))
+                .stroke(st(1.0, ACCENT().gamma_multiply(0.4)))
+                .corner_radius(R_CARD)
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    let (_, note, ver) = self.admin_note.as_mut().unwrap();
+                    ui.label(RichText::new(t("作者回复")).size(12.0).color(ACCENT()));
+                    ui.add(egui::TextEdit::multiline(note).desired_rows(3).desired_width(f32::INFINITY).hint_text(t("说明打算怎么做、为什么不做…")));
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(t("完成版本")).size(12.0).color(TEXT2()));
+                        ui.add(egui::TextEdit::singleline(ver).desired_width(90.0).hint_text("v1.9.0"));
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            if w::primary(ui, t("保存"), true).clicked() {
+                                done = Some(true);
+                            }
+                            if w::link(ui, t("取消"), TEXT2()).clicked() {
+                                done = Some(false);
+                            }
+                        });
                     });
                 });
-            });
             match done {
                 Some(true) => {
                     let (_, note, ver) = self.admin_note.take().unwrap();
@@ -1097,7 +1196,10 @@ impl Community {
     fn reply_ui(&mut self, ui: &mut Ui, p: &Post, r: &Reply, ctx: &egui::Context) -> egui::Response {
         let solved = p.solved_reply == Some(r.id);
         let op = r.author.seed() == p.author.seed();
-        let flash = ctx.data(|d| d.get_temp::<f64>(egui::Id::new(("comm-flash", r.id)))).map(|t0| ctx.input(|i| i.time) - t0).filter(|d| *d < 1.6);
+        let flash = ctx
+            .data(|d| d.get_temp::<f64>(egui::Id::new(("comm-flash", r.id))))
+            .map(|t0| ctx.input(|i| i.time) - t0)
+            .filter(|d| *d < 1.6);
         let fill = if solved {
             OK().gamma_multiply(0.06)
         } else if let Some(d) = flash {
@@ -1165,7 +1267,14 @@ impl Community {
                                     ui.set_width(ui.available_width());
                                     ui.label(RichText::new(format!("#{} {qa}", q.floor)).size(11.5).color(TEXT3()));
                                     let text = if q.deleted { t("（已删除）").to_string() } else { q.excerpt.clone() };
-                                    let mut job = egui::text::LayoutJob::single_section(text, egui::TextFormat { font_id: FontId::proportional(12.5), color: TEXT2(), ..Default::default() });
+                                    let mut job = egui::text::LayoutJob::single_section(
+                                        text,
+                                        egui::TextFormat {
+                                            font_id: FontId::proportional(12.5),
+                                            color: TEXT2(),
+                                            ..Default::default()
+                                        },
+                                    );
                                     job.wrap.max_rows = 3;
                                     job.wrap.max_width = ui.available_width();
                                     ui.label(job);
@@ -1173,7 +1282,11 @@ impl Community {
                                 .response;
                             let x = qr.rect.left() + 1.0;
                             ui.painter().vline(x, qr.rect.y_range().shrink(4.0), st(2.5, LINE_HI()));
-                            if ui.interact(qr.rect, ui.id().with(("q", r.id)), Sense::click()).on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                            if ui
+                                .interact(qr.rect, ui.id().with(("q", r.id)), Sense::click())
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
                                 ctx.data_mut(|d| d.insert_temp(egui::Id::new("comm-jump-reply"), q.id));
                             }
                         }
@@ -1288,7 +1401,11 @@ impl Community {
                             .frame(false)
                             .desired_rows(rows)
                             .desired_width(f32::INFINITY)
-                            .hint_text(if p.board == "help" { t("知道怎么解决？说说看…（R）") } else { t("写下你的回复…（R）") });
+                            .hint_text(if p.board == "help" {
+                                t("知道怎么解决？说说看…（R）")
+                            } else {
+                                t("写下你的回复…（R）")
+                            });
                         let r = ui.add(te);
                         let _ = r;
                         if focused && ctrl_enter(ui) {
@@ -1355,182 +1472,199 @@ impl Community {
         egui::ScrollArea::vertical().id_salt("comm-compose").auto_shrink([false, false]).show(ui, |ui| {
             let maxw = 720.0f32.min(ui.available_width() - 40.0);
             let pad = ((ui.available_width() - maxw) / 2.0).max(20.0);
-            egui::Frame::new().inner_margin(egui::Margin { left: pad as i8, right: pad as i8, top: 18, bottom: 24 }).show(ui, |ui| {
-                ui.set_max_width(maxw);
-                ui.spacing_mut().item_spacing.y = 8.0;
-                if self.banned {
-                    note_card(ui, WARN(), t("暂时不能发言"), t("你的账号或这台电脑被作者限制了发言，有疑问可以联系作者"));
-                }
-                // 板块
-                if !editing {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 6.0;
-                        for b in Board::ALL {
-                            if b == Board::Notice && !self.is_admin() {
-                                continue;
-                            }
-                            let on = self.draft.board == b.id();
-                            if board_chip(ui, b, on).clicked() && !on {
-                                self.draft.board = b.id().into();
-                                changed = true;
-                            }
-                        }
-                    });
-                    let b = Board::from_id(&self.draft.board);
-                    ui.label(RichText::new(b.desc()).size(12.0).color(TEXT3()));
-                }
-                // 标题
-                let n = self.draft.title.chars().count();
-                let te = egui::TextEdit::singleline(&mut self.draft.title)
-                    .id(title_id())
-                    .hint_text(match Board::from_id(&self.draft.board) {
-                        Board::Idea => t("一句话说清楚想要什么功能"),
-                        Board::Help => t("一句话描述遇到的问题"),
-                        _ => t("标题"),
-                    })
-                    .font(FontId::new(17.0, bold()))
-                    .margin(vec2(10.0, 8.0))
-                    .desired_width(f32::INFINITY);
-                if ui.add(te).changed() {
-                    changed = true;
-                }
-                ui.horizontal(|ui| {
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        ui.label(RichText::new(format!("{n} / 80")).size(11.0).color(if n > 80 { ERR() } else { TEXT3() }));
-                    });
-                });
-                // 相似帖
-                if !editing && !self.similar.is_empty() {
-                    let sim = self.similar.clone();
-                    egui::Frame::new().fill(VIOLET().gamma_multiply(0.07)).stroke(st(1.0, VIOLET().gamma_multiply(0.3))).corner_radius(R_CARD).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.label(RichText::new(t("看看是不是已经有人提过，有的话投一票就好")).size(12.0).color(VIOLET()));
-                        for s in sim.iter().take(4) {
-                            ui.horizontal(|ui| {
-                                if s.board == "idea" {
-                                    ui.label(RichText::new(format!("▲ {}", s.score)).size(11.5).monospace().color(if s.voted { ACCENT() } else { TEXT3() }));
-                                }
-                                let r = ui.add(egui::Label::new(RichText::new(&s.title).size(13.0).color(TEXT())).sense(Sense::click()).truncate());
-                                if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                                    self.save_draft();
-                                    self.open_post(s.id);
-                                }
-                            });
-                        }
-                    });
-                }
-                // 正文：编辑 / 预览
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 2.0;
-                    if seg(ui, t("编辑"), !self.preview).clicked() {
-                        self.preview = false;
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: pad as i8,
+                    right: pad as i8,
+                    top: 18,
+                    bottom: 24,
+                })
+                .show(ui, |ui| {
+                    ui.set_max_width(maxw);
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    if self.banned {
+                        note_card(ui, WARN(), t("暂时不能发言"), t("你的账号或这台电脑被作者限制了发言，有疑问可以联系作者"));
                     }
-                    if seg(ui, t("预览"), self.preview).clicked() {
-                        self.preview = true;
-                    }
-                    ui.add_space(8.0);
-                    if !self.preview {
-                        if self.uploading == Some(Target::Compose) {
-                            ui.add(egui::Spinner::new().size(14.0));
-                            ui.label(RichText::new(t("上传中…")).size(11.5).color(TEXT3()));
-                        } else {
-                            if w::link(ui, t("图片"), TEXT2()).on_hover_text(t("最多 4 张，每张 2 MB 以内；也可以直接拖进窗口")).clicked() {
-                                if let Some(f) = pick_image() {
-                                    self.upload_file(Target::Compose, &f);
+                    // 板块
+                    if !editing {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 6.0;
+                            for b in Board::ALL {
+                                if b == Board::Notice && !self.is_admin() {
+                                    continue;
+                                }
+                                let on = self.draft.board == b.id();
+                                if board_chip(ui, b, on).clicked() && !on {
+                                    self.draft.board = b.id().into();
+                                    changed = true;
                                 }
                             }
-                            if w::link(ui, t("粘贴截图"), TEXT2()).clicked() {
-                                self.paste_image(Target::Compose);
-                            }
-                            if w::link(ui, t("代码"), TEXT2()).on_hover_text(t("插入代码块")).clicked() {
-                                self.draft.body.push_str("\n```c\n\n```\n");
-                                changed = true;
-                            }
-                        }
+                        });
+                        let b = Board::from_id(&self.draft.board);
+                        ui.label(RichText::new(b.desc()).size(12.0).color(TEXT3()));
                     }
-                });
-                let imgs = super::md::image_ids(&self.draft.body).len();
-                if self.preview {
-                    egui::Frame::new().fill(BG1()).stroke(st(1.0, LINE())).corner_radius(R_CARD).inner_margin(egui::Margin::same(14)).show(ui, |ui| {
-                        ui.set_width(ui.available_width());
-                        ui.set_min_height(220.0);
-                        if self.draft.body.trim().is_empty() {
-                            ui.label(RichText::new(t("（没有内容）")).color(TEXT3()));
-                        } else {
-                            let ctx = ui.ctx().clone();
-                            let body = self.draft.body.clone();
-                            let c = super::md::body(ui, &body, &mut |id| self.image(&ctx, id));
-                            if c.is_some() {
-                                self.lightbox = c;
-                            }
-                        }
-                    });
-                } else {
-                    let hint = match Board::from_id(&self.draft.board) {
-                        Board::Idea => t("（选填）用在什么场景、希望怎么用。写清楚更容易被做出来"),
-                        Board::Help => t("说说做了什么、期望什么、实际看到什么。可以贴日志和截图"),
-                        _ => t("支持 Markdown：**粗体**、`代码`、```代码块```、> 引用、- 列表"),
-                    };
-                    let body_id = egui::Id::new("comm-body");
-                    let had = ui.memory(|m| m.has_focus(body_id) || m.has_focus(title_id()));
-                    let r = ui.add(
-                        egui::TextEdit::multiline(&mut self.draft.body)
-                            .id(body_id)
-                            .desired_rows(12)
-                            .desired_width(f32::INFINITY)
-                            .hint_text(hint)
-                            .margin(vec2(10.0, 8.0))
-                            .font(FontId::proportional(13.5)),
-                    );
-                    if r.changed() {
+                    // 标题
+                    let n = self.draft.title.chars().count();
+                    let te = egui::TextEdit::singleline(&mut self.draft.title)
+                        .id(title_id())
+                        .hint_text(match Board::from_id(&self.draft.board) {
+                            Board::Idea => t("一句话说清楚想要什么功能"),
+                            Board::Help => t("一句话描述遇到的问题"),
+                            _ => t("标题"),
+                        })
+                        .font(FontId::new(17.0, bold()))
+                        .margin(vec2(10.0, 8.0))
+                        .desired_width(f32::INFINITY);
+                    if ui.add(te).changed() {
                         changed = true;
                     }
-                    if had && ctrl_enter(ui) {
-                        submit = true;
+                    ui.horizontal(|ui| {
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            ui.label(RichText::new(format!("{n} / 80")).size(11.0).color(if n > 80 { ERR() } else { TEXT3() }));
+                        });
+                    });
+                    // 相似帖
+                    if !editing && !self.similar.is_empty() {
+                        let sim = self.similar.clone();
+                        egui::Frame::new()
+                            .fill(VIOLET().gamma_multiply(0.07))
+                            .stroke(st(1.0, VIOLET().gamma_multiply(0.3)))
+                            .corner_radius(R_CARD)
+                            .inner_margin(egui::Margin::same(10))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.label(RichText::new(t("看看是不是已经有人提过，有的话投一票就好")).size(12.0).color(VIOLET()));
+                                for s in sim.iter().take(4) {
+                                    ui.horizontal(|ui| {
+                                        if s.board == "idea" {
+                                            ui.label(RichText::new(format!("▲ {}", s.score)).size(11.5).monospace().color(if s.voted { ACCENT() } else { TEXT3() }));
+                                        }
+                                        let r = ui.add(egui::Label::new(RichText::new(&s.title).size(13.0).color(TEXT())).sense(Sense::click()).truncate());
+                                        if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
+                                            self.save_draft();
+                                            self.open_post(s.id);
+                                        }
+                                    });
+                                }
+                            });
                     }
-                }
-                if imgs > 4 {
-                    ui.label(RichText::new(t("图片最多 4 张")).size(12.0).color(ERR()));
-                }
-                ui.add_space(4.0);
-                // 底栏：身份 + 发布
-                ui.horizontal(|ui| {
-                    if editing {
-                    } else if self.logged_in() {
-                        let mut anon = self.draft.anonymous;
-                        if crate::app::switch(ui, &mut anon).changed() {
-                            self.draft.anonymous = anon;
+                    // 正文：编辑 / 预览
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        if seg(ui, t("编辑"), !self.preview).clicked() {
+                            self.preview = false;
+                        }
+                        if seg(ui, t("预览"), self.preview).clicked() {
+                            self.preview = true;
+                        }
+                        ui.add_space(8.0);
+                        if !self.preview {
+                            if self.uploading == Some(Target::Compose) {
+                                ui.add(egui::Spinner::new().size(14.0));
+                                ui.label(RichText::new(t("上传中…")).size(11.5).color(TEXT3()));
+                            } else {
+                                if w::link(ui, t("图片"), TEXT2()).on_hover_text(t("最多 4 张，每张 2 MB 以内；也可以直接拖进窗口")).clicked() {
+                                    if let Some(f) = pick_image() {
+                                        self.upload_file(Target::Compose, &f);
+                                    }
+                                }
+                                if w::link(ui, t("粘贴截图"), TEXT2()).clicked() {
+                                    self.paste_image(Target::Compose);
+                                }
+                                if w::link(ui, t("代码"), TEXT2()).on_hover_text(t("插入代码块")).clicked() {
+                                    self.draft.body.push_str("\n```c\n\n```\n");
+                                    changed = true;
+                                }
+                            }
+                        }
+                    });
+                    let imgs = super::md::image_ids(&self.draft.body).len();
+                    if self.preview {
+                        egui::Frame::new()
+                            .fill(BG1())
+                            .stroke(st(1.0, LINE()))
+                            .corner_radius(R_CARD)
+                            .inner_margin(egui::Margin::same(14))
+                            .show(ui, |ui| {
+                                ui.set_width(ui.available_width());
+                                ui.set_min_height(220.0);
+                                if self.draft.body.trim().is_empty() {
+                                    ui.label(RichText::new(t("（没有内容）")).color(TEXT3()));
+                                } else {
+                                    let ctx = ui.ctx().clone();
+                                    let body = self.draft.body.clone();
+                                    let c = super::md::body(ui, &body, &mut |id| self.image(&ctx, id));
+                                    if c.is_some() {
+                                        self.lightbox = c;
+                                    }
+                                }
+                            });
+                    } else {
+                        let hint = match Board::from_id(&self.draft.board) {
+                            Board::Idea => t("（选填）用在什么场景、希望怎么用。写清楚更容易被做出来"),
+                            Board::Help => t("说说做了什么、期望什么、实际看到什么。可以贴日志和截图"),
+                            _ => t("支持 Markdown：**粗体**、`代码`、```代码块```、> 引用、- 列表"),
+                        };
+                        let body_id = egui::Id::new("comm-body");
+                        let had = ui.memory(|m| m.has_focus(body_id) || m.has_focus(title_id()));
+                        let r = ui.add(
+                            egui::TextEdit::multiline(&mut self.draft.body)
+                                .id(body_id)
+                                .desired_rows(12)
+                                .desired_width(f32::INFINITY)
+                                .hint_text(hint)
+                                .margin(vec2(10.0, 8.0))
+                                .font(FontId::proportional(13.5)),
+                        );
+                        if r.changed() {
                             changed = true;
                         }
-                        let name = self.me_user.as_ref().map(|u| u.nickname.clone()).unwrap_or_default();
-                        ui.label(RichText::new(if anon { t("匿名发布").to_string() } else { tf("以「{}」发布", &[&name]) }).size(12.5).color(TEXT2()));
-                    } else {
-                        let name = if self.device_name.is_empty() { t("匿名用户").to_string() } else { self.device_name.clone() };
-                        ui.label(RichText::new(tf("将以「{}」发布", &[&name])).size(12.5).color(TEXT2()));
-                        if w::link(ui, t("登录"), ACCENT()).on_hover_text(t("登录后可以在别的电脑上看到自己的帖子")).clicked() {
-                            self.save_draft();
-                            self.pane = Pane::Account;
-                        }
-                    }
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let n = self.draft.title.trim().chars().count();
-                        let ok = (4..=80).contains(&n) && !self.posting && !self.banned && imgs <= 4;
-                        let label = if self.posting {
-                            t("发布中…")
-                        } else if editing {
-                            t("保存修改")
-                        } else {
-                            t("发布")
-                        };
-                        let r = w::primary(ui, label, ok);
-                        let r = if !ok && n < 4 { r.on_hover_text(t("标题 4–80 个字")) } else { r };
-                        if r.clicked() && ok {
+                        if had && ctrl_enter(ui) {
                             submit = true;
                         }
-                        ui.label(RichText::new("Ctrl+Enter").size(11.0).color(TEXT3()));
+                    }
+                    if imgs > 4 {
+                        ui.label(RichText::new(t("图片最多 4 张")).size(12.0).color(ERR()));
+                    }
+                    ui.add_space(4.0);
+                    // 底栏：身份 + 发布
+                    ui.horizontal(|ui| {
+                        if editing {
+                        } else if self.logged_in() {
+                            let mut anon = self.draft.anonymous;
+                            if crate::app::switch(ui, &mut anon).changed() {
+                                self.draft.anonymous = anon;
+                                changed = true;
+                            }
+                            let name = self.me_user.as_ref().map(|u| u.nickname.clone()).unwrap_or_default();
+                            ui.label(RichText::new(if anon { t("匿名发布").to_string() } else { tf("以「{}」发布", &[&name]) }).size(12.5).color(TEXT2()));
+                        } else {
+                            let name = if self.device_name.is_empty() { t("匿名用户").to_string() } else { self.device_name.clone() };
+                            ui.label(RichText::new(tf("将以「{}」发布", &[&name])).size(12.5).color(TEXT2()));
+                            if w::link(ui, t("登录"), ACCENT()).on_hover_text(t("登录后可以在别的电脑上看到自己的帖子")).clicked() {
+                                self.save_draft();
+                                self.pane = Pane::Account;
+                            }
+                        }
+                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                            let n = self.draft.title.trim().chars().count();
+                            let ok = (4..=80).contains(&n) && !self.posting && !self.banned && imgs <= 4;
+                            let label = if self.posting {
+                                t("发布中…")
+                            } else if editing {
+                                t("保存修改")
+                            } else {
+                                t("发布")
+                            };
+                            let r = w::primary(ui, label, ok);
+                            let r = if !ok && n < 4 { r.on_hover_text(t("标题 4–80 个字")) } else { r };
+                            if r.clicked() && ok {
+                                submit = true;
+                            }
+                            ui.label(RichText::new("Ctrl+Enter").size(11.0).color(TEXT3()));
+                        });
                     });
                 });
-            });
         });
         if changed {
             self.save_draft();
@@ -1547,15 +1681,22 @@ impl Community {
         egui::ScrollArea::vertical().id_salt("comm-account").auto_shrink([false, false]).show(ui, |ui| {
             let maxw = 380.0f32.min(ui.available_width() - 40.0);
             let pad = ((ui.available_width() - maxw) / 2.0).max(20.0);
-            egui::Frame::new().inner_margin(egui::Margin { left: pad as i8, right: pad as i8, top: 36, bottom: 24 }).show(ui, |ui| {
-                ui.set_max_width(maxw);
-                ui.spacing_mut().item_spacing.y = 8.0;
-                if let Some(u) = self.me_user.clone() {
-                    self.profile_ui(ui, &u);
-                } else {
-                    self.login_ui(ui);
-                }
-            });
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: pad as i8,
+                    right: pad as i8,
+                    top: 36,
+                    bottom: 24,
+                })
+                .show(ui, |ui| {
+                    ui.set_max_width(maxw);
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    if let Some(u) = self.me_user.clone() {
+                        self.profile_ui(ui, &u);
+                    } else {
+                        self.login_ui(ui);
+                    }
+                });
         });
     }
 
@@ -1642,22 +1783,39 @@ impl Community {
         });
         ui.add_space(8.0);
         if self.claimable > 0 {
-            egui::Frame::new().fill(ACCENT().gamma_multiply(0.07)).stroke(st(1.0, ACCENT().gamma_multiply(0.35))).corner_radius(R_CARD).inner_margin(egui::Margin::same(12)).show(ui, |ui| {
-                ui.set_width(ui.available_width());
-                ui.label(RichText::new(tf("这台电脑之前匿名发过 {} 条内容", &[&self.claimable])).size(13.0).color(TEXT()));
-                ui.label(RichText::new(t("归到账号下以后，换电脑也能看到，也能收到回复提醒。")).size(12.0).color(TEXT2()));
-                if w::primary(ui, t("归到我的账号"), true).clicked() {
-                    self.claim();
-                }
-            });
+            egui::Frame::new()
+                .fill(ACCENT().gamma_multiply(0.07))
+                .stroke(st(1.0, ACCENT().gamma_multiply(0.35)))
+                .corner_radius(R_CARD)
+                .inner_margin(egui::Margin::same(12))
+                .show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.label(RichText::new(tf("这台电脑之前匿名发过 {} 条内容", &[&self.claimable])).size(13.0).color(TEXT()));
+                    ui.label(RichText::new(t("归到账号下以后，换电脑也能看到，也能收到回复提醒。")).size(12.0).color(TEXT2()));
+                    if w::primary(ui, t("归到我的账号"), true).clicked() {
+                        self.claim();
+                    }
+                });
         }
         crate::app::card(ui, |ui| {
             ui.label(RichText::new(t("昵称")).size(12.0).color(TEXT2()));
             ui.add(egui::TextEdit::singleline(&mut self.auth.new_nick).margin(vec2(10.0, 7.0)).desired_width(f32::INFINITY));
             ui.add_space(6.0);
             ui.label(RichText::new(t("修改密码")).size(12.0).color(TEXT2()));
-            ui.add(egui::TextEdit::singleline(&mut self.auth.old_pw).password(true).hint_text(t("当前密码")).margin(vec2(10.0, 7.0)).desired_width(f32::INFINITY));
-            ui.add(egui::TextEdit::singleline(&mut self.auth.new_pw).password(true).hint_text(t("新密码，至少 6 位")).margin(vec2(10.0, 7.0)).desired_width(f32::INFINITY));
+            ui.add(
+                egui::TextEdit::singleline(&mut self.auth.old_pw)
+                    .password(true)
+                    .hint_text(t("当前密码"))
+                    .margin(vec2(10.0, 7.0))
+                    .desired_width(f32::INFINITY),
+            );
+            ui.add(
+                egui::TextEdit::singleline(&mut self.auth.new_pw)
+                    .password(true)
+                    .hint_text(t("新密码，至少 6 位"))
+                    .margin(vec2(10.0, 7.0))
+                    .desired_width(f32::INFINITY),
+            );
             ui.add_space(4.0);
             ui.allocate_ui_with_layout(vec2(ui.available_width(), 30.0), Layout::right_to_left(Align::Center), |ui| {
                 let dirty = self.auth.new_nick.trim() != u.nickname || (!self.auth.new_pw.is_empty() && self.auth.new_pw.len() >= 6);
@@ -1692,7 +1850,13 @@ impl Community {
                 let ir = Rect::from_center_size(r.center(), vec2(w0 * s, h0 * s));
                 ui.painter().image(tex, ir, Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), Color32::WHITE);
             }
-            ui.painter().text(r.center_bottom() - vec2(0.0, 22.0), Align2::CENTER_CENTER, t("点击任意处或按 Esc 关闭"), FontId::proportional(12.0), Color32::from_gray(170));
+            ui.painter().text(
+                r.center_bottom() - vec2(0.0, 22.0),
+                Align2::CENTER_CENTER,
+                t("点击任意处或按 Esc 关闭"),
+                FontId::proportional(12.0),
+                Color32::from_gray(170),
+            );
             if resp.clicked() {
                 close = true;
             }
@@ -1729,10 +1893,20 @@ fn nav_row(ui: &mut Ui, slim: bool, on: bool, name: &str, count: Option<i64>, do
     } else {
         TEXT2()
     };
-    let ic = if slim { Rect::from_center_size(rect.center(), vec2(16.0, 16.0)) } else { Rect::from_center_size(pos2(rect.left() + 17.0, rect.center().y), vec2(16.0, 16.0)) };
+    let ic = if slim {
+        Rect::from_center_size(rect.center(), vec2(16.0, 16.0))
+    } else {
+        Rect::from_center_size(pos2(rect.left() + 17.0, rect.center().y), vec2(16.0, 16.0))
+    };
     icon(p, ic, c);
     if !slim {
-        p.text(pos2(rect.left() + 34.0, rect.center().y), Align2::LEFT_CENTER, name, FontId::new(13.0, if on { bold() } else { FontFamily::Proportional }), if on { TEXT() } else { TEXT2() });
+        p.text(
+            pos2(rect.left() + 34.0, rect.center().y),
+            Align2::LEFT_CENTER,
+            name,
+            FontId::new(13.0, if on { bold() } else { FontFamily::Proportional }),
+            if on { TEXT() } else { TEXT2() },
+        );
     }
     if let Some(n) = count {
         let s = if n > 99 { "99+".to_string() } else { n.to_string() };
@@ -1765,7 +1939,17 @@ fn seg(ui: &mut Ui, name: &str, on: bool) -> egui::Response {
     } else if resp.hovered() {
         p.rect_filled(r, CornerRadius::same(5), BG2());
     }
-    p.galley(r.center() - g.size() / 2.0, g, if on { TEXT() } else if resp.hovered() { TEXT2() } else { TEXT3() });
+    p.galley(
+        r.center() - g.size() / 2.0,
+        g,
+        if on {
+            TEXT()
+        } else if resp.hovered() {
+            TEXT2()
+        } else {
+            TEXT3()
+        },
+    );
     if resp.hovered() {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
@@ -1798,7 +1982,12 @@ fn note_card(ui: &mut Ui, c: Color32, label: &str, text: &str) -> egui::Response
     let r = egui::Frame::new()
         .fill(c.gamma_multiply(0.07))
         .corner_radius(R_CARD)
-        .inner_margin(egui::Margin { left: 14, right: 12, top: 10, bottom: 10 })
+        .inner_margin(egui::Margin {
+            left: 14,
+            right: 12,
+            top: 10,
+            bottom: 10,
+        })
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             ui.label(RichText::new(label).size(11.5).strong().color(c));
@@ -1881,7 +2070,10 @@ fn empty(ui: &mut Ui, art: Art, title: &str, desc: &str, action: Option<&str>) -
 }
 
 fn pick_image() -> Option<std::path::PathBuf> {
-    rfd::FileDialog::new().set_title(t("选择图片")).add_filter(t("图片"), &["png", "jpg", "jpeg", "gif", "webp", "bmp"]).pick_file()
+    rfd::FileDialog::new()
+        .set_title(t("选择图片"))
+        .add_filter(t("图片"), &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
+        .pick_file()
 }
 
 /// 把文字加进 LayoutJob，搜索关键词（不分大小写）标成强调色底
@@ -1939,5 +2131,9 @@ fn plain_excerpt(s: &str) -> String {
 
 /// 这一帧按了 Ctrl+Enter（看按键事件自带的修饰键，按得很快时 i.modifiers 可能已经松开）
 fn ctrl_enter(ui: &Ui) -> bool {
-    ui.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.command)))
+    ui.input(|i| {
+        i.events
+            .iter()
+            .any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.command))
+    })
 }

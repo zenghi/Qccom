@@ -237,30 +237,38 @@ pub(super) const MONO: fn(f32) -> FontId = |s| FontId::new(s, FontFamily::Monosp
 
 impl App {
     pub(super) fn toolbox_page(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.toolbox_in(ui, false));
+    }
+
+    /// 工具箱画进一块区域；compact = 副页面：只画工具本身，不要工具列表和标签条
+    pub(super) fn toolbox_in(&mut self, ui: &mut egui::Ui, compact: bool) {
+        let ctx = &ui.ctx().clone();
         // 电路页占满整个工具箱区域，左上角返回
         if self.s.tb.tool == Tool::Circuit {
-            self.circuit_page(ctx);
+            self.circuit_page(ui, compact);
             return;
         }
-        egui::SidePanel::left("toolbox_nav")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                left: 14,
-                right: 14,
-                top: 16,
-                bottom: 8,
-            }))
-            .exact_width(210.0)
-            .resizable(false)
-            .show(ctx, |ui| self.toolbox_nav(ui));
-        self.tool_tabs(ctx);
+        if !compact {
+            egui::SidePanel::left("toolbox_nav")
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                    left: 14,
+                    right: 14,
+                    top: 16,
+                    bottom: 8,
+                }))
+                .exact_width(210.0)
+                .resizable(false)
+                .show_inside(ui, |ui| self.toolbox_nav(ui));
+            self.tool_tabs(ui);
+        }
         self.tick_toolbox2();
         // 网络连接和 API：右边就是调试页那一套（侧边栏、日志、终端、快捷命令）
         if comm_slot(self.s.tb.tool).is_some() || self.s.tb.tool == Tool::Api {
-            self.debug_page(ctx);
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| self.debug_in(ui, compact));
             return;
         }
         if self.s.tb.tool == Tool::Ssh {
-            self.ssh_page(ctx);
+            self.ssh_page(ui, compact);
             return;
         }
         // CAN 循环发送
@@ -280,7 +288,7 @@ impl App {
                 top: 18,
                 bottom: 12,
             }))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 let (title, desc) = tool_text(self.s.tb.tool);
                 ui.label(RichText::new(title).font(FontId::new(20.0, bold())).color(TEXT()));
                 ui.add_space(2.0);
@@ -473,13 +481,15 @@ impl App {
         }
         self.s.tb.opened.push(tool);
         while self.s.tb.opened.len() > 8 {
-            let i = (0..self.s.tb.opened.len()).find(|&i| self.s.tb.opened[i] != tool && self.tool_state(self.s.tb.opened[i]) == 0).unwrap_or(0);
+            let i = (0..self.s.tb.opened.len())
+                .find(|&i| self.s.tb.opened[i] != tool && self.tool_state(self.s.tb.opened[i]) == 0)
+                .unwrap_or(0);
             self.s.tb.opened.remove(i);
         }
     }
 
     /// 已打开工具的标签条：两个以上才显示。单击切换，中键或 × 关闭，拖动排序
-    fn tool_tabs(&mut self, ctx: &egui::Context) {
+    fn tool_tabs(&mut self, ui: &mut egui::Ui) {
         let cur = self.s.tb.tool;
         if !self.s.tb.opened.contains(&cur) && cur != Tool::Circuit {
             self.s.tb.opened.push(cur);
@@ -494,7 +504,7 @@ impl App {
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 0 }))
             .exact_height(34.0)
             .show_separator_line(true)
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 2.0;
                     let tabs = self.s.tb.opened.clone();
@@ -543,12 +553,35 @@ impl App {
                         if resp.dragged() {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                         }
-                        if resp.drag_stopped() {
+                        if resp.drag_stopped() && self.work.drag.as_ref().is_none_or(|d| !d.live) {
                             if let Some(h) = ui.input(|i| i.pointer.interact_pos()) {
                                 moved = Some((i, h.x as usize));
                             }
                         }
-                        resp.on_hover_text(tool_text(*tool).1);
+                        let pane = super::work::Pane::Tool(*tool);
+                        // 在副页面里显示着：标签下面一条虚线
+                        if self.work.tabs.contains(&pane) {
+                            let y = r.bottom() - 2.0;
+                            let mut x = r.left() + 10.0;
+                            while x < r.right() - 10.0 {
+                                ui.painter().hline(x..=(x + 3.0).min(r.right() - 10.0), y, st(1.5, ACCENT().gamma_multiply(0.7)));
+                                x += 6.0;
+                            }
+                        }
+                        // 拖出标签栏 = 放到副页面；右键「在右边打开」
+                        if resp.dragged() && ui.input(|i| i.pointer.interact_pos()).is_some_and(|h| h.y > r.bottom() + 24.0) && self.work.drag.is_none() {
+                            if let Some(h) = ui.input(|i| i.pointer.press_origin()) {
+                                self.work.drag = Some(super::work::DragPane {
+                                    pane,
+                                    from: h,
+                                    live: false,
+                                    file: None,
+                                    own: false,
+                                });
+                            }
+                        }
+                        resp.context_menu(|ui| self.side_menu(ui, pane));
+                        resp.on_hover_text(format!("{}\n{}", tool_text(*tool).1, t("拖到右边或下方：放在旁边看")));
                     }
                     // 拖动排序：按松手时的 x 找目标位置
                     if let Some((from, x)) = moved.take() {

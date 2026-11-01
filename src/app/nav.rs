@@ -5,6 +5,7 @@
 //! 代码页右键比较、日志里点文件…）跳过去都能退回来，不用每个入口单独处理。
 
 use super::toolbox::{self, Tool};
+use super::work::Pane;
 use super::*;
 use std::path::PathBuf;
 
@@ -17,17 +18,28 @@ pub(super) struct Loc {
     file: Option<(PathBuf, usize)>,
     /// 比较页：标签（None = 首页）
     cmp: Option<usize>,
+    /// 副页面（并排时）
+    side: Option<Pane>,
+    /// Ctrl+Tab 里的布局方案
+    scheme: Option<String>,
 }
 
 impl Loc {
     /// 粗粒度：页面（工具箱再加上工具）。变了才记进后退栈
-    fn coarse(&self) -> (Page, Option<Tool>) {
-        (self.page, (self.page == Page::Tools).then_some(self.tool))
+    fn coarse(&self) -> (Page, Option<Tool>, Option<Pane>) {
+        (self.page, (self.page == Page::Tools).then_some(self.tool), self.side)
     }
 
     /// 细粒度：再加上文件、比较标签。最近使用列表按这个去重
-    fn fine(&self) -> (Page, Option<Tool>, Option<&PathBuf>, Option<usize>) {
-        (self.page, (self.page == Page::Tools).then_some(self.tool), self.file.as_ref().map(|f| &f.0), self.cmp)
+    fn fine(&self) -> (Page, Option<Tool>, Option<&PathBuf>, Option<usize>, Option<Pane>, Option<&String>) {
+        (
+            self.page,
+            (self.page == Page::Tools).then_some(self.tool),
+            self.file.as_ref().map(|f| &f.0),
+            self.cmp,
+            self.side,
+            self.scheme.as_ref(),
+        )
     }
 }
 
@@ -58,6 +70,19 @@ impl App {
             tool: self.s.tb.tool,
             file: (self.page == Page::Code).then(|| self.code.here()).flatten(),
             cmp: (self.page == Page::Compare).then(|| self.cmpv.active_tab()).flatten(),
+            side: self.side_pane(),
+            scheme: None,
+        }
+    }
+
+    /// 副页面是系统自动打开的：当成没变过，不进后退记录
+    pub(super) fn nav_sync_side(&mut self) {
+        let side = self.side_pane();
+        if let Some(l) = &mut self.nav.last {
+            l.side = side;
+        }
+        if let Some(m) = self.nav.mru.first_mut() {
+            m.side = side;
         }
     }
 
@@ -146,6 +171,7 @@ impl App {
             Page::Tools => self.open_tool(to.tool),
             p => self.set_page(p),
         }
+        self.nav_restore_side(to.side);
         if let Some((f, l)) = &to.file {
             if f.is_file() {
                 self.code.goto_loc(f, *l);
@@ -156,7 +182,37 @@ impl App {
         }
     }
 
+    /// 回到某个位置时副页面也跟着还原
+    fn nav_restore_side(&mut self, side: Option<Pane>) {
+        if self.side_pane() == side {
+            return;
+        }
+        match side {
+            Some(p) => {
+                if self.main_pane() != Some(p) {
+                    self.open_side(p, None, true);
+                }
+            }
+            None => {
+                self.work.hidden = std::mem::take(&mut self.work.tabs);
+                self.work.auto = None;
+                self.work.manual = false;
+            }
+        }
+    }
+
     fn loc_label(&self, l: &Loc) -> (Icon, String, String) {
+        if let Some(name) = &l.scheme {
+            return (Icon::DockRight, name.clone(), t("布局方案").into());
+        }
+        let (icon, name, sub) = self.loc_label_page(l);
+        match l.side {
+            Some(p) => (icon, format!("{name} + {}", p.label()), sub),
+            None => (icon, name, sub),
+        }
+    }
+
+    fn loc_label_page(&self, l: &Loc) -> (Icon, String, String) {
         match l.page {
             Page::Debug => (Icon::Pulse, t("调试").into(), t("串口日志").into()),
             Page::Code => match &l.file {
@@ -257,14 +313,42 @@ impl App {
                     tool: self.s.tb.tool,
                     file: Some((f, 0)),
                     cmp: None,
+                    side: None,
+                    scheme: None,
                 });
             }
         }
         // 有具体文件的代码页条目时，不再列「代码」空页
         if v.iter().any(|l| l.page == Page::Code && l.file.is_some()) {
-            v.retain(|l| l.page != Page::Code || l.file.is_some());
+            v.retain(|l| l.page != Page::Code || l.file.is_some() || l.side.is_some());
         }
-        v.truncate(16);
+        v.truncate(14);
+        // 常用组合和布局方案
+        for (a, b) in self.s.work.combos.clone() {
+            let Some((page, tool)) = pane_page(a) else { continue };
+            if v.iter().any(|l| l.page == page && l.side == Some(b)) {
+                continue;
+            }
+            v.push(Loc {
+                page,
+                tool: tool.unwrap_or(self.s.tb.tool),
+                file: None,
+                cmp: None,
+                side: Some(b),
+                scheme: None,
+            });
+        }
+        for sc in self.all_schemes() {
+            v.push(Loc {
+                page: self.page,
+                tool: self.s.tb.tool,
+                file: None,
+                cmp: None,
+                side: None,
+                scheme: Some(sc.name),
+            });
+        }
+        v.truncate(22);
         v
     }
 
@@ -305,9 +389,16 @@ impl App {
     /// 切换器选中的位置（普通跳转，会记进后退栈，但不显示返回胶囊）
     fn nav_open(&mut self, to: &Loc) {
         self.nav_manual();
+        if let Some(name) = &to.scheme {
+            self.apply_scheme(name);
+            return;
+        }
         match to.page {
             Page::Tools => self.open_tool(to.tool),
             p => self.set_page(p),
+        }
+        if to.side.is_some() {
+            self.nav_restore_side(to.side);
         }
         if let Some((f, l)) = &to.file {
             // 已打开的文件只切标签、保留它自己的光标；关掉了的按当时的行重新打开
@@ -411,4 +502,17 @@ impl App {
         }
         s
     }
+}
+
+/// 页面对应的 (Page, 工具)；「文件」不是页面
+fn pane_page(p: Pane) -> Option<(Page, Option<Tool>)> {
+    Some(match p {
+        Pane::Debug => (Page::Debug, None),
+        Pane::Code => (Page::Code, None),
+        Pane::Git => (Page::Git, None),
+        Pane::Compare => (Page::Compare, None),
+        Pane::Community => (Page::Community, None),
+        Pane::Files => return None,
+        Pane::Tool(t) => (Page::Tools, Some(t)),
+    })
 }

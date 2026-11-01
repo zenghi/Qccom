@@ -1208,9 +1208,27 @@ impl CodeView {
         if let Some(sel) = self.selected_text(ui.ctx()) {
             if menu_item(ui, t("发到社区求助"), "") {
                 let lang = self.tabs.get(self.active).and_then(|d| d.path.extension()).and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-                self.events.push(CodeEvt::Ask(sel, lang));
+                self.events.push(CodeEvt::Ask(sel.clone(), lang));
                 ui.close_menu();
             }
+            // 用工具打开：在旁边打开工具，选中的内容已经填好
+            ui.menu_button(t("用工具打开"), |ui| {
+                ui.set_min_width(220.0);
+                if menu_item(ui, t("数据转换"), "") {
+                    self.events.push(CodeEvt::Tool("convert", sel.clone()));
+                    ui.close_menu();
+                }
+                if menu_item(ui, t("校验计算"), "") {
+                    self.events.push(CodeEvt::Tool("crc", sel.clone()));
+                    ui.close_menu();
+                }
+                if let Some(s) = self.struct_source() {
+                    if menu_item(ui, t("结构体解析"), "") {
+                        self.events.push(CodeEvt::Struct(s));
+                        ui.close_menu();
+                    }
+                }
+            });
         }
         ui.separator();
         let macros: Vec<(usize, String)> = self.s.macros.iter().enumerate().map(|(i, m)| (i, m.name.clone())).collect();

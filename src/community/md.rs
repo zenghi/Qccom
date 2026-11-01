@@ -102,13 +102,20 @@ pub fn body(ui: &mut Ui, text: &str, img: &mut dyn FnMut(&str) -> Option<(egui::
                 i += 1;
             }
             let top = ui.cursor().top();
-            egui::Frame::new().inner_margin(egui::Margin { left: 12, right: 0, top: 1, bottom: 1 }).show(ui, |ui| {
-                for l in q {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.label(RichText::new(l).color(TEXT2()));
-                    });
-                }
-            });
+            egui::Frame::new()
+                .inner_margin(egui::Margin {
+                    left: 12,
+                    right: 0,
+                    top: 1,
+                    bottom: 1,
+                })
+                .show(ui, |ui| {
+                    for l in q {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(l).color(TEXT2()));
+                        });
+                    }
+                });
             let x = ui.min_rect().left() + 2.0;
             ui.painter().vline(x, egui::Rangef::new(top, ui.cursor().top() - 3.0), st(2.5, LINE_HI()));
             continue;
@@ -150,14 +157,10 @@ pub fn body(ui: &mut Ui, text: &str, img: &mut dyn FnMut(&str) -> Option<(egui::
             }
         }
         // 列表
-        let item = tr
-            .strip_prefix("- ")
-            .or_else(|| tr.strip_prefix("* "))
-            .map(|s| ("•".to_string(), s))
-            .or_else(|| {
-                let d = tr.chars().take_while(|c| c.is_ascii_digit()).count();
-                (d > 0 && d < 4 && tr[d..].starts_with(". ")).then(|| (format!("{}.", &tr[..d]), &tr[d + 2..]))
-            });
+        let item = tr.strip_prefix("- ").or_else(|| tr.strip_prefix("* ")).map(|s| ("•".to_string(), s)).or_else(|| {
+            let d = tr.chars().take_while(|c| c.is_ascii_digit()).count();
+            (d > 0 && d < 4 && tr[d..].starts_with(". ")).then(|| (format!("{}.", &tr[..d]), &tr[d + 2..]))
+        });
         if let Some((mark, s)) = item {
             let indent = (l.len() - l.trim_start().len()).min(8) as f32 * 6.0;
             ui.horizontal_wrapped(|ui| {

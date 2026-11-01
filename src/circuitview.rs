@@ -40,6 +40,10 @@ pub enum CvEvt {
     Back,
     /// 导出了 VCD，在「VCD 波形」工具里打开
     OpenVcd(PathBuf),
+    /// 通电了，电路里有仿真串口（端口名）
+    Powered(Vec<String>),
+    /// 点了「生成代码」
+    GenCode,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -152,6 +156,8 @@ pub struct CircuitView {
     /// 接线记录模式
     wiring_on: bool,
     wiring: wiring::WiringUi,
+    /// 画在副页面里（精简版）
+    compact: bool,
 }
 
 fn autosave_path() -> PathBuf {
@@ -210,6 +216,7 @@ impl CircuitView {
             project: None,
             wiring_on: false,
             wiring: Default::default(),
+            compact: false,
         }
     }
 
@@ -367,8 +374,47 @@ impl CircuitView {
         }
     }
 
+    /// 显示底部的示波器（「仿真」布局方案）
+    pub fn show_scope(&mut self) {
+        self.bottom = true;
+        self.btab = BTab::Scope;
+    }
+
+    /// 生成的代码：(板子名, 扩展名, 代码)。没点过「生成代码」时为 None
+    pub fn gen_code(&self) -> Option<(String, &'static str, String)> {
+        use crate::circuit::gen;
+        let id = self.code_board?;
+        let p = self.c.part(id)?;
+        let ds = gen::dialects(&p.kind);
+        let d = if ds.contains(&self.code_dialect) { self.code_dialect } else { *ds.first()? };
+        Some((self.c.label(id), d.ext(), gen::generate(&self.c, id, d)))
+    }
+
+    /// 生成的代码改在副页面看了：底部不再显示「代码」标签
+    pub fn code_in_side(&mut self) {
+        if self.btab == BTab::Code {
+            self.btab = BTab::Log;
+            self.bottom = false;
+        }
+    }
+
+    /// 电路里的仿真串口名
+    fn sim_port_names(&self) -> Vec<String> {
+        use crate::circuit::simport;
+        self.c
+            .parts
+            .iter()
+            .filter(|p| p.kind == "usbttl" || lib::def(&p.kind).is_some_and(|d| d.is_board()) && p.prop("power") == "usb")
+            .map(|p| format!("{}{}", simport::PREFIX, self.c.label(p.id)))
+            .collect()
+    }
+
     fn set_power(&mut self, on: bool) {
         if on {
+            let ports = self.sim_port_names();
+            if !ports.is_empty() {
+                self.events.push(CvEvt::Powered(ports));
+            }
             let mut s = Sim::new(&self.c);
             s.real_speed = self.speed;
             self.sim = Some(s);
@@ -457,7 +503,9 @@ impl CircuitView {
         s.photos.clear();
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context) {
+    /// compact = 副页面：不要元件库和属性栏，只看画布（还能点按键、调电位器）
+    pub fn ui_in(&mut self, ui: &mut egui::Ui, compact: bool) {
+        self.compact = compact;
         // 拖动过程中不重算，松手再算
         if self.need_check && matches!(self.drag, Drag::None) {
             self.issues = crate::circuit::check::check(&self.c);
@@ -470,37 +518,39 @@ impl CircuitView {
                 top: 6,
                 bottom: 6,
             }))
-            .show(ctx, |ui| self.toolbar(ui));
+            .show_inside(ui, |ui| self.toolbar(ui));
         if self.wiring_on {
             self.wiring.set_dir(wiring::dir_for(self.project.as_deref()));
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin::same(14)))
-                .show(ctx, |ui| self.wiring.ui(ui, &self.c));
+                .show_inside(ui, |ui| self.wiring.ui(ui, &self.c));
             for (m, c) in std::mem::take(&mut self.wiring.toasts) {
                 self.toast(m, c);
             }
             return;
         }
-        egui::SidePanel::left("cv-lib")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                left: 10,
-                right: 8,
-                top: 10,
-                bottom: 6,
-            }))
-            .default_width(220.0)
-            .width_range(170.0..=340.0)
-            .show(ctx, |ui| self.library(ui));
-        egui::SidePanel::right("cv-side")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                left: 12,
-                right: 10,
-                top: 10,
-                bottom: 6,
-            }))
-            .default_width(270.0)
-            .width_range(220.0..=420.0)
-            .show(ctx, |ui| self.side(ui));
+        if !compact {
+            egui::SidePanel::left("cv-lib")
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                    left: 10,
+                    right: 8,
+                    top: 10,
+                    bottom: 6,
+                }))
+                .default_width(220.0)
+                .width_range(170.0..=340.0)
+                .show_inside(ui, |ui| self.library(ui));
+            egui::SidePanel::right("cv-side")
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                    left: 12,
+                    right: 10,
+                    top: 10,
+                    bottom: 6,
+                }))
+                .default_width(270.0)
+                .width_range(220.0..=420.0)
+                .show_inside(ui, |ui| self.side(ui));
+        }
         if self.bottom {
             egui::TopBottomPanel::bottom("cv-bottom")
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
@@ -512,21 +562,21 @@ impl CircuitView {
                 .default_height(if self.btab == BTab::Log { 150.0 } else { 260.0 })
                 .height_range(80.0..=520.0)
                 .resizable(true)
-                .show(ctx, |ui| self.bottom_ui(ui));
+                .show_inside(ui, |ui| self.bottom_ui(ui));
         }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| self.canvas(ui));
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.canvas(ui));
         if self.dirty_at.is_some_and(|t| t.elapsed() > Duration::from_millis(800)) && !matches!(self.drag, Drag::Move { .. } | Drag::WirePt { .. }) {
             self.save_now();
         }
         if self.dirty_at.is_some() {
-            ctx.request_repaint_after(Duration::from_millis(900));
+            ui.ctx().request_repaint_after(Duration::from_millis(900));
         }
     }
 
     fn toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
-            if icon_button(ui, Icon::Back, t("回到工具箱"), false).clicked() {
+            if !self.compact && icon_button(ui, Icon::Back, t("回到工具箱"), false).clicked() {
                 self.events.push(CvEvt::Back);
             }
             let title = if self.c.title.is_empty() { t("未命名电路").to_string() } else { self.c.title.clone() };

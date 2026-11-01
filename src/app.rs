@@ -27,6 +27,7 @@ use crate::termview::TermView;
 use crate::theme::*;
 use crate::update::{self, Release, UpdEvt};
 use dbgtools::check_combo;
+use work::Pane;
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ViewMode {
@@ -174,6 +175,8 @@ pub struct Settings {
     pub multiline: bool,
     pub line_by_line: bool,
     pub line_gap_ms: u32,
+    /// 副页面和工作台
+    pub work: work::WorkCfg,
 }
 
 impl Default for Settings {
@@ -256,6 +259,7 @@ impl Default for Settings {
             multiline: false,
             line_by_line: false,
             line_gap_ms: 100,
+            work: Default::default(),
         }
     }
 }
@@ -308,6 +312,8 @@ mod toolbox2;
 mod toolbox3;
 mod toolbox4;
 mod toolbox5;
+mod work;
+mod workui;
 
 /// 日志里按字选择的范围：(行号, 字符位置)，字符位置按这一行显示出来的文字计（含时间戳等前缀）
 #[derive(Clone, Copy, PartialEq)]
@@ -475,6 +481,10 @@ pub struct App {
     sessions: Vec<Option<sess::Sess>>,
     /// 正在处理后台连接（不驱动 Modbus / 文件传输这些只属于当前连接的工具）
     bg: bool,
+    /// 调试页画在副页面里：标题栏换成连接下拉、少放几个按钮
+    compact_header: bool,
+    /// 副页面和工作台
+    work: work::Work,
 }
 
 /// 正在录制：当前文件、已写字节、开始时间、第几段
@@ -671,6 +681,8 @@ impl App {
             open_log,
             sessions: (0..sess::SLOTS).map(|_| None).collect(),
             bg: false,
+            compact_header: false,
+            work: Default::default(),
         };
         app.parse_keywords();
         app.compile_rules();
@@ -966,6 +978,9 @@ impl App {
                     if self.s.transport == Transport::Serial {
                         let c = self.s.cfg;
                         self.buf.sys(tf("已连接 {}  {} {}", &[&name, &c.baud, &c.short()]));
+                        if name.starts_with(crate::circuit::simport::PREFIX) {
+                            self.work.sim_opened = true;
+                        }
                     } else {
                         self.buf.sys(tf("✓ 已连接 {}", &[&name]));
                         self.connected = Some(name);
@@ -1588,15 +1603,29 @@ impl App {
                 }
             }
         }
+        // 代码页里选中的文字（并排时）：日志里淡紫色底
+        if !self.work.link.is_empty() && l.dir != Dir::Sys {
+            for (a, b) in find_all_ci(text, &self.work.link) {
+                bg[a..b].fill(VIOLET().gamma_multiply(0.22));
+            }
+        }
         if !self.search.is_empty() {
             for (a, b) in find_all_ci(text, &self.search) {
                 fg[a..b].fill(FIND_FG());
                 bg[a..b].fill(FIND_BG());
             }
         }
+        // 源码位置 main.c:42：打开了工程时加下划线，Ctrl+点击跳过去
+        let mut ul = vec![false; n];
+        if l.dir != Dir::Sys && self.code.root().is_some() {
+            if let Some((a, b, _, _)) = work::src_ref(text) {
+                ul[a..b].fill(true);
+                fg[a..b].fill(ACCENT());
+            }
+        }
         let mut start = 0;
         for (i, _) in text.char_indices().skip(1).chain(std::iter::once((n, ' '))) {
-            if i == n || fg[i] != fg[start] || bg[i] != bg[start] || strong[i] != strong[start] {
+            if i == n || fg[i] != fg[start] || bg[i] != bg[start] || strong[i] != strong[start] || ul[i] != ul[start] {
                 let f = if strong[start] { bold_font.clone() } else { font.clone() };
                 job.append(
                     &text[start..i],
@@ -1605,6 +1634,7 @@ impl App {
                         font_id: f,
                         color: fg[start],
                         background: bg[start],
+                        underline: if ul[start] { st(1.0, fg[start].gamma_multiply(0.6)) } else { egui::Stroke::NONE },
                         ..Default::default()
                     },
                 );
@@ -2037,7 +2067,11 @@ impl App {
         }
         ctx.request_repaint_after(std::time::Duration::from_millis(50));
         let Some(pos) = pos else { return };
-        let what = if files.len() == 1 { files[0].file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { tf("{} 个文件", &[&n]) };
+        let what = if files.len() == 1 {
+            files[0].file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        } else {
+            tf("{} 个文件", &[&n])
+        };
         let shift = ctx.input(|i| i.modifiers.shift);
         let msg = if self.shells.s.open && self.shells.rect.is_some_and(|r| r.contains(pos)) {
             t("插入路径到终端").to_string()
@@ -2047,8 +2081,16 @@ impl App {
                     Some(d) => {
                         let root = self.code.root().map(|r| r.to_path_buf()).unwrap_or_default();
                         let rel = d.strip_prefix(&root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
-                        let dir = if rel.is_empty() { root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { rel };
-                        if shift { tf("移动到 {}/", &[&dir]) } else { tf("复制到 {}/（按住 Shift 移动）", &[&dir]) }
+                        let dir = if rel.is_empty() {
+                            root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                        } else {
+                            rel
+                        };
+                        if shift {
+                            tf("移动到 {}/", &[&dir])
+                        } else {
+                            tf("复制到 {}/（按住 Shift 移动）", &[&dir])
+                        }
                     }
                     None if files.len() == 1 && files[0].is_dir() => t("作为工程打开").to_string(),
                     None => t("在编辑器中打开").to_string(),
@@ -2058,11 +2100,14 @@ impl App {
                 _ => t("作为日志打开").to_string(),
             }
         };
-        egui::Area::new(egui::Id::new("drop-hint")).order(egui::Order::Tooltip).fixed_pos(pos + vec2(16.0, 14.0)).show(ctx, |ui| {
-            egui::Frame::popup(ui.style()).show(ui, |ui| {
-                ui.add(egui::Label::new(RichText::new(format!("{what}  →  {msg}")).size(12.5).color(TEXT())).extend());
+        egui::Area::new(egui::Id::new("drop-hint"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(pos + vec2(16.0, 14.0))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(format!("{what}  →  {msg}")).size(12.5).color(TEXT())).extend());
+                });
             });
-        });
     }
 
     /// 侧边栏最下面的「高级设置」折叠块
@@ -2349,7 +2394,10 @@ impl App {
 
     fn header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
-            if icon_button(ui, Icon::Sidebar, t("侧边栏  Ctrl+B"), !self.s.sidebar).clicked() {
+            if self.compact_header {
+                // 副页面：没有侧边栏，这里放一个连接下拉
+                self.conn_chip(ui);
+            } else if icon_button(ui, Icon::Sidebar, t("侧边栏  Ctrl+B"), !self.s.sidebar).clicked() {
                 self.s.sidebar = !self.s.sidebar;
             }
             let was = self.s.terminal;
@@ -2375,7 +2423,11 @@ impl App {
         // 至少留一个级别标签的位置，窄窗口时搜索框让位
         let avail = ui.available_width();
         let all_pills = avail >= 160.0 + 70.0 + 5.0 * 70.0;
-        let search_w = if all_pills {
+        // 副页面窄：不放级别标签，搜索框占满
+        let no_pills = self.compact_header && !all_pills;
+        let search_w = if no_pills {
+            (avail - 96.0).clamp(24.0, 260.0)
+        } else if all_pills {
             (avail - 70.0 - 5.0 * 70.0).min(260.0)
         } else {
             (avail - 70.0 - 140.0).clamp(60.0, 260.0)
@@ -2453,6 +2505,9 @@ impl App {
                 });
             });
         ui.add_space(6.0);
+        if no_pills {
+            return;
+        }
 
         // 级别计数，点一下按级别筛选
         let c = self.buf.counts;
@@ -2507,13 +2562,15 @@ impl App {
 
     fn header_right(&mut self, ui: &mut egui::Ui) {
         // 右侧：操作按钮（从右往左）
-        if icon_button(ui, Icon::Commands, t("快捷命令面板  Ctrl+J"), self.s.cmd_panel).clicked() {
-            self.s.cmd_panel = !self.s.cmd_panel;
+        if !self.compact_header {
+            if icon_button(ui, Icon::Commands, t("快捷命令面板  Ctrl+J"), self.s.cmd_panel).clicked() {
+                self.s.cmd_panel = !self.s.cmd_panel;
+            }
+            ui.add_space(2.0);
+            let (r, _) = ui.allocate_exact_size(vec2(1.0, 18.0), Sense::hover());
+            ui.painter().vline(r.center().x, r.y_range(), st(1.0, LINE()));
+            ui.add_space(2.0);
         }
-        ui.add_space(2.0);
-        let (r, _) = ui.allocate_exact_size(vec2(1.0, 18.0), Sense::hover());
-        ui.painter().vline(r.center().x, r.y_range(), st(1.0, LINE()));
-        ui.add_space(2.0);
         let more = icon_button(ui, Icon::More, t("更多：标记、帧格式、统计、回放、Modbus、发送文件…"), false);
         let pop = egui::Id::new("log_more");
         if more.clicked() {
@@ -2521,6 +2578,28 @@ impl App {
         }
         egui::popup::popup_below_widget(ui, pop, &more, egui::PopupCloseBehavior::CloseOnClick, |ui| self.more_menu(ui));
         let rules_on = self.s.rules.iter().any(|r| r.on);
+        if self.compact_header && ui.available_width() < 420.0 {
+            // 副页面窄：只留暂停和清屏，其它在 ⋯ 里
+            if icon_button(ui, Icon::Trash, t("清屏  Ctrl+L"), false).clicked() {
+                self.clear();
+            }
+            let paused = self.paused;
+            if icon_button(
+                ui,
+                if paused { Icon::Play } else { Icon::Pause },
+                if paused {
+                    t("继续  Ctrl+P")
+                } else {
+                    t("暂停（后台继续接收，不丢数据）  Ctrl+P")
+                },
+                paused,
+            )
+            .clicked()
+            {
+                self.toggle_pause();
+            }
+            return;
+        }
         if icon_button(ui, Icon::Filter, &format!("{}  {}", t("过滤与高亮规则"), self.km.label(Act::LogRules)), rules_on || self.wins.rules).clicked() {
             self.wins.rules = !self.wins.rules;
         }
@@ -2636,7 +2715,9 @@ impl App {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new("›").font(FontId::new(18.0, mono_bold())).color(if self.conn.is_some() { VIOLET() } else { TEXT3() }));
-                    let right_w = 360.0;
+                    // 副页面窄：只留换行符、HEX 和发送
+                    let slim = ui.available_width() < 640.0;
+                    let right_w = if slim { 200.0 } else { 360.0 };
                     let w = (ui.available_width() - right_w).max(120.0);
                     let full = if self.s.hex_send {
                         t("HEX，例如 AA 55 01 0D 0A")
@@ -2781,18 +2862,20 @@ impl App {
                             self.send_input(false);
                             self.send_text.clear();
                         }
-                        ui.add(egui::DragValue::new(&mut self.s.repeat_ms).range(10..=3_600_000).suffix(" ms").speed(10));
-                        if toggle_chip(ui, &mut self.repeat, t("定时"), t("按间隔重复发送输入框内容")) {
-                            self.last_repeat = Instant::now() - Duration::from_secs(3600);
-                        }
-                        if self.s.hex_send {
-                            check_combo(ui, &mut self.s.send_check);
+                        if !slim {
+                            ui.add(egui::DragValue::new(&mut self.s.repeat_ms).range(10..=3_600_000).suffix(" ms").speed(10));
+                            if toggle_chip(ui, &mut self.repeat, t("定时"), t("按间隔重复发送输入框内容")) {
+                                self.last_repeat = Instant::now() - Duration::from_secs(3600);
+                            }
+                            if self.s.hex_send {
+                                check_combo(ui, &mut self.s.send_check);
+                            }
                         }
                         toggle_chip(ui, &mut self.s.hex_send, "HEX", t("按十六进制字节发送"));
-                        if toggle_chip(ui, &mut self.s.multiline, "¶", t("多行输入：Enter 换行，Ctrl+Enter 发送")) {
+                        if !slim && toggle_chip(ui, &mut self.s.multiline, "¶", t("多行输入：Enter 换行，Ctrl+Enter 发送")) {
                             self.focus_send = true;
                         }
-                        if self.s.multiline {
+                        if self.s.multiline && !slim {
                             toggle_chip(ui, &mut self.s.line_by_line, t("逐行"), t("每行单独发一包，间隔可在设置里调整"));
                         }
                         ui.add_enabled_ui(!self.s.hex_send, |ui| {
@@ -2897,8 +2980,10 @@ impl App {
             }
             self.status_extras(ui);
             self.status_conns(ui);
+            self.work_chip(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(TEXT3()));
+                self.work_status(ui);
                 let br = self.code.branch();
                 if !br.is_empty() {
                     let r = ui
@@ -3065,6 +3150,7 @@ impl App {
                 self.ports.is_empty() && self.s.transport == Transport::Serial,
                 self.conn.is_some(),
                 self.s.transport != Transport::Serial,
+                self.compact_header,
                 &self.logo,
             );
         }
@@ -3098,6 +3184,7 @@ impl App {
         let mut ctx_mark: Option<u64> = None;
         let mut ctx_trigger: Option<String> = None;
         let mut ctx_regs: Option<String> = None;
+        let mut ctx_tool: Option<(&'static str, String)> = None;
         let has_svd = self.code.svd.is_some();
         let sel = self.sel.map(|(a, b)| (a.min(b), a.max(b)));
         let tsel = self.tsel.map(|s| s.ordered());
@@ -3180,6 +3267,7 @@ impl App {
         }
         let now = chrono::Local::now();
         let mut fading = false;
+        let mut src_click: Option<(String, usize)> = None;
         let out = sa.show_rows(&mut child, row_h, n, |ui, range| {
             let min_w = ui.available_width();
             for i in range {
@@ -3227,6 +3315,16 @@ impl App {
                     }
                     if resp.triple_clicked() && in_text {
                         word_at = Some((id, 0, nchars));
+                    }
+                    // Ctrl+点击 main.c:42：在旁边打开代码
+                    let ctrl = ui.input(|i| i.modifiers.command);
+                    if ctrl && resp.hovered() && in_text && self.code.root().is_some() {
+                        if let Some((_, _, f, line)) = work::src_ref(&l.plain) {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            if resp.clicked() {
+                                src_click = Some((f, line));
+                            }
+                        }
                     }
                 }
                 let p = ui.painter();
@@ -3336,6 +3434,28 @@ impl App {
                         ctx_regs = Some(l.plain.clone());
                         ui.close_menu();
                     }
+                    if let Some((_, _, f, line)) = self.code.root().and_then(|_| work::src_ref(&l.plain)) {
+                        if menu_item(ui, &tf("在旁边打开 {}:{}", &[&f, &line]), "Ctrl+Click") {
+                            src_click = Some((f, line));
+                            ui.close_menu();
+                        }
+                    }
+                    ui.menu_button(t("用工具打开"), |ui| {
+                        ui.set_min_width(200.0);
+                        let line = if self.s.view == ViewMode::Hex && l.dir != Dir::Sys {
+                            l.raw.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+                        } else {
+                            l.plain.clone()
+                        };
+                        if menu_item(ui, t("数据转换"), "") {
+                            ctx_tool = Some(("convert", line.clone()));
+                            ui.close_menu();
+                        }
+                        if menu_item(ui, t("校验计算"), "") {
+                            ctx_tool = Some(("crc", line.clone()));
+                            ui.close_menu();
+                        }
+                    });
                     if menu_item(ui, t("发到社区求助"), "") {
                         ctx_cmd = Some(if has_sel { 4 } else { 5 });
                         ctx_copy_line = Some(l.plain.clone());
@@ -3430,6 +3550,13 @@ impl App {
         }
         if let Some(id) = ctx_mark {
             self.toggle_bookmark(id);
+        }
+        if let Some((f, line)) = src_click {
+            self.open_src_ref(&f, line);
+        }
+        if let Some((kind, line)) = ctx_tool {
+            let sel = if self.tsel.is_some() { self.tsel_text(false) } else { self.selected_text(false) };
+            self.code_to_tool(kind, sel.filter(|x| !x.trim().is_empty()).unwrap_or(line));
         }
         if let Some(text) = ctx_regs {
             if !self.code.decode_regs(&text) {
@@ -3824,6 +3951,21 @@ impl App {
                 }
                 Act::NavBack => self.nav_go(true),
                 Act::NavFwd => self.nav_go(false),
+                Act::SideToggle => self.toggle_side(),
+                Act::SideRight => self.set_dock_pos(work::DockPos::Right),
+                Act::SideBottom => self.set_dock_pos(work::DockPos::Bottom),
+                Act::SideSwap => self.swap_side(),
+                Act::FocusMode => {
+                    self.work.focus = !self.work.focus;
+                    self.toast(
+                        if self.work.focus {
+                            t("专注模式：暂停自动弹出副页面")
+                        } else {
+                            t("已退出专注模式")
+                        },
+                        ACCENT(),
+                    );
+                }
                 Act::ThemeToggle => {
                     let light = !is_light();
                     self.set_theme(ctx, if light { "light" } else { "dark" });
@@ -3878,6 +4020,7 @@ impl App {
                 *r = ps.clone();
             }
         }
+        self.work_project_changed(p);
     }
 
     fn open_settings(&mut self, cat: prefs::Cat) {
@@ -3886,7 +4029,13 @@ impl App {
     }
 
     fn debug_page(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("side")
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.debug_in(ui, false));
+    }
+
+    /// 调试页画进一块区域；compact = 副页面精简版：不要左侧栏和快捷命令栏
+    pub(super) fn debug_in(&mut self, ui: &mut egui::Ui, compact: bool) {
+        let salt = ui.id();
+        egui::SidePanel::left(salt.with("side"))
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 16,
                 right: 14,
@@ -3895,7 +4044,7 @@ impl App {
             }))
             .exact_width(276.0)
             .resizable(false)
-            .show_animated(ctx, self.s.sidebar, |ui| self.sidebar(ui));
+            .show_animated_inside(ui, self.s.sidebar && !compact, |ui| self.sidebar(ui));
         if self.s.api_mode {
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
@@ -3904,10 +4053,10 @@ impl App {
                     top: 14,
                     bottom: 10,
                 }))
-                .show(ctx, |ui| self.api_page(ui));
+                .show_inside(ui, |ui| self.api_page(ui));
             return;
         }
-        let act = egui::SidePanel::right("cmds")
+        let act = egui::SidePanel::right(salt.with("cmds"))
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 14,
                 right: 14,
@@ -3917,7 +4066,7 @@ impl App {
             .default_width(272.0)
             .width_range(220.0..=420.0)
             .resizable(true)
-            .show_animated(ctx, self.s.cmd_panel, |ui| self.dock_ui(ui))
+            .show_animated_inside(ui, self.s.cmd_panel && !compact, |ui| self.dock_ui(ui))
             .and_then(|r| r.inner);
         let acted = act.is_some();
         match act {
@@ -3928,7 +4077,8 @@ impl App {
         if acted && self.s.terminal {
             self.tv.focus_req = true; // 点完快捷命令，键盘回到终端
         }
-        egui::TopBottomPanel::top("header")
+        self.compact_header = compact;
+        egui::TopBottomPanel::top(salt.with("header"))
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 12,
                 right: 14,
@@ -3936,9 +4086,9 @@ impl App {
                 bottom: 8,
             }))
             .show_separator_line(false)
-            .show(ctx, |ui| self.header(ui));
+            .show_inside(ui, |ui| self.header(ui));
         if !self.s.terminal {
-            egui::TopBottomPanel::bottom("cmd")
+            egui::TopBottomPanel::bottom(salt.with("cmd"))
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                     left: 12,
                     right: 14,
@@ -3946,12 +4096,12 @@ impl App {
                     bottom: 10,
                 }))
                 .show_separator_line(false)
-                .show(ctx, |ui| self.command_bar(ui));
+                .show_inside(ui, |ui| self.command_bar(ui));
         }
         let bottom = if self.s.terminal { 10 } else { 0 };
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 12, right: 14, top: 0, bottom }))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 if self.s.terminal {
                     self.term_view(ui);
                     return;
@@ -4066,7 +4216,7 @@ impl App {
             };
             self.cmpv.open_sides(side(&a, la), side(&b, lb), mode);
         }
-        self.set_page(Page::Compare);
+        self.reveal(Pane::Compare, "compare", work::Strength::Strong);
         self.compare_events();
     }
 
@@ -4075,8 +4225,8 @@ impl App {
             match e {
                 crate::compareview::CmpEvt::Toast(m, c) => self.toast(m, c),
                 crate::compareview::CmpEvt::OpenFile(p, line) => {
-                    self.set_page(Page::Code);
                     self.code.open_file(&p, Some((line, None)));
+                    self.reveal(Pane::Code, "cmp.open", work::Strength::Strong);
                 }
             }
         }
@@ -4117,9 +4267,28 @@ impl App {
                     } else {
                         tip
                     };
-                    if activity_button(ui, icon, tip, self.page == pg, dot).clicked() {
+                    let r = activity_button(ui, icon, tip, self.page == pg, dot);
+                    let pane = Pane::of(pg, self.s.tb.tool);
+                    // 在副页面里显示着：右边一条细线
+                    if pane.is_some() && self.side_pane() == pane {
+                        ui.painter()
+                            .rect_filled(Rect::from_min_size(pos2(r.rect.right() - 3.0, r.rect.top() + 12.0), vec2(2.0, 18.0)), 1.0, ACCENT().gamma_multiply(0.7));
+                    }
+                    if r.clicked() {
                         self.nav_manual();
-                        self.set_page(pg);
+                        if pane.is_some() && self.work.tabs.contains(&pane.unwrap()) {
+                            self.goto_pane(pane.unwrap());
+                        } else {
+                            self.set_page(pg);
+                        }
+                    }
+                    if let Some(p) = pane {
+                        // 中键 = 在副页面打开；拖到右边 / 下方 = 副页面；右键菜单
+                        if r.middle_clicked() && self.main_pane() != Some(p) {
+                            self.open_side(p, None, true);
+                        }
+                        self.drag_source(&r, p, None);
+                        r.context_menu(|ui| self.side_menu(ui, p));
                     }
                 }
                 ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
@@ -4475,7 +4644,7 @@ impl App {
 }
 
 fn activity_button(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool, dot: Option<Color32>) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(48.0, 42.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(48.0, 42.0), Sense::click_and_drag());
     let p = ui.painter();
     if active {
         p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 8.0), vec2(2.0, 26.0)), 1.0, ACCENT());
@@ -4615,12 +4784,15 @@ impl eframe::App for App {
             }
         }
         self.nav_tick(ctx);
-        // 调试页显示串口；工具箱里选了网络工具就显示那个连接。其余页面保持不变
+        self.work_tick(ctx);
+        // 调试页显示串口；工具箱里选了网络工具就显示那个连接；主页面不用连接时看副页面
+        let side = self.side_pane();
         let want = match self.page {
             Page::Debug => Some(0),
             Page::Tools => toolbox::comm_slot(self.s.tb.tool),
             _ => None,
-        };
+        }
+        .or_else(|| side.and_then(|p| p.slot()));
         if let Some(k) = want {
             self.use_slot(k);
         }
@@ -4640,16 +4812,21 @@ impl eframe::App for App {
         self.tick_background();
         self.handle_events();
         self.tick();
+        self.scan_log_tick();
+        self.link_tick();
 
         self.poll_update(ctx);
         self.follow_system_theme(ctx);
-        let scope = match self.page {
-            Page::Debug | Page::Tools | Page::Settings | Page::Community => Scope::Debug,
-            Page::Code => Scope::Code,
-            Page::Git => Scope::Git,
-            Page::Compare => Scope::Global,
+        // 键盘归哪一边：在哪边点过就是哪边
+        let focus_side = self.work.focus_side && side.is_some();
+        let focus_pane = if focus_side { side } else { self.main_pane() };
+        let scope = match focus_pane {
+            Some(Pane::Code | Pane::Files) => Scope::Code,
+            Some(Pane::Git) => Scope::Git,
+            Some(Pane::Compare) => Scope::Global,
+            _ => Scope::Debug,
         };
-        let term_focused = (self.page == Page::Debug && self.s.terminal && ctx.memory(|m| m.has_focus(self.tv.id()))) || self.shells.focused(ctx);
+        let term_focused = (focus_pane == Some(Pane::Debug) && self.s.terminal && ctx.memory(|m| m.has_focus(self.tv.id()))) || self.shells.focused(ctx);
         let acts = if self.prefs.recording.is_some() || self.palette.is_some() {
             vec![]
         } else {
@@ -4658,9 +4835,10 @@ impl eframe::App for App {
         let mut acts = acts;
         acts.extend(self.pending_acts.drain(..));
         let acts = self.run_global(ctx, acts);
-        if self.page == Page::Debug {
-            self.shortcuts(ctx, &acts, term_focused);
+        if focus_pane == Some(Pane::Debug) {
+            self.with_slot(0, |app| app.shortcuts(ctx, &acts, term_focused));
         }
+        let (acts, side_acts) = if focus_side { (vec![], acts) } else { (acts, vec![]) };
         self.update_view();
 
         egui::TopBottomPanel::bottom("status")
@@ -4682,8 +4860,8 @@ impl eframe::App for App {
                     }
                 }
                 ShellEvt::Open(p, line) => {
-                    self.set_page(Page::Code);
                     self.code.open_file(&p, Some((line, None)));
+                    self.reveal(Pane::Code, "shell.open", work::Strength::Strong);
                 }
                 ShellEvt::Task(name, cmd) => self.flash_checkpoint(&name, &cmd),
             }
@@ -4713,71 +4891,38 @@ impl eframe::App for App {
             self.toast(m, if err { ERR() } else { OK() });
         }
         self.s.seen_notice = self.comm.seen_notice;
+        // 副页面先占位置，主页面填剩下的
+        self.dock_panel(ctx, &side_acts);
+        self.work.main_rect = Some(ctx.available_rect());
         match self.page {
-            Page::Code => {
-                self.code.ui(ctx, &acts, &self.km);
-                for e in std::mem::take(&mut self.code.events) {
-                    match e {
-                        CodeEvt::Toast(m, c) => self.toast(m, c),
-                        CodeEvt::Project(p) => self.project_changed(&p),
-                        CodeEvt::OpenSettings => {
-                            self.prefs.cat = prefs::Cat::Editor;
-                            self.set_page(Page::Settings);
-                        }
-                        CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
-                        CodeEvt::Struct(src) => self.open_struct(src),
-                        CodeEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
-                        CodeEvt::Ask(text, lang) => {
-                            self.comm.ask_with(&text, &lang);
-                            self.set_page(Page::Community);
-                        }
-                        CodeEvt::Merge(base, mine, out) => {
-                            use crate::compareview::Side;
-                            let disk = crate::compareview::temp_file("disk", &std::fs::read(&out).unwrap_or_default());
-                            self.cmpv.open_merge(
-                                Side::labeled(&base, &t("上次保存")),
-                                Side::labeled(&mine, &t("我的修改")),
-                                Side::labeled(&disk, &t("外部修改")),
-                                &out,
-                                None,
-                            );
-                            self.set_page(Page::Compare);
-                            self.compare_events();
-                        }
-                    }
-                }
-            }
+            Page::Code => self.code.ui(ctx, &acts, &self.km),
             Page::Git => {
                 self.gitv.unsaved = self.code.dirty_paths();
                 self.gitv.sensitive.clone_from(&self.code.s.sensitive);
                 self.gitv.ui(ctx, &acts);
-                for e in std::mem::take(&mut self.gitv.events) {
-                    match e {
-                        GitEvt::Toast(m, c) => self.toast(m, c),
-                        GitEvt::Project(p) => {
-                            self.code.open_root(p);
-                        }
-                        GitEvt::OpenFile(p, line) => {
-                            self.set_page(Page::Code);
-                            self.code.open_file(&p, Some((line, None)));
-                        }
-                        GitEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
-                        GitEvt::Conflict(root, rel) => {
-                            self.cmpv.open_conflict(&root, &rel);
-                            self.set_page(Page::Compare);
-                            self.compare_events();
-                        }
-                    }
-                }
             }
             Page::Debug => self.debug_page(ctx),
             Page::Tools => self.toolbox_page(ctx),
             Page::Compare => {
+                self.compare_tree(ctx);
                 self.cmpv.ui(ctx);
-                self.compare_events();
             }
             Page::Settings => self.settings_page(ctx),
             Page::Community => self.comm.ui(ctx),
+        }
+        self.code_events();
+        self.git_events();
+        self.compare_events();
+        self.circuit_events();
+        self.sim_opened_tick();
+        if let Some((f, h)) = self.code.tab_out.take() {
+            self.work.drag = Some(work::DragPane {
+                pane: Pane::Code,
+                from: h,
+                live: false,
+                file: Some(f),
+                own: false,
+            });
         }
         if let Some((p, replay)) = self.open_log.take() {
             self.load_log_path(&p, replay);
@@ -4813,8 +4958,25 @@ impl eframe::App for App {
             let d = dropped.remove(0);
             self.code.open_root(d);
         }
+        // 拖到副页面上：按副页面处理
+        let on_side = drop_pos.is_some_and(|h| self.work.rect.is_some_and(|r| r.contains(h)));
+        let drop_page = match (on_side, self.side_pane()) {
+            (true, Some(Pane::Tool(tool))) => {
+                for p in std::mem::take(&mut dropped) {
+                    let keep = self.s.tb.tool;
+                    self.s.tb.tool = tool;
+                    self.tool_drop(p);
+                    self.s.tb.tool = keep;
+                }
+                self.page
+            }
+            (true, Some(Pane::Code | Pane::Files)) => Page::Code,
+            (true, Some(Pane::Compare)) => Page::Compare,
+            (true, Some(Pane::Debug)) => Page::Debug,
+            _ => self.page,
+        };
         for p in dropped {
-            match self.page {
+            match drop_page {
                 Page::Code => {
                     if p.is_dir() {
                         self.code.open_root(p.clone());
@@ -4838,6 +5000,8 @@ impl eframe::App for App {
         self.palette_ui(ctx);
         self.back_chip(ctx);
         self.switcher_ui(ctx);
+        self.pair_toast(ctx);
+        self.drag_overlay(ctx);
 
         // 提示气泡
         self.update_card(ctx);
@@ -5145,7 +5309,7 @@ pub(crate) fn hud_corners(p: &egui::Painter, r: Rect, color: Color32) {
     }
 }
 
-fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, logo: &egui::TextureHandle) {
+fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, compact: bool, logo: &egui::TextureHandle) {
     let p = ui.painter();
     // 点阵背景
     let step = 22.0;
@@ -5174,13 +5338,22 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: 
         (t("已连接，等待数据"), t("设备有输出时会实时显示在这里"))
     } else if no_ports {
         (t("未发现串口"), t("插入 USB 转串口设备后会自动出现在左侧"))
+    } else if compact {
+        (t("准备就绪"), t("在上方选好连接，点「连接」"))
     } else if net {
         (t("准备就绪"), t("左侧填好地址，点「连接」"))
     } else {
         (t("准备就绪"), t("左侧选好端口，点「连接」；不知道波特率就点「⚡ 自动」"))
     };
     p.text(c + vec2(0.0, 52.0), Align2::CENTER_CENTER, title, FontId::new(17.0, bold()), TEXT());
-    p.text(c + vec2(0.0, 76.0), Align2::CENTER_CENTER, sub, FontId::new(13.0, FontFamily::Proportional), TEXT2());
+    let wrap = (rect.width() - 40.0).max(120.0);
+    let g = ui.fonts(|f| {
+        let mut job = egui::text::LayoutJob::simple(sub.to_string(), FontId::new(13.0, FontFamily::Proportional), TEXT2(), wrap);
+        job.halign = Align::Center;
+        f.layout_job(job)
+    });
+    p.galley(pos2(c.x, c.y + 68.0), g.clone(), TEXT2());
+    let extra = (g.size().y - 18.0).max(0.0);
     let keys = [("F5", t("连接")), ("Ctrl+F", t("搜索")), ("Ctrl+L", t("清屏")), ("Ctrl+S", t("保存"))];
     let font = FontId::new(11.0, FontFamily::Monospace);
     let widths: Vec<f32> = keys
@@ -5188,8 +5361,11 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: 
         .map(|(k, v)| ui.fonts(|f| f.layout_no_wrap(format!("{k}  {v}"), font.clone(), TEXT()).size().x) + 20.0)
         .collect();
     let total: f32 = widths.iter().sum::<f32>() + 8.0 * (keys.len() - 1) as f32;
+    if total > rect.width() - 24.0 {
+        return;
+    }
     let mut x = c.x - total / 2.0;
-    let y = c.y + 112.0;
+    let y = c.y + 112.0 + extra;
     for ((k, v), w) in keys.iter().zip(widths) {
         let r = Rect::from_min_size(pos2(x, y - 12.0), vec2(w, 24.0));
         p.rect(r, CornerRadius::same(5), BG2(), st(1.0, LINE()), egui::StrokeKind::Inside);
@@ -5285,6 +5461,10 @@ pub(crate) enum Icon {
     Swap,
     History,
     Chat,
+    /// 副页面在右边 / 下方、弹出成独立窗口
+    DockRight,
+    DockBottom,
+    PopOut,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -5543,6 +5723,21 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
         }
         Icon::Maximize => {
             p.add(Shape::line(vec![pt(-5.0, 2.0), pt(0.0, -3.0), pt(5.0, 2.0)], s));
+        }
+        Icon::DockRight | Icon::DockBottom => {
+            let b = Rect::from_center_size(c0, vec2(14.0 * u, 12.0 * u));
+            p.rect_stroke(b, 2.0, s, egui::StrokeKind::Middle);
+            let fill = if icon == Icon::DockRight {
+                Rect::from_min_max(pt(1.5, -6.0), b.max)
+            } else {
+                Rect::from_min_max(pt(-7.0, 1.0), b.max)
+            };
+            p.rect_filled(fill.shrink(1.5 * u), 1.0, c.gamma_multiply(0.55));
+        }
+        Icon::PopOut => {
+            p.add(Shape::line(vec![pt(-1.0, -6.0), pt(-6.0, -6.0), pt(-6.0, 6.0), pt(6.0, 6.0), pt(6.0, 1.0)], s));
+            p.line_segment([pt(-0.5, 0.5), pt(6.5, -6.5)], s);
+            p.add(Shape::line(vec![pt(2.0, -6.5), pt(6.5, -6.5), pt(6.5, -2.0)], s));
         }
         Icon::Restore => {
             p.add(Shape::line(vec![pt(-5.0, -2.0), pt(0.0, 3.0), pt(5.0, -2.0)], s));

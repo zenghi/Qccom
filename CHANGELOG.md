@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.9.4
+
+Two pages side by side. The side page opens by itself when it helps, and otherwise stays out of the way.
+
+- **Side page**: any page (Debug, Code, Git, Compare, Community, a toolbox tool or the circuit) can sit on the right or at the bottom of the current page. The side version is compact: the serial port shows a one-line connection chip, the code page hides the explorer on narrow widths, the circuit hides its part library. Drag the divider to resize (double-click resets, dragging it almost closed closes it). Several side pages become tabs.
+- **Ways to open one**: middle-click an activity-bar icon or a toolbox tab; right-click it → *Open on the right / at the bottom*; drag an icon, a toolbox tab or an editor tab to the right or bottom edge (a preview shows where it lands; dropping in the middle swaps); *Side by side: …* in the command palette. `Ctrl+Alt+\` opens or closes the side page, `Ctrl+Alt+Enter` swaps main and side, `Ctrl+Alt+Shift+→ / ↓` moves it.
+- **Opens by itself when it helps** (first time only): after flashing, the serial log appears next to the code; when the circuit is powered and has a simulated port, the port connects and appears beside it; generated circuit code opens beside the circuit and updates as you change pins; *Compare with…* and Git conflicts open Compare beside the code. Once you close one of these it only shows a hint in the status bar. While you are typing nothing pops up. `F11` turns on focus mode, which pauses all of it.
+- **Hints from the log**: a HardFault or assert in the log, or a `file.c:123` reference, shows a status-bar hint to view it next to the code. `file:line` in the log is underlined; `Ctrl+click` opens it beside the log, and selecting a line in the code highlights the matching log lines.
+- **Switching back and forth**: switching between the same two pages 3 times within 2 minutes shows a small *View together* hint at the bottom. Accepting remembers the pair and opens it side by side from then on. Declining three times asks once whether to stop suggesting.
+- **Layouts**: a layout icon in the status bar (only while a side page is open) offers single / side by side / stacked / three areas, three built-in layouts (*Firmware debug*, *Simulation*, *Review*), saving your own and setting one as the default for a project. The last layout is remembered per project.
+- **Pop out**: the ↗ button moves the side page into its own window for a second screen; closing that window puts it back.
+- **Back / Ctrl+Tab** remember the side page: `Alt+←` restores the arrangement you came from, and `Ctrl+Tab` lists your common pairs and layouts.
+- **Compare file tree**: Compare can show the project tree on the left; click one file for the left side and another for the right.
+- **Open with tool**: select HEX bytes or a C array in the editor or log → right-click → *Open with tool* → *Data converter* / *Checksum* / *Struct parser*, prefilled.
+- *Settings → Side page* has the switches for all of the above and the list of remembered pairs.
+
 ## 1.9.3
 
 Faster search, easier ways back, and the small things in the explorer and Markdown preview.

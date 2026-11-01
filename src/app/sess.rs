@@ -227,6 +227,34 @@ impl App {
         self.focus_send = true;
     }
 
+    /// 临时换进另一个会话来画（副页面里的网络工具），画完换回去；不重建视图、不抢焦点
+    pub(super) fn quiet_slot(&mut self, k: usize) {
+        let cur = self.cur_slot();
+        if k == cur {
+            return;
+        }
+        let mut s = match self.sessions[k].take() {
+            Some(s) => s,
+            None => {
+                let t = match k {
+                    0 => Transport::Serial,
+                    1 => self.s.tcp_mode,
+                    2 => Transport::Udp,
+                    3 => Transport::Mqtt,
+                    4 => Transport::Ble,
+                    _ => Transport::Ws,
+                };
+                Sess::new(t, self.s.max_lines, self.s.frame_gap_ms)
+            }
+        };
+        s.unread = false;
+        self.swap_session(&mut s);
+        if cur == 1 {
+            self.s.tcp_mode = s.transport;
+        }
+        self.sessions[cur] = Some(s);
+    }
+
     /// 后台会话：换进来处理收到的数据、重连、录制，再换回去
     pub(super) fn tick_background(&mut self) {
         for k in 0..SLOTS {

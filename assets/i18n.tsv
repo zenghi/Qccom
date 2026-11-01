@@ -3056,3 +3056,86 @@ build/、Objects/、*.o、*.map 等	build/, Objects/, *.o, *.map, etc.	build/、
 范围：{}	Scope: {}	範圍：{}	範囲: {}	범위: {}	Bereich: {}	Portée : {}	Ámbito: {}	Область: {}	Escopo: {}
 设置要包含 / 排除的文件	Choose files to include / exclude	設定要包含 / 排除的檔案	含める / 除外するファイルを設定	포함/제외할 파일 설정	Ein-/auszuschließende Dateien festlegen	Choisir les fichiers à inclure / exclure	Elegir archivos a incluir / excluir	Выбрать включаемые / исключаемые файлы	Escolher arquivos a incluir / excluir
 返回 {}	Back to {}	返回 {}	{} に戻る	{}(으)로 돌아가기	Zurück zu {}	Retour à {}	Volver a {}	Назад к {}	Voltar para {}
+用工具打开	Open with tool	用工具開啟							
+专注模式：暂停自动弹出副页面	Focus mode: side pages won't pop up automatically	專注模式：暫停自動彈出副頁面							
+已退出专注模式	Focus mode off	已退出專注模式							
+在旁边打开 {}:{}	Open {}:{} on the side	在旁邊開啟 {}:{}							
+调固件	Firmware debug	調韌體							
+审阅	Review	審閱							
+仿真联调	Simulation	模擬聯調							
+把活动栏图标或工具标签拖到右边，就能并排看	Drag an activity bar icon or tool tab to the right to view side by side	把活動欄圖示或工具標籤拖到右邊，就能並排看							
+再点一个文件作为右边	Now pick a file for the right side	再點一個檔案作為右邊							
+点文件选为左边，再点一个作为右边	Pick a file for the left, then one for the right	點檔案選為左邊，再點一個作為右邊							
+收起文件树	Hide file tree	收起檔案樹							
+在格局菜单里可以重新打开文件树	You can show the file tree again from the layout menu	在格局選單裡可以重新開啟檔案樹							
+「{}」放进了副页面的标签里	"{}" was added as a side tab	「{}」放進了副頁面的標籤裡							
+布局：{}	Layout: {}	佈局：{}							
+已保存布局「{}」	Saved layout "{}"	已儲存佈局「{}」							
+已选为左侧：{}，再点一个文件作为右侧	Left: {}. Now pick a file for the right	已選為左側：{}，再點一個檔案作為右側							
+布局	Layout	佈局							
+保存当前布局	Save current layout	儲存當前佈局							
+重置布局（回到单页）	Reset layout (single page)	重置佈局（回到單頁）							
+我的布局 {}	My layout {}	我的佈局 {}							
+拖到右边或下方：放在旁边看	Drag to the right or bottom to view side by side	拖到右邊或下方：放在旁邊看							
+拖动调整大小，双击恢复默认	Drag to resize, double-click to reset	拖動調整大小，雙擊恢復預設							
+双击放到整页；拖到中间和主页面互换	Double-click for full page; drag to the middle to swap with the main page	雙擊放到整頁；拖到中間和主頁面互換							
+收起副页面	Close side page	收起副頁面							
+放回主窗口	Back to main window	放回主視窗							
+弹出成独立窗口（放到第二块屏幕）	Pop out into its own window (for a second screen)	彈出成獨立視窗（放到第二塊螢幕）							
+放到下方	Move to bottom	放到下方							
+放到右边	Move to right	放到右邊							
+和主页面互换	Swap with main page	和主頁面互換							
+放在右边	Put on the right	放在右邊							
+放在下方	Put at the bottom	放在下方							
+在右边拆分	Split to the right	在右邊拆分							
+在这里打开	Open here	在這裡開啟							
+先打开另一个页面，再把这个拖到旁边	Open another page first, then drag this one to the side	先開啟另一個頁面，再把這個拖到旁邊							
+在右边打开	Open on the right	在右邊開啟							
+在下方打开	Open at the bottom	在下方開啟							
+正在主区域显示	Shown in the main area	正在主區域顯示							
+专注	Focus	專注							
+点一下在旁边打开；右键忽略	Click to open on the side; right-click to dismiss	點一下在旁邊開啟；右鍵忽略							
+格局和布局方案	Arrangement and layouts	格局和佈局方案							
+格局	Arrangement	格局							
+单页	Single	單頁							
+左右	Side by side	左右							
+上下	Stacked	上下							
+三区	Three areas	三區							
+布局方案	Layouts	佈局方案							
+取消：打开这个工程时用这个方案	Unset: use this layout when opening this project	取消：開啟這個工程時用這個方案							
+打开这个工程时用这个方案	Use this layout when opening this project	開啟這個工程時用這個方案							
+保存当前布局…	Save current layout…	儲存當前佈局…							
+专注模式：暂停自动弹出	Focus mode: no automatic pop-ups	專注模式：暫停自動彈出							
+以后都不再提示「放在一起看」？	Stop suggesting "View together" from now on?	以後都不再提示「放在一起看」？							
+都不提醒	Stop suggesting	都不提醒							
+继续提醒	Keep suggesting	繼續提醒							
+放在一起看	View together	放在一起看							
+不用	No thanks	不用							
+选择串口	Choose port	選擇串列埠							
+断开	Disconnect	斷開							
+在{}和{}之间来回切？	Switching back and forth between {} and {}?	在{}和{}之間來回切？							
+需要时自动打开副页面	Open side pages automatically when needed	需要時自動開啟副頁面							
+比如烧录后把串口放到代码旁边、电路通电后显示仿真串口；你收起过的那种以后只在状态栏提示	E.g. put the serial log next to the code after flashing, or show the simulated port when the circuit is powered. Ones you closed before are only hinted in the status bar	比如燒錄後把串列埠放到程式碼旁邊、電路通電後顯示模擬串列埠；你收起過的那種以後只在狀態列提示							
+来回切页时提示放在一起	Suggest viewing together when switching back and forth	來回切頁時提示放在一起							
+2 分钟内在两个页面之间来回切 3 次，底部提示「放在一起看」	After 3 switches between two pages within 2 minutes, a "View together" hint appears at the bottom	2 分鐘內在兩個頁面之間來回切 3 次，底部提示「放在一起看」							
+窄屏时把副页面放下方	Put side pages at the bottom on narrow windows	窄屏時把副頁面放下方							
+窗口宽度不到 1400 像素时，自动打开的副页面放在下方而不是右边	When the window is narrower than 1400 px, automatic side pages go to the bottom instead of the right	視窗寬度不到 1400 畫素時，自動開啟的副頁面放在下方而不是右邊							
+点过「放在一起看」的组合会列在这里，以后切过去直接并排	Pairs you accepted with "View together" are listed here and open side by side from then on	點過「放在一起看」的組合會列在這裡，以後切過去直接並排							
+以后在这两个页面之间切换时直接并排；点 × 删除	These pages open side by side when you switch between them; click × to remove	以後在這兩個頁面之間切換時直接並排；點 × 刪除							
+常用组合	Common pairs	常用組合							
+还没有	None yet	還沒有							
+重置「不再自动」	Reset "no longer automatic"	重置「不再自動」							
+重置	Reset	重置							
+已重置	Reset done	已重置							
+收起过的自动副页面、点过「不用」的组合：{} 项	Closed automatic side pages and declined pairs: {}	收起過的自動副頁面、點過「不用」的組合：{} 項							
+打开 / 收起副页面	Open / close side page	開啟 / 收起副頁面							
+副页面放右边	Side page on the right	副頁面放右邊							
+副页面放下方	Side page at the bottom	副頁面放下方							
+主页面和副页面互换	Swap main and side pages	主頁面和副頁面互換							
+专注模式（暂停自动弹出副页面）	Focus mode (no automatic side pages)	專注模式（暫停自動彈出副頁面）							
+日志里有异常（HardFault / assert）· 在代码旁看	Fault in the log (HardFault / assert) · view next to the code	日誌裡有異常（HardFault / assert）· 在程式碼旁看							
+烧录了 · 在旁边看串口	Flashed · view the serial log on the side	燒錄了 · 在旁邊看串列埠							
+生成的代码在旁边打开；改了引脚和规则会自动更新	Generated code opened on the side; it updates when you change pins or rules	生成的程式碼在旁邊開啟；改了引腳和規則會自動更新							
+连上了仿真串口 · 在旁边看电路	Connected to the simulated port · view the circuit on the side	連上了模擬串列埠 · 在旁邊看電路							
+通电了 · 在旁边看仿真串口	Powered on · view the simulated port on the side	通電了 · 在旁邊看模擬串列埠							
+在上方选好连接，点「连接」	Pick a connection above and click "Connect"	在上方選好連線，點「連線」							

@@ -16,7 +16,12 @@ use serde_json::{json, Value};
 pub const DEFAULT_URL: &str = "https://www.zenghi.com/qccom/api/v1";
 
 pub fn base_url() -> String {
-    std::env::var("QCCOM_HUB_URL").ok().filter(|s| !s.trim().is_empty()).unwrap_or_else(|| DEFAULT_URL.into()).trim_end_matches('/').to_string()
+    std::env::var("QCCOM_HUB_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_URL.into())
+        .trim_end_matches('/')
+        .to_string()
 }
 
 #[derive(Clone, Default, Serialize, Deserialize)]
@@ -226,7 +231,10 @@ pub fn ensure_device() -> Result<(), HubErr> {
     )?;
     let (id, tok) = (v["device_id"].as_str().unwrap_or_default().to_string(), v["token"].as_str().unwrap_or_default().to_string());
     if id.is_empty() {
-        return Err(HubErr { code: "bad".into(), msg: "register failed".into() });
+        return Err(HubErr {
+            code: "bad".into(),
+            msg: "register failed".into(),
+        });
     }
     update_creds(|c| {
         c.device_id = id;

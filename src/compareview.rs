@@ -306,6 +306,10 @@ impl CompareView {
     // ------------------------------------------------------------ 界面
 
     pub fn ui(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.ui_in(ui));
+    }
+
+    pub fn ui_in(&mut self, ui: &mut egui::Ui) {
         if let Some(i) = self.active {
             if i >= self.tabs.len() {
                 self.active = self.tabs.len().checked_sub(1);
@@ -314,11 +318,11 @@ impl CompareView {
         egui::TopBottomPanel::top("cmp-tabs")
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 0 }))
             .show_separator_line(true)
-            .show(ctx, |ui| self.tab_strip(ui));
+            .show_inside(ui, |ui| self.tab_strip(ui));
         let mut outs = vec![];
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG0()))
-            .show(ctx, |ui| match self.active.and_then(|i| self.tabs.get_mut(i)) {
+            .show_inside(ui, |ui| match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 None => self.home_ui(ui),
                 Some(Tab::Text(x)) => outs = x.ui(ui, &mut self.s),
                 Some(Tab::Folder(x)) => outs = x.ui(ui, &mut self.s),
@@ -333,7 +337,7 @@ impl CompareView {
                 Out::Compare(a, b, m) => self.open_sides(Side::file(&a), Side::file(&b), m),
             }
         }
-        self.close_modal(ctx);
+        self.close_modal(ui.ctx());
     }
 
     fn tab_strip(&mut self, ui: &mut Ui) {
@@ -525,7 +529,8 @@ impl CompareView {
     fn home_ui(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         hgrad_line(ui.painter(), full.top() + 0.5, full.x_range(), ACCENT().gamma_multiply(0.35));
-        let w = (full.width() - 80.0).clamp(560.0, 880.0);
+        // 窄的时候（副页面）贴着两边，不再保证最小宽度
+        let w = (full.width() - 80.0).clamp(560.0, 880.0).min(full.width() - 24.0);
         let col = Rect::from_min_size(pos2(full.center().x - w / 2.0, full.top() + 36.0), vec2(w, full.height() - 48.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(col));
         let ui = &mut child;

@@ -491,6 +491,12 @@ impl GitView {
     // ------------------------------------------------------------ 界面
 
     pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act]) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.ui_in(ui, acts, false));
+    }
+
+    /// compact = 副页面：不要左边的分支栏，窄时详情也不放旁边
+    pub fn ui_in(&mut self, ui: &mut egui::Ui, acts: &[Act], compact: bool) {
+        let ctx = &ui.ctx().clone();
         self.poll();
         if self.root.is_some() {
             for a in acts {
@@ -503,25 +509,28 @@ impl GitView {
             }
         }
         if self.root.is_none() {
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| self.welcome(ui));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.welcome(ui));
             return;
         }
-        egui::SidePanel::left("git-side")
-            .frame(egui::Frame::new().fill(BG1()))
-            .default_width(self.s.side_width)
-            .width_range(220.0..=460.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                self.s.side_width = ui.available_width();
-                self.side_panel(ui);
-            });
-        if self.sel != Sel::None {
+        let w = ui.available_width();
+        if !compact || w > 1100.0 {
+            egui::SidePanel::left("git-side")
+                .frame(egui::Frame::new().fill(BG1()))
+                .default_width(self.s.side_width)
+                .width_range(220.0..=460.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    self.s.side_width = ui.available_width();
+                    self.side_panel(ui);
+                });
+        }
+        if self.sel != Sel::None && (!compact || w > 760.0) {
             egui::SidePanel::right("git-detail")
                 .frame(egui::Frame::new().fill(BG1()))
                 .default_width(self.s.detail_width)
                 .width_range(300.0..=760.0)
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show_inside(ui, |ui| {
                     self.s.detail_width = ui.available_width();
                     match self.sel.clone() {
                         Sel::Work => self.work_panel(ui),
@@ -531,7 +540,7 @@ impl GitView {
                     }
                 });
         }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| {
             if self.diff.is_some() {
                 self.diff_view(ui);
             } else {

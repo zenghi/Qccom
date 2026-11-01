@@ -117,7 +117,21 @@ fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mu
 /// 这一类里有没有设置项匹配搜索（决定搜索时显示不显示分类标题）
 fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
-        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "系统右键菜单", "发送匿名使用统计", "社区与反馈", "命令面板"],
+        Cat::General => &[
+            "界面语言",
+            "启动时自动检查更新",
+            "检查更新",
+            "便携模式",
+            "系统右键菜单",
+            "发送匿名使用统计",
+            "社区与反馈",
+            "命令面板",
+            "需要时自动打开副页面",
+            "来回切页时提示放在一起",
+            "窄屏时把副页面放下方",
+            "常用组合",
+            "重置「不再自动」",
+        ],
         Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号", "背景图片", "不透明度", "显示方式"],
         Cat::Log => &[
             "时间戳",
@@ -332,17 +346,23 @@ impl App {
                 }
             }
         });
-        row(ui, q, t("发送匿名使用统计"), t("随机设备 ID、版本、系统、语言、使用时长和各页面的打开次数，帮助作者知道哪些功能最常用。不含日志、文件和串口数据"), |ui| {
-            if switch(ui, &mut self.s.telemetry).changed() {
-                crate::hub::set_enabled(self.s.telemetry);
-                self.s.telemetry_noticed = true;
-            }
-            ui.add_space(8.0);
-            ui.menu_button(t("收集了什么"), |ui| {
-                ui.set_min_width(300.0);
-                ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
-            });
-        });
+        row(
+            ui,
+            q,
+            t("发送匿名使用统计"),
+            t("随机设备 ID、版本、系统、语言、使用时长和各页面的打开次数，帮助作者知道哪些功能最常用。不含日志、文件和串口数据"),
+            |ui| {
+                if switch(ui, &mut self.s.telemetry).changed() {
+                    crate::hub::set_enabled(self.s.telemetry);
+                    self.s.telemetry_noticed = true;
+                }
+                ui.add_space(8.0);
+                ui.menu_button(t("收集了什么"), |ui| {
+                    ui.set_min_width(300.0);
+                    ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
+                });
+            },
+        );
         let mut desc = format!("{}\n{} {}", t("提需求、给别人的需求投票、求助和分享经验"), t("服务器："), crate::hub::base_url());
         if let Some((at, e)) = crate::hub::last_error() {
             desc.push_str(&format!("\n{} {} · {}", t("最近一次出错："), crate::community::ago(at), e));
@@ -358,6 +378,78 @@ impl App {
                 self.open_palette();
             }
         });
+        self.prefs_side(ui, q);
+    }
+
+    /// 常规 → 副页面（五项）
+    fn prefs_side(&mut self, ui: &mut egui::Ui, q: &str) {
+        row(
+            ui,
+            q,
+            t("需要时自动打开副页面"),
+            t("比如烧录后把串口放到代码旁边、电路通电后显示仿真串口；你收起过的那种以后只在状态栏提示"),
+            |ui| {
+                switch(ui, &mut self.s.work.auto);
+            },
+        );
+        row(
+            ui,
+            q,
+            t("来回切页时提示放在一起"),
+            t("2 分钟内在两个页面之间来回切 3 次，底部提示「放在一起看」"),
+            |ui| {
+                switch(ui, &mut self.s.work.switch_hint);
+            },
+        );
+        row(
+            ui,
+            q,
+            t("窄屏时把副页面放下方"),
+            t("窗口宽度不到 1400 像素时，自动打开的副页面放在下方而不是右边"),
+            |ui| {
+                switch(ui, &mut self.s.work.narrow_bottom);
+            },
+        );
+        let combos = self.s.work.combos.clone();
+        let desc = if combos.is_empty() {
+            t("点过「放在一起看」的组合会列在这里，以后切过去直接并排").to_string()
+        } else {
+            t("以后在这两个页面之间切换时直接并排；点 × 删除").to_string()
+        };
+        row(ui, q, t("常用组合"), &desc, |ui| {
+            ui.vertical(|ui| {
+                let mut del = None;
+                for (i, (a, b)) in combos.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(App::combo_label(*a, *b)).color(TEXT()));
+                        if ui.add(egui::Button::new(RichText::new("×").color(TEXT3())).frame(false)).on_hover_text(t("删除")).clicked() {
+                            del = Some(i);
+                        }
+                    });
+                }
+                if let Some(i) = del {
+                    self.s.work.combos.remove(i);
+                }
+                if combos.is_empty() {
+                    ui.label(RichText::new(t("还没有")).color(TEXT3()));
+                }
+            });
+        });
+        let n = self.s.work.no_auto.len() + self.s.work.muted.len();
+        row(
+            ui,
+            q,
+            t("重置「不再自动」"),
+            &tf("收起过的自动副页面、点过「不用」的组合：{} 项", &[&n]),
+            |ui| {
+                if ui.add_enabled(n > 0, egui::Button::new(t("重置"))).clicked() {
+                    self.s.work.no_auto.clear();
+                    self.s.work.muted.clear();
+                    self.s.work.mute_streak = 0;
+                    self.toast(t("已重置"), OK());
+                }
+            },
+        );
     }
 
     fn prefs_appearance(&mut self, ui: &mut egui::Ui, q: &str) {

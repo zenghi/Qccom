@@ -37,6 +37,7 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 - **Quick commands.** Groups of one-click commands (text or HEX) with per-command line endings, `Alt+1…9` hotkeys and "send the whole group" sequencing.
 - **Debugging tools.** Live plots of numbers in the log, filter / highlight rules, binary protocol framing with checksum checks, auto-replies, [Rhai](https://rhai.rs) test scripts, a Modbus RTU / TCP master, XMODEM / YMODEM file transfer, CRC on send, an AT command assistant, multi-line sending, log replay with the original timing, statistics, markers and bookmarks.
 - **Serial extras.** DTR / RTS / Break and live CTS / DSR / RI / CD, one-click reset (including the ESP32 bootloader sequence), sharing a port over TCP or with other apps through a virtual port (a flasher and QCCOM on the same device at once), a second sniffing port, port aliases, profiles and multiple windows.
+- **Two pages side by side.** Put the serial log next to the code, the simulated port next to the circuit, Compare next to the file: middle-click or drag any page or tool to the right or bottom. It opens by itself the first time it helps (after flashing, on power-up, for a HardFault in the log), suggests pairing pages you keep switching between, saves layouts per project and pops out to a second screen.
 - **Code viewer.** Open your firmware folder next to the log: file tree, tabs, syntax highlighting for 12 language families, quick open, workspace-wide search, and for C / C++ go to definition, find references and macro expansion with the computed value.
 - **A real code editor.** Multiple cursors, column selection, folding, bracket matching, sticky scroll, line commands, and Source Insight-style context window, call hierarchy, bookmarks and semantic colors. Uses clangd automatically when it is installed and the project has a `compile_commands.json`.
 - **Code generation.** F8 multi-color highlights, greyed-out `#if 0` / undefined `#ifdef` code, `#ifdef` and `#if 0` wrapping, printf of a variable with the right format, Doxygen and file headers, 16 customizable macro actions, key recording, navigation history and VS Code / Source Insight / Keil key schemes. Code, Git, terminal and file servers share one project folder.
@@ -90,6 +91,8 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 | ![Terminal](docs/gif/demo-terminal.gif) | ![Code](docs/gif/demo-code.gif) |
 | **HTTP API** | **Toolbox** |
 | ![API](docs/gif/demo-api.gif) | ![Toolbox](docs/gif/demo-toolbox.gif) |
+| **Serial log beside the code** | |
+| ![Side page](docs/gif/demo-side.gif) | |
 
 More in the [user guide](docs/USER_GUIDE.md).
 

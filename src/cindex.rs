@@ -889,10 +889,7 @@ pub struct Lit {
 impl Lit {
     /// 非正则查询直接用查询本身做预筛
     pub fn of(pat: &crate::pattern::Pat) -> Option<Lit> {
-        (!pat.regex && !pat.q.is_empty() && (pat.case || pat.q.is_ascii())).then(|| Lit {
-            text: pat.q.clone(),
-            case: pat.case,
-        })
+        (!pat.regex && !pat.q.is_empty() && (pat.case || pat.q.is_ascii())).then(|| Lit { text: pat.q.clone(), case: pat.case })
     }
 
     fn found_in(&self, hay: &str) -> bool {
@@ -1011,8 +1008,7 @@ struct CacheEnt {
     text: Option<Arc<str>>,
 }
 
-static TEXT_CACHE: std::sync::LazyLock<std::sync::Mutex<(HashMap<PathBuf, CacheEnt>, usize)>> =
-    std::sync::LazyLock::new(|| std::sync::Mutex::new((HashMap::new(), 0)));
+static TEXT_CACHE: std::sync::LazyLock<std::sync::Mutex<(HashMap<PathBuf, CacheEnt>, usize)>> = std::sync::LazyLock::new(|| std::sync::Mutex::new((HashMap::new(), 0)));
 const CACHE_MAX: usize = 256 * 1024 * 1024;
 
 /// 读文件文字（二进制、超大文件返回 None），命中缓存时不碰磁盘内容
@@ -1311,7 +1307,12 @@ mod bench {
     fn bench_search() {
         let Some(root) = std::env::var_os("QCCOM_BENCH").map(PathBuf::from) else { return };
         let idx = build(&root, &shared_progress());
-        let pat = crate::pattern::Pat { q: "foo_special_marker".into(), case: false, word: false, regex: false };
+        let pat = crate::pattern::Pat {
+            q: "foo_special_marker".into(),
+            case: false,
+            word: false,
+            regex: false,
+        };
         let re = pat.compile().unwrap();
         let never = AtomicBool::new(false);
         // 旧算法：单线程逐行
@@ -1328,7 +1329,14 @@ mod bench {
         println!("old: {} hits, {:?}", n_old, t.elapsed());
         for round in 0..2 {
             let t = std::time::Instant::now();
-            let job = SearchJob { root: root.clone(), files: idx.files.clone(), re: re.clone(), lit: Lit::of(&pat), overrides: HashMap::new(), limit: 5000 };
+            let job = SearchJob {
+                root: root.clone(),
+                files: idx.files.clone(),
+                re: re.clone(),
+                lit: Lit::of(&pat),
+                overrides: HashMap::new(),
+                limit: 5000,
+            };
             let (tx, rx) = std::sync::mpsc::channel();
             let done = AtomicUsize::new(0);
             job.run(&never, &done, &tx);
@@ -1337,7 +1345,20 @@ mod bench {
             println!("new round {round}: {} hits, {:?}", n, t.elapsed());
         }
         let t = std::time::Instant::now();
-        let r = search(&root, &idx.files, &crate::pattern::Pat { q: r"HAL_\w+Pin".into(), case: true, word: false, regex: true }.compile().unwrap(), &never, 5000);
+        let r = search(
+            &root,
+            &idx.files,
+            &crate::pattern::Pat {
+                q: r"HAL_\w+Pin".into(),
+                case: true,
+                word: false,
+                regex: true,
+            }
+            .compile()
+            .unwrap(),
+            &never,
+            5000,
+        );
         println!("regex (cached): {} hits, {:?}", r.len(), t.elapsed());
     }
 }

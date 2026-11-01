@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.9.3
+
+Faster search, easier ways back, and the small things in the explorer and Markdown preview.
+
+- **First start opens maximized** (restoring the window gives a centered window at 80% of the screen); after that QCCOM opens the way you left it.
+- **Search everywhere is much faster**: it searches as you type, on all CPU cores, with file contents cached in memory and a quick whole-file check before looking line by line. Results appear while the search runs and the list stays smooth with thousands of hits. On a 10,000-file project the first search went from 5 s to about 0.1 s, and repeat searches take about 0.05 s. Unsaved edits in open files are searched too.
+- **Search scope**: one line under the options shows what is searched; click it for quick toggles (*C/H only*, *No vendor libs*, *No build output*, *.gitignore*, *Open files only*) and *Include* / *Exclude* boxes with `.gitignore`-style patterns. Right-click a result file to exclude it, its folder or its type, or to search only that folder; right-click a folder in the explorer → *Search in this folder*. A narrowed scope is shown in blue with a × to reset, and is remembered per project.
+- **Getting back**: `Alt+←` / `Alt+→` and the mouse's back / forward buttons now work across pages, so after *Compare*, opening a tool from the command palette or jumping from the log you return to the file and line you came from. A small *← Back to …* chip appears at the bottom left after such a jump. `Ctrl+Tab` lists recently used pages, tools, comparisons and files together (hold `Ctrl`, press `Tab` to pick, release to switch; editor tabs moved to `Ctrl+PgDn`).
+- **Toolbox tabs**: tools you open stay as tabs along the top (up to 8, green dot when running); click to switch, middle-click or × to close, drag to reorder. Hovering the toolbox icon lists recent tools.
+- **Explorer copy, paste and move**: `Ctrl` / `Shift` + click to select several items, `Ctrl+C` / `Ctrl+X` / `Ctrl+V` and right-click *Copy / Cut / Paste*. Files are exchanged with the system clipboard, so they paste into Windows Explorer and back. Drag items onto a folder to move them (`Ctrl` to copy). Existing names get ` - copy` instead of being overwritten, and moves create a local-history checkpoint first.
+- **Drop files from outside**: drop onto a folder in the explorer to copy them there (`Shift` to move), drop a folder on an empty code page to open it as the project. While dragging, a hint next to the pointer says what will happen. On Windows the drop position now comes from the system cursor, which fixes drops landing in the wrong place.
+- **Markdown preview**: drag to select text and `Ctrl+C`; code blocks have a *Copy* button on hover; right-click copies all text or the Markdown source.
+
 ## 1.9.2
 
 Community polish and a fix for lists that never finished loading.

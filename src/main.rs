@@ -120,7 +120,7 @@ fn main() -> eframe::Result {
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(title)
-            .with_inner_size([1300.0, 803.0]) // 1300 × 0.618，首次启动时再按屏幕大小调整
+            .with_inner_size([1300.0, 803.0]) // 首次启动时再最大化（见 App::place_window）
             .with_min_inner_size([900.0, 520.0])
             .with_icon(icon()),
         vsync: true,

@@ -45,6 +45,8 @@ pub struct ProjState {
     /// 文件 → (行, 行内字节)
     pub cursors: BTreeMap<String, (usize, usize)>,
     pub bookmarks: BTreeMap<String, Vec<usize>>,
+    /// 全局搜索的包含 / 排除设置
+    pub search: crate::cindex::Scope,
 }
 
 pub(super) enum PromptKind {
@@ -1276,6 +1278,7 @@ impl CodeView {
         let Some(root) = self.root.as_ref().map(|r| r.to_string_lossy().to_string()) else { return };
         let mut st = ProjState {
             active: self.active,
+            search: self.scope.clone(),
             ..Default::default()
         };
         for d in self.tabs.iter().filter(|d| !d.virt) {
@@ -1301,6 +1304,7 @@ impl CodeView {
     pub(super) fn restore_project(&mut self, root: &Path) {
         let key = root.to_string_lossy().to_string();
         let Some(st) = self.s.projects.get(&key).cloned() else { return };
+        self.scope = st.search.clone();
         for p in &st.tabs {
             let pb = PathBuf::from(p);
             if !pb.is_file() {

@@ -246,6 +246,12 @@ pub struct MdView {
     outline: bool,
     /// 同步滚动：上次对上的编辑器行
     synced: usize,
+    /// Markdown 原文（右键「复制 Markdown 原文」）
+    src: String,
+    /// 代码块「复制」按钮刚点过的时间
+    copied: Option<f64>,
+    /// 右键菜单位置
+    menu_at: Option<egui::Pos2>,
 }
 
 impl MdView {
@@ -259,6 +265,9 @@ impl MdView {
             scroll_to: None,
             outline: true,
             synced: usize::MAX,
+            src: text.to_string(),
+            copied: None,
+            menu_at: None,
         }
     }
 
@@ -267,6 +276,7 @@ impl MdView {
         if ver != self.ver {
             self.ver = ver;
             self.blocks = parse(text);
+            self.src = text.to_string();
         }
     }
 
@@ -340,7 +350,9 @@ impl MdView {
         let blocks = std::mem::take(&mut self.blocks);
         let mut ys = Vec::with_capacity(blocks.len());
         let now = ui.input(|i| i.time);
-        sa.show(ui, |ui| {
+        let out = sa.show(ui, |ui| {
+            // 预览里的文字可以拖选、Ctrl+C 复制（全局默认关掉了标签选择，这里打开）
+            ui.style_mut().interaction.selectable_labels = true;
             egui::Frame::new()
                 .inner_margin(egui::Margin {
                     left: 24,
@@ -392,11 +404,30 @@ impl MdView {
                             }
                             Block::Code(lang, code) => {
                                 let l = if lang.is_empty() { Lang::Plain } else { Lang::from_path(Path::new(&format!("x.{lang}"))) };
-                                egui::Frame::new().fill(BG2()).corner_radius(R_WIDGET).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
+                                let fr = egui::Frame::new().fill(BG2()).corner_radius(R_WIDGET).inner_margin(egui::Margin::same(10)).show(ui, |ui| {
                                     ui.set_width(ui.available_width());
                                     let job = highlight::layout(code, l, FontId::new(12.5, FontFamily::Monospace));
                                     ui.label(job);
                                 });
+                                // 悬停时右上角出现「复制」
+                                let r = fr.response.rect;
+                                if ui.rect_contains_pointer(r) {
+                                    let br = egui::Rect::from_min_size(egui::pos2(r.right() - 58.0, r.top() + 6.0), vec2(52.0, 22.0));
+                                    // 自己画，不占布局位置
+                                    let b = ui.interact(br, ui.id().with(("md-copy", ys.len())), egui::Sense::click());
+                                    ui.painter().rect_filled(br, R_WIDGET, if b.hovered() { LINE_HI() } else { BG3() });
+                                    ui.painter().text(br.center(), egui::Align2::CENTER_CENTER, t("复制"), FontId::proportional(11.5), TEXT());
+                                    if b.hovered() {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    }
+                                    if b.clicked() {
+                                        ui.ctx().copy_text(code.clone());
+                                        self.copied = Some(now);
+                                    }
+                                }
+                                if self.copied.is_some_and(|t0| now - t0 < 1.2) && ui.rect_contains_pointer(r) {
+                                    ui.painter().text(egui::pos2(r.right() - 66.0, r.top() + 17.0), egui::Align2::RIGHT_CENTER, t("已复制"), FontId::proportional(11.5), OK());
+                                }
                                 ui.add_space(6.0);
                             }
                             Block::Quote(s) => {
@@ -472,6 +503,35 @@ impl MdView {
         });
         self.blocks = blocks;
         self.ys = ys;
+        // 右键（文字上也行）：复制全部文字 / 原文
+        let area = out.inner_rect;
+        if ui.input(|i| i.pointer.secondary_clicked()) {
+            if let Some(p) = ui.input(|i| i.pointer.interact_pos()).filter(|p| area.contains(*p)) {
+                self.menu_at = Some(p);
+            }
+        }
+        if let Some(at) = self.menu_at {
+            let mut close = false;
+            let r = egui::Area::new(ui.id().with("md-menu")).order(egui::Order::Foreground).fixed_pos(at).show(ui.ctx(), |ui| {
+                egui::Frame::menu(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(170.0);
+                    ui.label(RichText::new(t("拖选文字后按 Ctrl+C 复制")).small().color(TEXT3()));
+                    ui.separator();
+                    if ui.button(t("复制全部文字")).clicked() {
+                        ui.ctx().copy_text(plain_all(&self.blocks));
+                        close = true;
+                    }
+                    if ui.button(t("复制 Markdown 原文")).clicked() {
+                        ui.ctx().copy_text(self.src.clone());
+                        close = true;
+                    }
+                });
+            });
+            let outside = ui.input(|i| (i.pointer.primary_pressed() || i.key_pressed(egui::Key::Escape)) && i.pointer.interact_pos().is_some_and(|p| !r.response.rect.contains(p)));
+            if close || outside || ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.menu_at = None;
+            }
+        }
         evt
     }
 
@@ -483,6 +543,38 @@ impl MdView {
             p.exists().then_some(MdEvt::Open(p))
         }
     }
+}
+
+/// 整篇的纯文字（右键「复制全部文字」）
+fn plain_all(blocks: &[(usize, Block)]) -> String {
+    let mut out = String::new();
+    for (_, b) in blocks {
+        match b {
+            Block::Heading(_, s) | Block::Para(s) => out.push_str(&plain(s)),
+            Block::Item(ind, num, task, s) => {
+                out.push_str(&"  ".repeat(*ind as usize));
+                match (task, num) {
+                    (Some(d), _) => out.push_str(if *d { "[x] " } else { "[ ] " }),
+                    (None, Some(n)) => out.push_str(&format!("{n}. ")),
+                    _ => out.push_str("- "),
+                }
+                out.push_str(&plain(s));
+            }
+            Block::Code(_, c) => out.push_str(c),
+            Block::Quote(s) => out.push_str(&s.lines().map(plain).collect::<Vec<_>>().join("\n")),
+            Block::Table(h, rows) => {
+                out.push_str(&h.iter().map(|c| plain(c)).collect::<Vec<_>>().join("\t"));
+                for r in rows {
+                    out.push('\n');
+                    out.push_str(&r.iter().map(|c| plain(c)).collect::<Vec<_>>().join("\t"));
+                }
+            }
+            Block::Image(alt, _) => out.push_str(alt),
+            Block::Hr => out.push_str("---"),
+        }
+        out.push_str("\n\n");
+    }
+    out.trim_end().to_string()
 }
 
 /// 去掉行内标记，只留文字（标题、表格、大纲用）

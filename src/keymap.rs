@@ -386,14 +386,14 @@ acts! {
     Act::InsertSnippet, "code.snippet", "插入代码片段", Code, ["Ctrl+Alt+J"];
     Act::ToggleVim, "code.vim", "打开 / 关闭 Vim 键位", Code, [];
     Act::CloseTab, "code.close_tab", "关闭标签页", Code, ["Ctrl+W"];
-    Act::NextTab, "code.next_tab", "下一个标签页", Code, ["Ctrl+Tab"];
+    Act::NextTab, "code.next_tab", "下一个标签页", Code, ["Ctrl+PageDown"];
     Act::SaveFile, "code.save", "保存文件", Code, ["Ctrl+S"];
     Act::ZoomIn, "code.zoom_in", "放大字号", Code, ["Ctrl+=", "Ctrl++"];
     Act::ZoomOut, "code.zoom_out", "缩小字号", Code, ["Ctrl+-"];
     Act::GotoDef, "code.goto_def", "跳转到定义", Code, ["F12"];
     Act::FindRefs, "code.refs", "查找引用", Code, ["Shift+F12"];
-    Act::NavBack, "nav.back", "后退", Code, ["Alt+←"];
-    Act::NavFwd, "nav.forward", "前进", Code, ["Alt+→"];
+    Act::NavBack, "nav.back", "后退", Global, ["Alt+←"];
+    Act::NavFwd, "nav.forward", "前进", Global, ["Alt+→"];
     Act::GitRefresh, "git.refresh", "刷新仓库", Git, ["F5"];
     Act::GitFetch, "git.fetch", "从所有远程拉取", Git, [];
     Act::GitFind, "git.find", "搜索提交", Git, ["Ctrl+F"];

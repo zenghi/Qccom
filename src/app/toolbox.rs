@@ -140,6 +140,8 @@ pub struct ToolboxCfg {
     pub recent: Vec<Tool>,
     /// 展开的分组（通信调试之外同一时间只展开一个）
     pub open_group: usize,
+    /// 顶部标签条上已打开的工具（最多 8 个）
+    pub opened: Vec<Tool>,
     /// v1.4 新工具的设置
     pub x: super::toolbox2::Cfg2,
     /// v1.6 嵌入式工具的设置
@@ -177,6 +179,7 @@ impl Default for ToolboxCfg {
             favs: vec![],
             recent: vec![],
             open_group: 0,
+            opened: vec![],
             x: Default::default(),
             z: Default::default(),
             ssh_hosts: vec![],
@@ -249,6 +252,7 @@ impl App {
             .exact_width(210.0)
             .resizable(false)
             .show(ctx, |ui| self.toolbox_nav(ui));
+        self.tool_tabs(ctx);
         self.tick_toolbox2();
         // 网络连接和 API：右边就是调试页那一套（侧边栏、日志、终端、快捷命令）
         if comm_slot(self.s.tb.tool).is_some() || self.s.tb.tool == Tool::Api {
@@ -437,6 +441,7 @@ impl App {
     /// 在列表里选中工具：记进「最近使用」
     fn pick_tool(&mut self, tool: Tool) {
         self.s.tb.tool = tool;
+        self.mark_opened(tool);
         if group_of(tool) != 0 {
             self.s.tb.recent.retain(|t| *t != tool);
             self.s.tb.recent.insert(0, tool);
@@ -447,6 +452,7 @@ impl App {
     /// 打开某个工具（命令面板、设备发现、状态栏都走这里）
     pub(super) fn open_tool(&mut self, tool: Tool) {
         self.s.tb.tool = tool;
+        self.mark_opened(tool);
         let g = group_of(tool);
         if g != 0 {
             self.s.tb.open_group = g;
@@ -457,6 +463,115 @@ impl App {
         self.set_page(Page::Tools);
         if let Some(k) = comm_slot(tool) {
             self.use_slot(k);
+        }
+    }
+
+    /// 记进顶部标签条；满了先挤掉最早打开、没在运行的
+    fn mark_opened(&mut self, tool: Tool) {
+        if tool == Tool::Circuit || self.s.tb.opened.contains(&tool) {
+            return;
+        }
+        self.s.tb.opened.push(tool);
+        while self.s.tb.opened.len() > 8 {
+            let i = (0..self.s.tb.opened.len()).find(|&i| self.s.tb.opened[i] != tool && self.tool_state(self.s.tb.opened[i]) == 0).unwrap_or(0);
+            self.s.tb.opened.remove(i);
+        }
+    }
+
+    /// 已打开工具的标签条：两个以上才显示。单击切换，中键或 × 关闭，拖动排序
+    fn tool_tabs(&mut self, ctx: &egui::Context) {
+        let cur = self.s.tb.tool;
+        if !self.s.tb.opened.contains(&cur) && cur != Tool::Circuit {
+            self.s.tb.opened.push(cur);
+        }
+        if self.s.tb.opened.len() < 2 {
+            return;
+        }
+        let mut pick: Option<Tool> = None;
+        let mut close: Option<usize> = None;
+        let mut moved: Option<(usize, usize)> = None;
+        egui::TopBottomPanel::top("tool_tabs")
+            .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin { left: 8, right: 8, top: 4, bottom: 0 }))
+            .exact_height(34.0)
+            .show_separator_line(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 2.0;
+                    let tabs = self.s.tb.opened.clone();
+                    let mut rects = vec![];
+                    for (i, tool) in tabs.iter().enumerate() {
+                        let on = *tool == cur;
+                        let name = tool_text(*tool).0;
+                        let state = self.tool_state(*tool);
+                        let font = FontId::proportional(12.5);
+                        let gw = ui.painter().layout_no_wrap(name.to_string(), font.clone(), TEXT()).size().x;
+                        let dot = if state > 0 { 12.0 } else { 0.0 };
+                        let (r, resp) = ui.allocate_exact_size(vec2(gw + 40.0 + dot, 30.0), Sense::click_and_drag());
+                        rects.push(r);
+                        let p = ui.painter();
+                        let body = Rect::from_min_max(r.min, pos2(r.max.x, r.max.y + 1.0));
+                        if on {
+                            p.rect_filled(body, CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 }, BG1());
+                            p.hline(r.x_range().shrink(1.0), r.top() + 0.5, st(2.0, ACCENT()));
+                        } else if resp.hovered() {
+                            p.rect_filled(body, CornerRadius { nw: 6, ne: 6, sw: 0, se: 0 }, BG2());
+                        }
+                        let mut x = r.left() + 12.0;
+                        if state > 0 {
+                            p.circle_filled(pos2(x + 3.0, r.center().y), 3.0, OK());
+                            x += dot;
+                        }
+                        p.text(pos2(x, r.center().y), Align2::LEFT_CENTER, name, font, if on { TEXT() } else { TEXT2() });
+                        let xr = Rect::from_center_size(pos2(r.right() - 14.0, r.center().y), vec2(16.0, 16.0));
+                        let over_x = ui.input(|i| i.pointer.hover_pos()).is_some_and(|h| xr.contains(h));
+                        if on || resp.hovered() {
+                            if over_x {
+                                p.rect_filled(xr, CornerRadius::same(4), BG3());
+                            }
+                            draw_icon(p, xr.shrink(4.0), Icon::Close, if over_x { TEXT() } else { TEXT3() });
+                        }
+                        if resp.clicked() {
+                            if over_x {
+                                close = Some(i);
+                            } else {
+                                pick = Some(*tool);
+                            }
+                        }
+                        if resp.middle_clicked() {
+                            close = Some(i);
+                        }
+                        if resp.dragged() {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        }
+                        if resp.drag_stopped() {
+                            if let Some(h) = ui.input(|i| i.pointer.interact_pos()) {
+                                moved = Some((i, h.x as usize));
+                            }
+                        }
+                        resp.on_hover_text(tool_text(*tool).1);
+                    }
+                    // 拖动排序：按松手时的 x 找目标位置
+                    if let Some((from, x)) = moved.take() {
+                        let to = rects.iter().position(|r| (x as f32) < r.center().x).unwrap_or(rects.len()).min(rects.len());
+                        moved = Some((from, to));
+                    }
+                });
+            });
+        if let Some((from, to)) = moved {
+            let t_ = self.s.tb.opened.remove(from);
+            let to = if to > from { to - 1 } else { to };
+            self.s.tb.opened.insert(to.min(self.s.tb.opened.len()), t_);
+        }
+        if let Some(i) = close {
+            let t_ = self.s.tb.opened.remove(i);
+            if t_ == cur {
+                if let Some(&next) = self.s.tb.opened.get(i).or_else(|| self.s.tb.opened.get(i.saturating_sub(1))) {
+                    pick = Some(next);
+                }
+            }
+        }
+        if let Some(tool) = pick {
+            self.open_tool(tool);
         }
     }
 

@@ -38,6 +38,13 @@ The **gear** at the bottom of the activity bar holds everything you need less of
 
 Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for example *theme*, *clear* or *shortcut*. Arrow keys move, Enter runs, Esc closes. Every command, theme, language and settings page is listed, and the ones you used recently come first.
 
+### Getting back
+
+- **Back / forward** (`Alt+←` / `Alt+→`, or the mouse's back / forward buttons) work across pages: after *Compare with…* in the code page, opening a tool from the command palette or jumping from a log line, `Alt+←` returns to the file and line you came from. Inside the code page it first walks the editor's own jump history.
+- When something takes you to another page, a small **← Back to main.c** chip appears at the bottom left; it disappears once you switch pages yourself.
+- **`Ctrl+Tab`** shows the recently used pages, tools, comparisons and files in one list. Keep `Ctrl` held and press `Tab` (`Shift+Tab` goes back) to pick one, release to switch. `Ctrl+PgDn` still cycles the editor tabs.
+- In the toolbox, the tools you opened stay as **tabs** along the top (up to 8; a green dot means running). Click to switch, middle-click or × to close, drag to reorder. Hovering the toolbox icon lists the recent tools, and clicking it returns to the last one.
+
 ### Settings
 
 `Ctrl+,` opens the settings page: General, Appearance, Log, Connection, Code Editor, Keyboard Shortcuts and About. The search box at the top filters every option. Press Esc or click × to go back to where you were.
@@ -235,15 +242,17 @@ Right-click a port card to give it an alias (for example *Main board*) or to set
 Click `</>` in the activity bar, then **Open folder** to open your firmware project (or start QCCOM with a folder: `qccom ~/fw`). QCCOM remembers it, along with your open tabs.
 
 - **Explorer** (`Ctrl+Shift+E`): the file tree with Git status colors (M modified, U untracked), a filter box, refresh and collapse-all. Symbol indexing and search skip folders such as `.git`, `node_modules`, `target` and `dist`.
-- **Explorer actions**: right-click a file or folder to create a file (you can type `drv/spi.c` to create folders on the way), create a folder, rename or delete it. Right-click empty space to create at the root. Right-click the folder button at the top for recent projects.
-- **Tabs**: `Ctrl+Tab` switches tabs and `Ctrl+W` closes one. Middle-click also closes a tab. Drag tabs to reorder them. Right-click a tab to close others, close to the right, close saved tabs, split right, copy the path or reveal it in the file manager.
+- **Explorer actions**: right-click a file or folder to copy, cut, paste, search in the folder, create a file (you can type `drv/spi.c` to create folders on the way), create a folder, rename or delete it. Right-click empty space to paste or create at the root. Right-click the folder button at the top for recent projects.
+- **Copy, paste and move files**: `Ctrl+click` and `Shift+click` select several items; `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy, cut and paste while the tree has focus. Copied files also go to the system clipboard, so they paste straight into Windows Explorer or your file manager, and files copied there paste into the tree. Drag items onto a folder to move them (hold `Ctrl` to copy). Files dragged in from outside are copied into the folder under the pointer (hold `Shift` to move); a folder dropped on an empty code page opens as the project. A name that already exists gets ` - copy` instead of being overwritten, and moves create a local-history checkpoint first.
+- **Tabs**: `Ctrl+PgDn` switches tabs and `Ctrl+W` closes one. Middle-click also closes a tab. Drag tabs to reorder them. Right-click a tab to close others, close to the right, close saved tabs, split right, copy the path or reveal it in the file manager.
 - **Split editor** (`Ctrl+\`, or the button on the right of the breadcrumb bar): two files side by side; drag the divider to resize.
 - **Highlighting** for C / C++, Rust, Python, JavaScript / TypeScript, Go, Java / Kotlin, shell, JSON, Makefile / CMake, INI / TOML / YAML, Markdown and assembly.
 - **Quick open** (`Ctrl+P`): type part of a file name. You can also prefix the query:
   - `#` searches symbols across the workspace (`Ctrl+T`).
   - `@` lists the symbols in the current file (`Ctrl+Shift+O`).
   - `:` goes to a line (`Ctrl+G`).
-- **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with match case, whole word and regular expression options. Click a result to jump to it. Open the replace row to replace across the project: every result shows a preview, and **Replace all** asks for a second click. Open files are changed in the editor (undoable), the rest are written to disk keeping their encoding.
+- **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with match case, whole word and regular expression options. It searches as you type, on all CPU cores, with file contents cached in memory, so results start appearing at once even in large vendor trees (unsaved edits in open files are searched too). Click a result to jump to it.
+- **Search scope**: the line under the options shows what is searched (*Whole project · .gitignore applied*); click it for quick toggles (*C/H only*, *No vendor libs*, *No build output*, *.gitignore*, *Open files only*) and *Include* / *Exclude* boxes that take `.gitignore`-style patterns such as `*.c, src/` or `Drivers/, !main.c`. Right-click a file in the results to exclude it, its folder or its file type, or to search only that folder; right-click a folder in the explorer → *Search in this folder*. When the scope is narrowed the line turns blue with a × to reset it. The scope is remembered per project. Open the replace row to replace across the project: every result shows a preview, and **Replace all** asks for a second click. Open files are changed in the editor (undoable), the rest are written to disk keeping their encoding.
 - **Find and replace in file** (`Ctrl+F` / `Ctrl+H`): match case, whole word and regular expressions (`$1` refers to a group). The bar shows the count and a preview of the current replacement. `Enter` replaces the current match and `Ctrl+Enter` replaces all, which `Ctrl+Z` undoes in one step.
 - **C / C++ navigation**: hover an identifier to see its definition. Hovering a macro shows the `#define`, the full expansion and the computed value (for example `BRR_VALUE` → `((72 * 1000 * 1000) / 115200)` → `0x271 (625)`). Hovering an enum constant shows its value. `Ctrl+click` or `F12` goes to the definition, `Shift+F12` finds references, and `Alt+←` / `Alt+→` go back and forward.
 - **clangd (optional)**: if [clangd](https://clangd.llvm.org/) is installed (on PATH, or in the default LLVM folder on Windows) and the project has a `compile_commands.json` in its root or `build/`, Go to Definition uses clangd. It tells apart static functions with the same name, local variables and struct members. The status bar shows `· clangd`. Without it QCCOM falls back to its built-in index; nothing to configure. You can turn it off or set the clangd path in Settings → Code Editor.
@@ -349,7 +358,7 @@ Some files open in a viewer instead of the text editor; the button in the breadc
 
 - **Images** (PNG, JPEG, BMP, GIF, ICO, WebP, TGA): zoom with the wheel, pan by dragging, a pixel grid at high zoom and the color under the cursor in hex and RGB565 (click to copy). GIFs play, with pause and frame stepping. *More* copies the current frame, or all frames of a GIF, as a C array (RGB565, RGB888, ARGB8888 or 1-bit mono), exports a frame as PNG, or compares with another image (or drop a second image on the first): side by side, overlay with a slider, or a difference map with the count of changed pixels.
 - **Raw pixels**: `.rgb565`, `.raw`, `.gray` and HEX dumps (*View as pixels* in the hex viewer) are shown as an image in RGB565 / RGB888 / gray / mono with a width you choose; the width is guessed from common LCD sizes. You can also paste HEX bytes from a log.
-- **Markdown**: a rendered preview with an outline, images (GIFs animate), code highlighting, tables and links to other project files. The button cycles *Preview → Split → Source*; in split view the preview follows the editor as you scroll and type.
+- **Markdown**: a rendered preview with an outline, images (GIFs animate), code highlighting, tables and links to other project files. The button cycles *Preview → Split → Source*; in split view the preview follows the editor as you scroll and type. Drag to select text and press `Ctrl+C`; code blocks show a *Copy* button on hover, and right-click copies all the text or the Markdown source.
 - **JSON / YAML / TOML**: *Tree* shows a collapsible tree with a filter; click a node to jump to its line. Syntax errors are reported with the line number.
 - **CSV / TSV**: a table that stays fast with hundreds of thousands of rows (files up to 64 MB). Click up to four numeric column headers to plot them, with min / max / average.
 
@@ -638,8 +647,9 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+Shift+5 | New terminal |
 | F12 / Ctrl+click | Go to definition |
 | Shift+F12 | Find references |
-| Alt+← / Alt+→ | Back / forward |
-| Ctrl+Tab / Ctrl+W | Next tab / close tab |
+| Alt+← / Alt+→ | Back / forward (across pages too) |
+| Ctrl+Tab | Recently used pages, tools and files |
+| Ctrl+PgDn / Ctrl+W | Next tab / close tab |
 | Ctrl+S | Save |
 | Ctrl+= / Ctrl+- | Font size |
 | Ctrl+Shift+Y | Context window |

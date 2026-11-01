@@ -176,6 +176,20 @@ impl CompareView {
         }
     }
 
+    /// 当前标签（None = 首页）
+    pub fn active_tab(&self) -> Option<usize> {
+        self.active
+    }
+
+    pub fn set_active_tab(&mut self, i: Option<usize>) {
+        self.active = i.filter(|i| *i < self.tabs.len());
+    }
+
+    /// 标签标题（切换器用）
+    pub fn tab_title(&self, i: usize) -> Option<String> {
+        self.tabs.get(i).map(|t| t.title().0)
+    }
+
     pub fn has_unsaved(&self) -> bool {
         self.tabs.iter().any(|t| t.title().2)
     }

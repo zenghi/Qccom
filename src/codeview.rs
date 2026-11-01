@@ -18,6 +18,7 @@ use crate::editor::{Buf, Editor, View};
 
 mod changes;
 mod editx;
+mod fileops;
 mod gen;
 mod insight;
 mod regs;
@@ -30,6 +31,13 @@ use crate::pattern::Pat;
 use crate::snippets;
 use crate::theme::*;
 pub use gen::{KeyMacro, ProjState};
+
+/// 搜索结果列表的一行：文件头（第一条结果的下标, 条数）或一条结果
+#[derive(Clone, Copy)]
+enum RRow {
+    File(usize, usize),
+    Hit(usize),
+}
 
 #[derive(Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -526,8 +534,24 @@ pub struct CodeView {
     search_repl: String,
     replace_confirm: Option<f64>,
     search_err: Option<String>,
-    search_rx: Option<Receiver<Vec<Hit>>>,
+    search_rx: Option<Receiver<(usize, Vec<Hit>)>>,
     search_cancel: Option<Arc<Progress>>,
+    /// 这次搜索要搜的文件数、已搜完的文件数、开始时间、用时（秒）
+    search_total: usize,
+    search_done: Arc<std::sync::atomic::AtomicUsize>,
+    search_t0: Option<std::time::Instant>,
+    search_total_rx: Option<Arc<std::sync::atomic::AtomicUsize>>,
+    search_secs: f32,
+    /// 结果条数上限（「再显示 5000 条」会加大）
+    search_limit: usize,
+    /// 停止输入后自动搜索的时间点
+    search_due: Option<f64>,
+    /// 搜索范围（包含 / 排除），按工程记住
+    pub(crate) scope: cindex::Scope,
+    scope_open: bool,
+    /// 结果按文件分组后的行（虚拟滚动用），和每批结果对应的文件序号
+    result_rows: Vec<RRow>,
+    result_order: Vec<usize>,
     results: Vec<Hit>,
     results_for: String,
     collapsed_results: HashSet<PathBuf>,
@@ -554,6 +578,8 @@ pub struct CodeView {
     tree_edit: Option<TreeEdit>,
     /// 右键菜单里“删除”点了一次，等确认
     delete_armed: Option<PathBuf>,
+    /// 资源管理器多选、剪贴板、拖动
+    ts: fileops::TreeSel,
     /// 后台算 Git 行标记和 blame
     git_jobs: Option<(mpsc::Sender<GitJob>, Receiver<GitRes>)>,
     /// clangd（可选）；lsp_for 记录它是为哪个工程、哪个设置启动的，变了就重启
@@ -615,6 +641,17 @@ impl CodeView {
             search_err: None,
             search_rx: None,
             search_cancel: None,
+            search_total: 0,
+            search_done: Arc::new(std::sync::atomic::AtomicUsize::new(0)),
+            search_t0: None,
+            search_total_rx: None,
+            search_secs: 0.0,
+            search_limit: 5000,
+            search_due: None,
+            scope: Default::default(),
+            scope_open: false,
+            result_rows: vec![],
+            result_order: vec![],
             results: vec![],
             results_for: String::new(),
             collapsed_results: HashSet::new(),
@@ -635,6 +672,7 @@ impl CodeView {
             git_jobs: None,
             tree_edit: None,
             delete_armed: None,
+            ts: Default::default(),
             lsp: None,
             lsp_for: None,
             lsp_def: None,
@@ -711,6 +749,9 @@ impl CodeView {
         self.expanded.clear();
         self.tabs.clear();
         self.results.clear();
+        self.result_rows.clear();
+        self.results_for.clear();
+        self.scope = Default::default();
         self.back.clear();
         self.fwd.clear();
         self.load_dir(&p);
@@ -875,6 +916,33 @@ impl CodeView {
         self.sync_tabs();
         self.hover = None;
         self.pick = None;
+    }
+
+    /// 当前位置（全局「后退 / 前进」和 Ctrl+Tab 切换器用）：(文件, 光标行)
+    pub fn here(&self) -> Option<(PathBuf, usize)> {
+        let d = self.tabs.get(self.active).filter(|d| !d.virt)?;
+        Some((d.path.clone(), d.cursor.0))
+    }
+
+    /// 编辑器自己的后退 / 前进栈长度
+    pub fn nav_lens(&self) -> (usize, usize) {
+        (self.back.len(), self.fwd.len())
+    }
+
+    /// 编辑器内后退 / 前进一步（全局导航判断由 App 做）
+    pub fn nav_step(&mut self, back: bool) {
+        self.nav(back);
+    }
+
+    /// 打开文件并跳到某行，不记进编辑器的后退栈
+    pub fn goto_loc(&mut self, p: &Path, line: usize) {
+        self.open_file_nohist(p, None);
+        self.goto_line(line);
+    }
+
+    /// 已打开的文件（不含虚拟标签）
+    pub fn open_files(&self) -> Vec<PathBuf> {
+        self.tabs.iter().filter(|d| !d.virt).map(|d| d.path.clone()).collect()
     }
 
     fn goto_line(&mut self, line: usize) {
@@ -1070,6 +1138,12 @@ impl CodeView {
     }
 
     fn run_search(&mut self) {
+        self.search_limit = 5000;
+        self.start_search();
+    }
+
+    fn start_search(&mut self) {
+        self.search_due = None;
         let (Some(root), Some(idx)) = (self.root.clone(), self.index.clone()) else {
             self.toast(t("正在建立索引，稍等片刻再搜索"), WARN());
             return;
@@ -1077,31 +1151,125 @@ impl CodeView {
         if let Some(c) = &self.search_cancel {
             c.cancel.store(true, Ordering::Relaxed);
         }
+        self.search_rx = None;
         self.replace_confirm = None;
         self.search_err = None;
+        self.results.clear();
+        self.result_order.clear();
+        self.result_rows.clear();
         if self.search_q.is_empty() {
-            self.results.clear();
             self.results_for.clear();
             return;
         }
-        let re = match self.search_pat().compile() {
+        let pat = self.search_pat();
+        let re = match pat.compile() {
             Ok(re) => re,
             Err(e) => {
                 self.search_err = Some(e);
                 return;
             }
         };
+        let rel_of = |p: &Path| p.strip_prefix(&root).ok().map(|r| r.to_path_buf());
+        let open: Vec<PathBuf> = self.tabs.iter().filter(|d| !d.virt).filter_map(|d| rel_of(&d.path)).collect();
+        // 已打开但没保存的文件：搜编辑器里的内容
+        let overrides: HashMap<PathBuf, Arc<str>> = self
+            .tabs
+            .iter()
+            .filter(|d| !d.virt && d.dirty())
+            .filter_map(|d| Some((rel_of(&d.path)?, Arc::<str>::from(d.buf.text.as_str()))))
+            .collect();
+        let scope = self.scope.clone();
         let cancel = cindex::shared_progress();
         let c2 = cancel.clone();
+        let done = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let d2 = done.clone();
+        let limit = self.search_limit;
+        // 文件列表的过滤也在后台做（.gitignore 要读盘）
         let (tx, rx) = mpsc::channel();
+        let total = Arc::new(std::sync::atomic::AtomicUsize::new(usize::MAX));
+        let t2 = total.clone();
         std::thread::spawn(move || {
-            let r = cindex::search(&root, &idx.files, &re, &c2.cancel, 5000);
-            let _ = tx.send(r);
+            let files = scope.filter(&root, &idx.files, &open);
+            t2.store(files.len(), Ordering::Relaxed);
+            let job = cindex::SearchJob {
+                root,
+                files,
+                re,
+                lit: cindex::Lit::of(&pat),
+                overrides,
+                limit,
+            };
+            job.run(&c2.cancel, &d2, &tx);
         });
+        self.search_total_rx = Some(total);
+        self.search_total = 0;
+        self.search_done = done;
+        self.search_t0 = Some(std::time::Instant::now());
         self.search_rx = Some(rx);
         self.search_cancel = Some(cancel);
         self.results_for = self.search_q.clone();
         self.collapsed_results.clear();
+    }
+
+    /// 结果按文件分组排成行（文件头 + 每条结果），折叠的文件只留文件头
+    fn rebuild_rows(&mut self) {
+        self.result_rows.clear();
+        let mut i = 0;
+        while i < self.results.len() {
+            let p = &self.results[i].path;
+            let mut j = i + 1;
+            while j < self.results.len() && &self.results[j].path == p {
+                j += 1;
+            }
+            self.result_rows.push(RRow::File(i, j - i));
+            if !self.collapsed_results.contains(p) {
+                self.result_rows.extend((i..j).map(RRow::Hit));
+            }
+            i = j;
+        }
+    }
+
+    /// 后台搜索的结果分批收进来；搜完后按文件顺序排好
+    fn poll_search(&mut self, ctx: &egui::Context) {
+        let Some(rx) = &self.search_rx else { return };
+        if let Some(t) = &self.search_total_rx {
+            let n = t.load(Ordering::Relaxed);
+            if n != usize::MAX {
+                self.search_total = n;
+            }
+        }
+        let mut got = false;
+        let mut finished = false;
+        loop {
+            match rx.try_recv() {
+                Ok((i, hits)) => {
+                    self.result_order.extend(std::iter::repeat_n(i, hits.len()));
+                    self.results.extend(hits);
+                    got = true;
+                }
+                Err(mpsc::TryRecvError::Empty) => break,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    finished = true;
+                    break;
+                }
+            }
+        }
+        if finished {
+            // 多线程搜出来顺序是乱的，最后按文件列表顺序排一次
+            let mut v: Vec<(usize, Hit)> = std::mem::take(&mut self.result_order).into_iter().zip(std::mem::take(&mut self.results)).collect();
+            v.sort_by_key(|(i, h)| (*i, h.line));
+            v.truncate(self.search_limit);
+            self.results = v.into_iter().map(|(_, h)| h).collect();
+            self.search_rx = None;
+            self.search_total_rx = None;
+            self.search_secs = self.search_t0.map_or(0.0, |t| t.elapsed().as_secs_f32());
+            got = true;
+        } else {
+            ctx.request_repaint_after(std::time::Duration::from_millis(60));
+        }
+        if got {
+            self.rebuild_rows();
+        }
     }
 
     fn search_pat(&self) -> Pat {
@@ -1595,14 +1763,13 @@ impl CodeView {
                 self.git_rx = None;
             }
         }
-        if let Some(rx) = &self.search_rx {
-            match rx.try_recv() {
-                Ok(r) => {
-                    self.results = r;
-                    self.search_rx = None;
-                }
-                Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(std::time::Duration::from_millis(100)),
-                Err(_) => self.search_rx = None,
+        self.poll_search(ctx);
+        if let Some(due) = self.search_due {
+            let now = ctx.input(|i| i.time);
+            if now >= due {
+                self.run_search();
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_secs_f64(due - now));
             }
         }
     }
@@ -1611,6 +1778,7 @@ impl CodeView {
 
     pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act], km: &crate::keymap::Keymap) {
         self.poll(ctx);
+        self.tree_keys(ctx);
         if self.key_labels.is_empty() || ctx.input(|i| i.pointer.secondary_pressed()) {
             self.key_labels = crate::keymap::ACTIONS.iter().map(|d| (d.act, km.label(d.act))).collect();
         }
@@ -1830,12 +1998,6 @@ impl CodeView {
             if !self.tabs.is_empty() || matches!(a, Act::NavHistory) {
                 self.gen_act(ctx, *a);
             }
-        }
-        if has(Act::NavBack) {
-            self.nav(true);
-        }
-        if has(Act::NavFwd) {
-            self.nav(false);
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.pick = None;
@@ -2071,8 +2233,21 @@ impl CodeView {
             // 空白处右键：在根目录新建
             let rest = ui.available_rect_before_wrap();
             let r = ui.allocate_rect(Rect::from_min_size(rest.min, vec2(rest.width(), rest.height().max(40.0))), Sense::click());
+            if r.hovered() && self.ts.drag.is_some() {
+                self.ts.hover_dir = Some(root.clone());
+            }
+            if r.clicked() {
+                self.ts.sel.clear();
+                self.ts.focus = true;
+            }
             let mut op = None;
+            let mut paste = false;
             r.context_menu(|ui| {
+                if ui.button(t("粘贴")).clicked() {
+                    paste = true;
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui.button(t("新建文件…")).clicked() {
                     op = Some(TreeOp::NewFile);
                     ui.close_menu();
@@ -2090,7 +2265,16 @@ impl CodeView {
                     focus: true,
                 });
             }
+            if paste {
+                self.tree_paste(&root);
+            }
         });
+        let area = ui.min_rect();
+        // 点到树外面：Ctrl+C/V 不再归树
+        if ui.input(|i| i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(|p| !area.contains(p))) {
+            self.ts.focus = false;
+        }
+        self.tree_drag_end(ui, area);
     }
 
     fn mark(&self, rel: &str) -> Option<char> {
@@ -2119,7 +2303,9 @@ impl CodeView {
             let rel = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().to_string();
             let open = self.expanded.contains(&path);
             let r = tree_row(ui, depth, &name, None, is_dir, Some(open), active.as_ref() == Some(&path), self.mark(&rel));
-            if r.clicked() {
+            self.tree_row_after(ui, &r, &path, is_dir, dir);
+            let mods = ui.input(|i| i.modifiers);
+            if r.clicked() && self.tree_click(&path, mods) {
                 if is_dir {
                     if open {
                         self.expanded.remove(&path);
@@ -2135,8 +2321,33 @@ impl CodeView {
             let mut compare_with: Option<PathBuf> = None;
             let mut head_of: Option<PathBuf> = None;
             let mut hist_of: Option<PathBuf> = None;
+            let mut clip_op: Option<u8> = None;
+            let mut search_here = false;
+            if r.secondary_clicked() && !self.tree_selected(&path) {
+                self.ts.sel = vec![path.clone()];
+                self.ts.anchor = Some(path.clone());
+            }
+            let n_sel = self.targets_for(&path).len();
             r.context_menu(|ui| {
                 ui.set_min_width(190.0);
+                let k = |c: &str| if cfg!(target_os = "macos") { format!("⌘{c}") } else { format!("Ctrl+{c}") };
+                if crate::app::menu_item(ui, &if n_sel > 1 { tf("复制 {} 项", &[&n_sel]) } else { t("复制").to_string() }, &k("C")) {
+                    clip_op = Some(0);
+                    ui.close_menu();
+                }
+                if crate::app::menu_item(ui, &if n_sel > 1 { tf("剪切 {} 项", &[&n_sel]) } else { t("剪切").to_string() }, &k("X")) {
+                    clip_op = Some(1);
+                    ui.close_menu();
+                }
+                if crate::app::menu_item(ui, t("粘贴"), &k("V")) {
+                    clip_op = Some(2);
+                    ui.close_menu();
+                }
+                ui.separator();
+                if is_dir && ui.button(t("在此文件夹中搜索…")).clicked() {
+                    search_here = true;
+                    ui.close_menu();
+                }
                 if ui.button(t("新建文件…")).clicked() {
                     op = Some(TreeOp::NewFile);
                     ui.close_menu();
@@ -2151,8 +2362,9 @@ impl CodeView {
                 }
                 // 删除要点两次
                 let armed = self.delete_armed.as_ref() == Some(&path);
+                let what = if n_sel > 1 { tf("{} 项", &[&n_sel]) } else { name.clone() };
                 let label = if armed {
-                    RichText::new(tf("确认删除 {}？", &[&name])).color(ERR())
+                    RichText::new(tf("确认删除 {}？", &[&what])).color(ERR())
                 } else {
                     RichText::new(t("删除"))
                 };
@@ -2199,6 +2411,28 @@ impl CodeView {
                     ui.close_menu();
                 }
             });
+            match clip_op {
+                Some(0) | Some(1) => {
+                    let v = self.targets_for(&path);
+                    self.tree_copy(v, clip_op == Some(1));
+                }
+                Some(_) => {
+                    let d = if is_dir { path.clone() } else { dir.to_path_buf() };
+                    self.tree_paste(&d);
+                }
+                None => {}
+            }
+            if search_here {
+                let root = self.root.clone().unwrap_or_default();
+                let rel = path.strip_prefix(&root).unwrap_or(&path).to_string_lossy().replace('\\', "/");
+                self.scope.include = format!("/{rel}/");
+                self.scope_open = true;
+                self.side = Side::Search;
+                self.focus_search = true;
+                if !self.search_q.is_empty() {
+                    self.run_search();
+                }
+            }
             if let Some(first) = compare_with.take() {
                 self.compare(&first, &path);
             }
@@ -2233,7 +2467,10 @@ impl CodeView {
                 });
             }
             if delete {
-                self.delete_path(&path);
+                for p in self.targets_for(&path) {
+                    self.delete_path(&p);
+                }
+                self.ts.sel.clear();
             }
             if is_dir && open {
                 self.tree_rows(ui, &path, depth + 1);
@@ -2407,6 +2644,10 @@ impl CodeView {
                 r.request_focus();
                 self.focus_search = false;
             }
+            // 停止输入 0.25 秒自动搜，回车立即搜
+            if r.changed() {
+                self.search_due = Some(now + 0.25);
+            }
             if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
                 self.run_search();
             }
@@ -2464,24 +2705,41 @@ impl CodeView {
                 });
             }
         });
-        ui.add_space(6.0);
+        ui.add_space(2.0);
+        self.scope_ui(ui, now);
+        ui.add_space(4.0);
         if let Some(e) = &self.search_err {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 ui.label(RichText::new(t("正则有误")).small().color(ERR())).on_hover_text(e.as_str());
             });
         }
+        let n_files = self.result_rows.iter().filter(|r| matches!(r, RRow::File(..))).count();
         if self.search_rx.is_some() {
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
                 ui.spinner();
-                ui.label(RichText::new(t("搜索中…")).small().color(TEXT3()));
+                let done = self.search_done.load(Ordering::Relaxed).min(self.search_total);
+                let msg = if self.search_total == 0 {
+                    t("搜索中…").to_string()
+                } else {
+                    tf("已搜 {}/{} 个文件 · {} 个结果", &[&done, &self.search_total, &self.results.len()])
+                };
+                ui.label(RichText::new(msg).small().color(TEXT3()));
             });
         } else if !self.results_for.is_empty() {
-            let files: HashSet<&PathBuf> = self.results.iter().map(|h| &h.path).collect();
             ui.horizontal(|ui| {
                 ui.add_space(12.0);
-                ui.label(RichText::new(tf("{} 个结果，{} 个文件", &[&self.results.len(), &files.len()])).small().color(TEXT3()));
+                let secs = if self.search_secs < 1.0 { format!("{:.0} ms", self.search_secs * 1000.0) } else { format!("{:.1} s", self.search_secs) };
+                ui.label(RichText::new(tf("{} 个结果，{} 个文件", &[&self.results.len(), &n_files])).small().color(TEXT3()))
+                    .on_hover_text(tf("搜了 {} 个文件，用时 {}", &[&self.search_total, &secs]));
+                if self.results.len() >= self.search_limit {
+                    ui.label(RichText::new(tf("· 只显示前 {} 条", &[&self.search_limit])).small().color(WARN()));
+                    if ui.link(RichText::new(t("再显示 5000 条")).small()).clicked() {
+                        self.search_limit += 5000;
+                        self.start_search();
+                    }
+                }
             });
         }
         ui.add_space(4.0);
@@ -2491,46 +2749,76 @@ impl CodeView {
         let preview = (self.search_replace && !self.search_repl.is_empty()).then(|| self.search_repl.clone());
         let pat = self.search_pat();
         let re = pat.compile().ok();
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        let mut toggle: Option<PathBuf> = None;
+        let mut exclude: Option<String> = None;
+        let mut only_in: Option<String> = None;
+        let rows = std::mem::take(&mut self.result_rows);
+        // 只画看得见的行，结果再多也不卡
+        egui::ScrollArea::vertical().auto_shrink([false, false]).show_rows(ui, 22.0, rows.len(), |ui, range| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let mut last: Option<&PathBuf> = None;
-            let mut collapsed = false;
-            for h in &self.results {
-                if last != Some(&h.path) {
-                    last = Some(&h.path);
-                    collapsed = self.collapsed_results.contains(&h.path);
-                    let n = self.results.iter().filter(|x| x.path == h.path).count();
-                    let name = h.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-                    let dir = h.path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
-                    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
-                    let p = ui.painter();
-                    if resp.hovered() {
-                        p.rect_filled(r, 0.0, tint(6));
-                    }
-                    chevron(p, pos2(r.left() + 14.0, r.center().y), !collapsed, TEXT3());
-                    file_badge(p, pos2(r.left() + 30.0, r.center().y), &name);
-                    let g = p.layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT());
-                    let w = g.size().x;
-                    p.galley(pos2(r.left() + 42.0, r.center().y - g.size().y / 2.0), g, TEXT());
-                    p.text(pos2(r.left() + 48.0 + w, r.center().y), Align2::LEFT_CENTER, dir, FontId::proportional(11.0), TEXT3());
-                    p.text(
-                        pos2(r.right() - 10.0, r.center().y),
-                        Align2::RIGHT_CENTER,
-                        n.to_string(),
-                        FontId::new(10.5, FontFamily::Monospace),
-                        TEXT3(),
-                    );
-                    if resp.clicked() {
-                        if collapsed {
-                            self.collapsed_results.remove(&h.path);
-                        } else {
-                            self.collapsed_results.insert(h.path.clone());
+            for row in &rows[range] {
+                let h = match *row {
+                    RRow::File(i, n) => {
+                        let h = &self.results[i];
+                        let collapsed = self.collapsed_results.contains(&h.path);
+                        let name = h.path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        let dir = h.path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_default();
+                        let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
+                        let p = ui.painter_at(r);
+                        if resp.hovered() {
+                            p.rect_filled(r, 0.0, tint(6));
                         }
+                        chevron(&p, pos2(r.left() + 14.0, r.center().y), !collapsed, TEXT3());
+                        file_badge(&p, pos2(r.left() + 30.0, r.center().y), &name);
+                        let g = p.layout_no_wrap(name.clone(), FontId::proportional(12.5), TEXT());
+                        let w = g.size().x;
+                        p.galley(pos2(r.left() + 42.0, r.center().y - g.size().y / 2.0), g, TEXT());
+                        let cnt = p.layout_no_wrap(n.to_string(), FontId::new(10.5, FontFamily::Monospace), TEXT3());
+                        let cw = cnt.size().x;
+                        p.galley(pos2(r.right() - 10.0 - cw, r.center().y - cnt.size().y / 2.0), cnt, TEXT3());
+                        // 路径太长时截断，不压到右边的计数
+                        let mut job = egui::text::LayoutJob::simple_singleline(dir.clone(), FontId::proportional(11.0), TEXT3());
+                        job.wrap = egui::text::TextWrapping::truncate_at_width((r.right() - 18.0 - cw - (r.left() + 48.0 + w)).max(0.0));
+                        let dg = ui.fonts(|f| f.layout_job(job));
+                        p.galley(pos2(r.left() + 48.0 + w, r.center().y - dg.size().y / 2.0), dg, TEXT3());
+                        if resp.clicked() {
+                            toggle = Some(h.path.clone());
+                        }
+                        let rel = h.path.to_string_lossy().replace('\\', "/");
+                        let dir = dir.replace('\\', "/");
+                        let ext = h.path.extension().map(|e| e.to_string_lossy().to_string());
+                        resp.context_menu(|ui| {
+                            ui.set_min_width(200.0);
+                            if ui.button(t("从搜索中排除此文件")).clicked() {
+                                exclude = Some(format!("/{rel}"));
+                                ui.close_menu();
+                            }
+                            if !dir.is_empty() {
+                                if ui.button(tf("从搜索中排除文件夹 {}/", &[&dir])).clicked() {
+                                    exclude = Some(format!("/{dir}/"));
+                                    ui.close_menu();
+                                }
+                            }
+                            if let Some(e) = &ext {
+                                if ui.button(tf("从搜索中排除 *.{} 文件", &[e])).clicked() {
+                                    exclude = Some(format!("*.{e}"));
+                                    ui.close_menu();
+                                }
+                            }
+                            if !dir.is_empty() && ui.button(tf("只在 {}/ 中搜索", &[&dir])).clicked() {
+                                only_in = Some(format!("/{dir}/"));
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button(t("复制相对路径")).clicked() {
+                                ui.ctx().copy_text(rel.clone());
+                                ui.close_menu();
+                            }
+                        });
+                        continue;
                     }
-                }
-                if collapsed {
-                    continue;
-                }
+                    RRow::Hit(i) => &self.results[i],
+                };
                 let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::click());
                 let p = ui.painter_at(r);
                 if resp.hovered() {
@@ -2597,9 +2885,124 @@ impl CodeView {
                 }
             }
         });
+        self.result_rows = rows;
+        if let Some(p) = toggle {
+            if !self.collapsed_results.remove(&p) {
+                self.collapsed_results.insert(p);
+            }
+            self.rebuild_rows();
+        }
+        if let Some(x) = exclude {
+            let e = &mut self.scope.exclude;
+            if !cindex::split_globs(e).contains(&x) {
+                if !e.trim().is_empty() {
+                    e.push_str(", ");
+                }
+                e.push_str(&x);
+            }
+            self.run_search();
+        }
+        if let Some(d) = only_in {
+            self.scope.include = d;
+            self.run_search();
+        }
         if let Some((p, l)) = open {
             let w = q.clone();
             self.open_at_word(&p, l, &w);
+        }
+    }
+
+    /// 搜索范围：平时只有一行小字，点开才显示包含 / 排除规则和快捷开关
+    fn scope_ui(&mut self, ui: &mut Ui, now: f64) {
+        let sc = &self.scope;
+        let mut parts: Vec<String> = vec![];
+        if sc.open_only {
+            parts.push(t("仅已打开的文件").into());
+        }
+        if sc.only_c {
+            parts.push(t("仅 C/H").into());
+        }
+        if !sc.include.trim().is_empty() {
+            parts.push(tf("包含 {}", &[&sc.include.trim()]));
+        }
+        if sc.no_vendor {
+            parts.push(t("排除厂商库").into());
+        }
+        let nx = cindex::split_globs(&sc.exclude).len();
+        if nx > 0 {
+            parts.push(tf("{} 条排除规则", &[&nx]));
+        }
+        let narrowed = sc.narrowed();
+        let summary = if narrowed {
+            parts.join(" · ")
+        } else if sc.gitignore {
+            t("整个工程 · 已按 .gitignore 排除").into()
+        } else {
+            t("整个工程").into()
+        };
+        let mut changed = false;
+        ui.horizontal(|ui| {
+            ui.add_space(22.0);
+            let col = if narrowed { ACCENT() } else { TEXT3() };
+            let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width() - 30.0, 20.0), Sense::click());
+            let p = ui.painter_at(r);
+            if resp.hovered() {
+                p.rect_filled(r, CornerRadius::same(4), tint(6));
+            }
+            if narrowed {
+                p.rect_filled(r, CornerRadius::same(4), ACCENT().gamma_multiply(0.10));
+            }
+            chevron(&p, pos2(r.left() + 8.0, r.center().y), self.scope_open, col);
+            // 一行放不下就省略号结尾
+            let mut job = egui::text::LayoutJob::simple_singleline(tf("范围：{}", &[&summary]), FontId::proportional(11.5), col);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(r.width() - 24.0);
+            let g = ui.fonts(|f| f.layout_job(job));
+            p.galley(pos2(r.left() + 18.0, r.center().y - g.size().y / 2.0), g, col);
+            if resp.on_hover_text(t("设置要包含 / 排除的文件")).clicked() {
+                self.scope_open = !self.scope_open;
+            }
+            // 缩小了范围时给一个 ×，一键恢复搜整个工程
+            if narrowed {
+                let (r, resp) = ui.allocate_exact_size(vec2(20.0, 20.0), Sense::click());
+                let c = if resp.hovered() { TEXT() } else { TEXT3() };
+                draw_icon(ui.painter(), r.shrink(4.0), Icon::Close, c);
+                if resp.on_hover_text(t("恢复搜索整个工程")).clicked() {
+                    let keep = (self.scope.gitignore, self.scope.no_build);
+                    self.scope = cindex::Scope { gitignore: keep.0, no_build: keep.1, ..Default::default() };
+                    changed = true;
+                }
+            }
+        });
+        if self.scope_open {
+            ui.add_space(4.0);
+            egui::Frame::new().inner_margin(egui::Margin { left: 22, right: 6, top: 0, bottom: 0 }).show(ui, |ui| ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                let sc = &mut self.scope;
+                changed |= chip(ui, &mut sc.only_c, t("仅 C/H"), &cindex::C_FILES.join(", "));
+                changed |= chip(ui, &mut sc.no_vendor, t("排除厂商库"), &cindex::VENDOR_DIRS.join(", "));
+                changed |= chip(ui, &mut sc.no_build, t("排除编译产物"), t("build/、Objects/、*.o、*.map 等"));
+                changed |= chip(ui, &mut sc.gitignore, ".gitignore", t("按工程的 .gitignore 排除"));
+                changed |= chip(ui, &mut sc.open_only, t("仅已打开"), t("只搜编辑器里打开的文件"));
+            }));
+            ui.add_space(4.0);
+            for (label, hint, inc) in [(t("包含"), t("如 *.c, src/"), true), (t("排除"), t("如 Drivers/, *.txt, !main.c"), false)] {
+                ui.horizontal(|ui| {
+                    ui.add_space(22.0);
+                    ui.add_sized(vec2(32.0, 24.0), egui::Label::new(RichText::new(label).small().color(TEXT3())));
+                    let v = if inc { &mut self.scope.include } else { &mut self.scope.exclude };
+                    let r = ui.add_sized(vec2(ui.available_width() - 6.0, 24.0), egui::TextEdit::singleline(v).hint_text(hint).margin(vec2(6.0, 3.0)).font(FontId::new(12.0, FontFamily::Monospace)));
+                    if r.changed() {
+                        self.search_due = Some(now + 0.4);
+                    }
+                    if r.lost_focus() && ui.input(|i| i.key_pressed(Key::Enter)) {
+                        changed = true;
+                    }
+                });
+            }
+            ui.add_space(2.0);
+        }
+        if changed && !self.search_q.is_empty() {
+            self.run_search();
         }
     }
 
@@ -4214,7 +4617,7 @@ fn hover_card(ctx: &egui::Context, word: &str, at: Rect, idx: Option<&Index>, do
 // ---------------------------------------------------------------- 小部件
 
 pub(crate) fn tree_row(ui: &mut Ui, depth: usize, name: &str, note: Option<&str>, dir: bool, open: Option<bool>, active: bool, mark: Option<char>) -> egui::Response {
-    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click());
+    let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 24.0), Sense::click_and_drag());
     let p = ui.painter();
     if active {
         p.rect_filled(r, 0.0, ACCENT().gamma_multiply(0.12));
@@ -4371,6 +4774,28 @@ fn kind_pill(ui: &mut Ui, k: Kind) {
         .show(ui, |ui| {
             ui.label(RichText::new(t(k.label())).size(11.0).color(col));
         });
+}
+
+/// 可开关的小标签（搜索范围的快捷选项）
+fn chip(ui: &mut Ui, v: &mut bool, label: &str, tip: &str) -> bool {
+    let font = FontId::proportional(11.5);
+    let g = ui.painter().layout_no_wrap(label.to_string(), font.clone(), TEXT2());
+    let (r, resp) = ui.allocate_exact_size(vec2(g.size().x + 16.0, 22.0), Sense::click());
+    let p = ui.painter();
+    let (fill, line, fg) = if *v {
+        (ACCENT().gamma_multiply(0.16), ACCENT().gamma_multiply(0.6), ACCENT())
+    } else if resp.hovered() {
+        (BG3(), LINE(), TEXT())
+    } else {
+        (Color32::TRANSPARENT, LINE(), TEXT2())
+    };
+    p.rect(r, CornerRadius::same(11), fill, st(1.0, line), egui::StrokeKind::Inside);
+    p.text(r.center(), Align2::CENTER_CENTER, label, font, fg);
+    let clicked = resp.on_hover_text(tip).clicked();
+    if clicked {
+        *v = !*v;
+    }
+    clicked
 }
 
 fn small_toggle(ui: &mut Ui, v: &mut bool, label: &str, tip: &str) -> bool {

@@ -296,6 +296,7 @@ mod dbgtools;
 mod dock;
 mod logx;
 mod minitools;
+mod nav;
 mod palette;
 mod plot;
 mod prefs;
@@ -440,6 +441,9 @@ pub struct App {
     last_project: String,
     /// 打开设置前所在的页面（关闭设置时回去）
     prev_page: Page,
+    nav: nav::Nav,
+    /// 第一次启动：再过几帧最大化
+    maximize_in: u8,
     /// 命令面板选中后、需要下一帧在对应页面执行的命令
     pending_acts: Vec<Act>,
     bitcalc: crate::tools::BitCalc,
@@ -642,6 +646,8 @@ impl App {
             prefs: prefs::Prefs::default(),
             last_project: String::new(),
             prev_page: Page::Debug,
+            nav: Default::default(),
+            maximize_in: 0,
             pending_acts: Vec::new(),
             bitcalc: Default::default(),
             tb: Default::default(),
@@ -2007,23 +2013,56 @@ impl App {
         }
     }
 
-    /// 第一次启动：窗口宽 = 屏幕宽 × 0.618，高 = 宽 × 0.618（黄金矩形），居中
+    /// 第一次启动：直接最大化。先把「还原」尺寸设成屏幕的 80% 居中，取消最大化时不会缩成小窗口。
+    /// 以后由 eframe 记住上次关闭时的大小、位置和是否最大化
     fn place_window(&mut self, ctx: &egui::Context) {
         let Some(screen) = ctx.input(|i| i.viewport().monitor_size) else {
             ctx.request_repaint(); // 屏幕尺寸下一帧才拿得到
             return;
         };
-        let phi = 0.618;
-        let mut w = screen.x * phi;
-        let mut h = w * phi;
-        if h > screen.y * 0.85 {
-            h = screen.y * 0.85;
-            w = h / phi;
-        }
-        let size = vec2(w.max(900.0).min(screen.x), h.max(560.0).min(screen.y));
+        let size = vec2((screen.x * 0.8).max(900.0).min(screen.x), (screen.y * 0.8).max(560.0).min(screen.y));
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos2((screen.x - size.x) / 2.0, (screen.y - size.y) / 2.0)));
+        // 窗口管理器处理完改大小再最大化，否则最大化会被上面的改大小覆盖
+        self.maximize_in = 3;
         self.s.window_placed = true;
+    }
+
+    /// 外部文件拖在窗口上时，提示松手会做什么
+    fn drop_hint(&mut self, ctx: &egui::Context, pos: Option<egui::Pos2>) {
+        let files: Vec<PathBuf> = ctx.input(|i| i.raw.hovered_files.iter().filter_map(|f| f.path.clone()).collect());
+        let n = ctx.input(|i| i.raw.hovered_files.len());
+        if n == 0 {
+            return;
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        let Some(pos) = pos else { return };
+        let what = if files.len() == 1 { files[0].file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { tf("{} 个文件", &[&n]) };
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let msg = if self.shells.s.open && self.shells.rect.is_some_and(|r| r.contains(pos)) {
+            t("插入路径到终端").to_string()
+        } else {
+            match self.page {
+                Page::Code => match self.code.drop_dir_at(pos) {
+                    Some(d) => {
+                        let root = self.code.root().map(|r| r.to_path_buf()).unwrap_or_default();
+                        let rel = d.strip_prefix(&root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                        let dir = if rel.is_empty() { root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { rel };
+                        if shift { tf("移动到 {}/", &[&dir]) } else { tf("复制到 {}/（按住 Shift 移动）", &[&dir]) }
+                    }
+                    None if files.len() == 1 && files[0].is_dir() => t("作为工程打开").to_string(),
+                    None => t("在编辑器中打开").to_string(),
+                },
+                Page::Compare => t("添加到比较").to_string(),
+                Page::Tools => t("交给当前工具").to_string(),
+                _ => t("作为日志打开").to_string(),
+            }
+        };
+        egui::Area::new(egui::Id::new("drop-hint")).order(egui::Order::Tooltip).fixed_pos(pos + vec2(16.0, 14.0)).show(ctx, |ui| {
+            egui::Frame::popup(ui.style()).show(ui, |ui| {
+                ui.add(egui::Label::new(RichText::new(format!("{what}  →  {msg}")).size(12.5).color(TEXT())).extend());
+            });
+        });
     }
 
     /// 侧边栏最下面的「高级设置」折叠块
@@ -3773,11 +3812,18 @@ impl App {
                     self.set_page(Page::Code);
                     self.code.pick_project();
                 }
-                Act::PageDebug => self.set_page(Page::Debug),
-                Act::PageCode if self.page != Page::Code => self.set_page(Page::Code),
-                Act::PageGit => self.set_page(Page::Git),
-                Act::PageTools => self.set_page(Page::Tools),
-                Act::PageCompare => self.set_page(Page::Compare),
+                Act::PageDebug | Act::PageCode | Act::PageGit | Act::PageTools | Act::PageCompare => {
+                    self.nav_manual();
+                    match a {
+                        Act::PageDebug => self.set_page(Page::Debug),
+                        Act::PageCode => self.set_page(Page::Code),
+                        Act::PageGit => self.set_page(Page::Git),
+                        Act::PageTools => self.set_page(Page::Tools),
+                        _ => self.set_page(Page::Compare),
+                    }
+                }
+                Act::NavBack => self.nav_go(true),
+                Act::NavFwd => self.nav_go(false),
                 Act::ThemeToggle => {
                     let light = !is_light();
                     self.set_theme(ctx, if light { "light" } else { "dark" });
@@ -4064,7 +4110,15 @@ impl App {
                     (Page::Tools, Icon::Toolbox, t("工具箱：文件服务、设备发现、数据转换、CAN、HID")),
                 ] {
                     let dot = (pg == Page::Debug && live).then_some(OK());
+                    let tools_tip;
+                    let tip = if pg == Page::Tools {
+                        tools_tip = self.tools_tip();
+                        tools_tip.as_str()
+                    } else {
+                        tip
+                    };
                     if activity_button(ui, icon, tip, self.page == pg, dot).clicked() {
+                        self.nav_manual();
                         self.set_page(pg);
                     }
                 }
@@ -4552,6 +4606,15 @@ impl eframe::App for App {
         if !self.s.window_placed {
             self.place_window(ctx);
         }
+        if self.maximize_in > 0 {
+            self.maximize_in -= 1;
+            if self.maximize_in == 0 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
+        }
+        self.nav_tick(ctx);
         // 调试页显示串口；工具箱里选了网络工具就显示那个连接。其余页面保持不变
         let want = match self.page {
             Page::Debug => Some(0),
@@ -4729,26 +4792,42 @@ impl eframe::App for App {
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }
+        // 拖放位置：Windows 拖动过程中收不到鼠标移动，直接问系统光标位置
+        let drop_pos = drop_pointer(ctx);
         // 拖到底部终端面板上：把路径插进命令行
         if !dropped.is_empty() && self.shells.s.open {
-            let hover = ctx.input(|i| i.pointer.hover_pos());
-            if hover.is_some_and(|h| self.shells.rect.is_some_and(|r| r.contains(h))) {
+            if drop_pos.is_some_and(|h| self.shells.rect.is_some_and(|r| r.contains(h))) {
                 self.shells.insert_paths(&std::mem::take(&mut dropped));
             }
+        }
+        // 拖到代码页的资源管理器上：复制进指针下面的文件夹（按住 Shift 移动）
+        if !dropped.is_empty() && self.page == Page::Code {
+            if let Some(dir) = drop_pos.and_then(|p| self.code.drop_dir_at(p)) {
+                let mv = ctx.input(|i| i.modifiers.shift);
+                let v = std::mem::take(&mut dropped);
+                // 拖进一个文件夹（而工程还没打开）当工程打开
+                self.code.drop_into(&v, &dir, mv);
+            }
+        }
+        if !dropped.is_empty() && self.page == Page::Code && self.code.root().is_none() && dropped.len() == 1 && dropped[0].is_dir() {
+            let d = dropped.remove(0);
+            self.code.open_root(d);
         }
         for p in dropped {
             match self.page {
                 Page::Code => {
-                    if !self.code.drop_on_viewer(&p) {
+                    if p.is_dir() {
+                        self.code.open_root(p.clone());
+                    } else if !self.code.drop_on_viewer(&p) {
                         self.code.open_file(&p, None)
                     }
                 }
                 Page::Compare => self.cmpv.drop_files(vec![p]),
                 Page::Tools => self.tool_drop(p),
-                Page::Community => self.comm.drop_file(&p),
                 _ => self.load_log_path(&p, false),
             }
         }
+        self.drop_hint(ctx, drop_pos);
         let code = &self.code;
         self.bitcalc.ui(ctx, &|s| code.eval_expr(s));
         self.log_windows(ctx);
@@ -4757,6 +4836,8 @@ impl eframe::App for App {
         self.alias_window(ctx);
         self.api_windows(ctx);
         self.palette_ui(ctx);
+        self.back_chip(ctx);
+        self.switcher_ui(ctx);
 
         // 提示气泡
         self.update_card(ctx);
@@ -5471,6 +5552,31 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
 
 /// 无边框图标按钮，悬停时出底色；active 时青色（录制时红色）
 /// 右键菜单的一项：左边文字，右边淡色快捷键
+/// 拖放时的指针位置（逻辑坐标）。Windows 在系统拖放过程中不发鼠标移动，egui 的位置是旧的，改问系统
+fn drop_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct Point {
+            x: i32,
+            y: i32,
+        }
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetCursorPos(p: *mut Point) -> i32;
+        }
+        let mut p = Point { x: 0, y: 0 };
+        // SAFETY: 只写入本地结构体
+        if unsafe { GetCursorPos(&mut p) } != 0 {
+            let (inner, ppp) = ctx.input(|i| (i.viewport().inner_rect, i.pixels_per_point));
+            if let Some(r) = inner {
+                return Some(pos2(p.x as f32 / ppp, p.y as f32 / ppp) - r.min.to_vec2());
+            }
+        }
+    }
+    ctx.input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
+}
+
 pub(crate) fn menu_item(ui: &mut egui::Ui, text: &str, keys: &str) -> bool {
     let w = ui.available_width().max(200.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());

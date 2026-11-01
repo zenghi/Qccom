@@ -858,39 +858,309 @@ pub struct Hit {
     pub m: (usize, usize),
 }
 
-/// 全工程搜索：每行最多记一条（第一处匹配）
+/// 全工程搜索：每行最多记一条（第一处匹配）。一次性返回全部结果（给调用关系、TODO 这类后台用）
 pub fn search(root: &Path, files: &[PathBuf], re: &regex_lite::Regex, cancel: &AtomicBool, limit: usize) -> Vec<Hit> {
-    let mut out = vec![];
-    for rel in files {
-        if cancel.load(Ordering::Relaxed) || out.len() >= limit {
-            break;
+    let job = SearchJob {
+        root: root.to_path_buf(),
+        files: files.to_vec(),
+        re: re.clone(),
+        lit: None,
+        overrides: HashMap::new(),
+        limit,
+    };
+    let (tx, rx) = std::sync::mpsc::channel();
+    let done = AtomicUsize::new(0);
+    job.run(cancel, &done, &tx);
+    drop(tx);
+    let mut v: Vec<(usize, Vec<Hit>)> = rx.into_iter().collect();
+    v.sort_by_key(|(i, _)| *i);
+    let mut out: Vec<Hit> = v.into_iter().flat_map(|(_, h)| h).collect();
+    out.truncate(limit);
+    out
+}
+
+/// 不用正则也能快速判断「这个文件里有没有」的字面量
+#[derive(Clone)]
+pub struct Lit {
+    pub text: String,
+    pub case: bool,
+}
+
+impl Lit {
+    /// 非正则查询直接用查询本身做预筛
+    pub fn of(pat: &crate::pattern::Pat) -> Option<Lit> {
+        (!pat.regex && !pat.q.is_empty() && (pat.case || pat.q.is_ascii())).then(|| Lit {
+            text: pat.q.clone(),
+            case: pat.case,
+        })
+    }
+
+    fn found_in(&self, hay: &str) -> bool {
+        let (h, n) = (hay.as_bytes(), self.text.as_bytes());
+        if self.case {
+            return memchr::memmem::find(h, n).is_some();
         }
-        let p = root.join(rel);
-        if fs::metadata(&p).map(|m| m.len() > MAX_PARSE * 2).unwrap_or(true) {
+        // 不区分大小写：按首字母的大小写两种找候选位置，再逐字节比较
+        let (lo, up) = (n[0].to_ascii_lowercase(), n[0].to_ascii_uppercase());
+        memchr::memchr2_iter(lo, up, h).any(|i| h.len() - i >= n.len() && h[i..i + n.len()].eq_ignore_ascii_case(n))
+    }
+}
+
+/// 一次全工程搜索的参数
+pub struct SearchJob {
+    pub root: PathBuf,
+    /// 相对工程根的路径（已经按排除规则过滤好）
+    pub files: Vec<PathBuf>,
+    pub re: regex_lite::Regex,
+    pub lit: Option<Lit>,
+    /// 编辑器里已打开、有未保存修改的文件：搜编辑器里的内容
+    pub overrides: HashMap<PathBuf, Arc<str>>,
+    pub limit: usize,
+}
+
+impl SearchJob {
+    /// 多线程搜索。每搜完一个有结果的文件就发一批 (文件序号, 结果)；`done` 记已搜完的文件数
+    pub fn run(&self, cancel: &AtomicBool, done: &AtomicUsize, tx: &std::sync::mpsc::Sender<(usize, Vec<Hit>)>) {
+        let next = AtomicUsize::new(0);
+        let found = AtomicUsize::new(0);
+        let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).clamp(1, 8);
+        std::thread::scope(|sc| {
+            for _ in 0..n {
+                let tx = tx.clone();
+                sc.spawn(|| {
+                    let tx = tx;
+                    loop {
+                        if cancel.load(Ordering::Relaxed) || found.load(Ordering::Relaxed) >= self.limit {
+                            break;
+                        }
+                        let i = next.fetch_add(1, Ordering::Relaxed);
+                        let Some(rel) = self.files.get(i) else { break };
+                        let text = match self.overrides.get(rel) {
+                            Some(t) => Some(t.clone()),
+                            None => cached_text(&self.root.join(rel)),
+                        };
+                        done.fetch_add(1, Ordering::Relaxed);
+                        let Some(text) = text else { continue };
+                        if self.lit.as_ref().is_some_and(|l| !l.found_in(&text)) {
+                            continue;
+                        }
+                        let hits = hits_in(rel, &text, &self.re, self.limit);
+                        if !hits.is_empty() {
+                            found.fetch_add(hits.len(), Ordering::Relaxed);
+                            if tx.send((i, hits)).is_err() {
+                                break;
+                            }
+                        }
+                    }
+                });
+            }
+        });
+    }
+}
+
+/// 在整段文字上跑正则，再换算成行（每行只记第一处）
+fn hits_in(rel: &Path, text: &str, re: &regex_lite::Regex, limit: usize) -> Vec<Hit> {
+    let mut out = vec![];
+    let bytes = text.as_bytes();
+    let (mut line, mut line_start, mut scanned) = (0u32, 0usize, 0usize);
+    let mut last_line: Option<u32> = None;
+    for m in re.find_iter(text) {
+        if m.is_empty() {
             continue;
         }
-        let Some(text) = read_text(&p) else { continue };
-        for (i, line) in text.lines().enumerate() {
-            let Some(m) = re.find_iter(line).find(|m| !m.is_empty()) else { continue };
-            let lead = line.len() - line.trim_start().len();
-            let shown = clip(line.trim(), 200);
-            let a = m.start().saturating_sub(lead).min(shown.len());
-            let mut b = (m.end().saturating_sub(lead)).min(shown.len());
-            while !shown.is_char_boundary(b) {
-                b -= 1;
-            }
-            out.push(Hit {
-                path: rel.clone(),
-                line: i as u32,
-                text: shown,
-                m: (a, b.max(a)),
-            });
-            if out.len() >= limit {
-                break;
-            }
+        // 数到匹配所在行
+        for nl in memchr::memchr_iter(b'\n', &bytes[scanned..m.start()]) {
+            line += 1;
+            line_start = scanned + nl + 1;
+        }
+        scanned = m.start();
+        if last_line == Some(line) {
+            continue;
+        }
+        last_line = Some(line);
+        let line_end = memchr::memchr(b'\n', &bytes[line_start..]).map_or(text.len(), |e| line_start + e);
+        let full = text[line_start..line_end].trim_end_matches('\r');
+        let lead = full.len() - full.trim_start().len();
+        let shown = clip(full.trim(), 200);
+        let a = (m.start() - line_start).saturating_sub(lead).min(shown.len());
+        let mut b = (m.end().min(line_end) - line_start).saturating_sub(lead).min(shown.len());
+        while !shown.is_char_boundary(b) {
+            b -= 1;
+        }
+        let mut a = a.min(b);
+        while !shown.is_char_boundary(a) {
+            a -= 1;
+        }
+        out.push(Hit {
+            path: rel.to_path_buf(),
+            line,
+            text: shown,
+            m: (a, b),
+        });
+        if out.len() >= limit {
+            break;
         }
     }
     out
+}
+
+/// 搜索用的文件内容缓存：按修改时间和大小判断是否过期，总量超过上限就清掉一半
+struct CacheEnt {
+    mtime: std::time::SystemTime,
+    len: u64,
+    text: Option<Arc<str>>,
+}
+
+static TEXT_CACHE: std::sync::LazyLock<std::sync::Mutex<(HashMap<PathBuf, CacheEnt>, usize)>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new((HashMap::new(), 0)));
+const CACHE_MAX: usize = 256 * 1024 * 1024;
+
+/// 读文件文字（二进制、超大文件返回 None），命中缓存时不碰磁盘内容
+pub fn cached_text(p: &Path) -> Option<Arc<str>> {
+    let md = fs::metadata(p).ok()?;
+    let (mtime, len) = (md.modified().ok()?, md.len());
+    if let Some(e) = TEXT_CACHE.lock().ok()?.0.get(p) {
+        if e.mtime == mtime && e.len == len {
+            return e.text.clone();
+        }
+    }
+    let text: Option<Arc<str>> = if len > MAX_PARSE * 2 { None } else { read_text(p).map(Arc::from) };
+    let mut g = TEXT_CACHE.lock().ok()?;
+    let add = text.as_ref().map_or(0, |t| t.len());
+    if g.1 + add > CACHE_MAX {
+        // 简单处理：超了就整个清空（一次全工程搜索通常远小于上限）
+        g.0.clear();
+        g.1 = 0;
+    }
+    if let Some(old) = g.0.insert(p.to_path_buf(), CacheEnt { mtime, len, text: text.clone() }) {
+        g.1 -= old.text.map_or(0, |t| t.len());
+    }
+    g.1 += add;
+    text
+}
+
+/// 搜索范围：包含 / 排除规则（.gitignore 语法，逗号或换行分隔）和几个快捷开关
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct Scope {
+    pub include: String,
+    pub exclude: String,
+    /// 按工程的 .gitignore 排除
+    pub gitignore: bool,
+    /// 只搜 C/C++/汇编源文件和头文件
+    pub only_c: bool,
+    /// 排除厂商库（Drivers/、CMSIS/、Middlewares/ 等）
+    pub no_vendor: bool,
+    /// 排除编译产物（.o、.map、build/、Objects/ 等）
+    pub no_build: bool,
+    /// 只搜编辑器里已打开的文件（不存）
+    #[serde(skip)]
+    pub open_only: bool,
+}
+
+impl Default for Scope {
+    fn default() -> Self {
+        Self {
+            include: String::new(),
+            exclude: String::new(),
+            gitignore: true,
+            only_c: false,
+            no_vendor: false,
+            no_build: true,
+            open_only: false,
+        }
+    }
+}
+
+pub const C_FILES: &[&str] = &["*.c", "*.h", "*.cpp", "*.hpp", "*.cc", "*.hh", "*.cxx", "*.s", "*.S", "*.asm", "*.inc"];
+pub const VENDOR_DIRS: &[&str] = &[
+    "Drivers/",
+    "CMSIS/",
+    "Middlewares/",
+    "Libraries/",
+    "ThirdParty/",
+    "Third_Party/",
+    "third_party/",
+    "managed_components/",
+    "**/*_HAL_Driver/",
+    "**/*_StdPeriph_Driver/",
+];
+
+/// 把「a, b」或多行写法拆成一条条规则
+pub fn split_globs(s: &str) -> Vec<String> {
+    s.split([',', '\n', ';']).map(|x| x.trim().to_string()).filter(|x| !x.is_empty()).collect()
+}
+
+impl Scope {
+    /// 有没有任何会缩小范围的设置（.gitignore 和编译产物除外，那两项是默认的）
+    pub fn narrowed(&self) -> bool {
+        !self.include.trim().is_empty() || !self.exclude.trim().is_empty() || self.only_c || self.no_vendor || self.open_only
+    }
+
+    /// 按范围过滤文件列表。`open` 是已打开的文件（相对路径），open_only 时用
+    pub fn filter(&self, root: &Path, files: &[PathBuf], open: &[PathBuf]) -> Vec<PathBuf> {
+        use crate::history::ignore::Ignore;
+        let mut ex = Ignore::default();
+        if self.no_build {
+            ex.extend(&Ignore::defaults());
+        }
+        let mut lines: Vec<String> = vec![];
+        if self.no_vendor {
+            lines.extend(VENDOR_DIRS.iter().map(|s| s.to_string()));
+        }
+        // 排除框里写 !xxx 表示「不排除」，和 .gitignore 一样
+        lines.extend(split_globs(&self.exclude));
+        ex.add_text("", &lines.join("\n"));
+        let mut inc_lines = split_globs(&self.include);
+        if self.only_c {
+            inc_lines.extend(C_FILES.iter().map(|s| s.to_string()));
+        }
+        let mut inc = Ignore::default();
+        inc.add_text("", &inc_lines.join("\n"));
+        // .gitignore：根目录 + 各级子目录里的
+        let mut gi = if self.gitignore { Some(Ignore::load(root)) } else { None };
+        if let Some(g) = gi.as_mut() {
+            let mut dirs: Vec<String> = files
+                .iter()
+                .filter_map(|f| f.parent())
+                .filter(|d| !d.as_os_str().is_empty())
+                .map(|d| d.to_string_lossy().replace('\\', "/"))
+                .collect();
+            dirs.sort();
+            dirs.dedup();
+            // 每个出现过的目录及其上级
+            let mut all: std::collections::BTreeSet<String> = Default::default();
+            for d in dirs {
+                let mut end = 0;
+                while let Some(i) = d[end..].find('/') {
+                    all.insert(d[..end + i].to_string());
+                    end += i + 1;
+                }
+                all.insert(d);
+            }
+            for d in all {
+                g.push_dir(root, &d);
+            }
+        }
+        let open: std::collections::HashSet<&PathBuf> = open.iter().collect();
+        files
+            .iter()
+            .filter(|f| {
+                if self.open_only && !open.contains(f) {
+                    return false;
+                }
+                let rel = f.to_string_lossy().replace('\\', "/");
+                if !inc_lines.is_empty() && !inc.is_ignored(&rel, false) {
+                    return false;
+                }
+                if ex.is_ignored(&rel, false) {
+                    return false;
+                }
+                !gi.as_ref().is_some_and(|g| g.is_ignored(&rel, false))
+            })
+            .cloned()
+            .collect()
+    }
 }
 
 /// Ctrl+P 模糊匹配打分：字符按顺序出现即可，连续、在文件名里、在词首的加分
@@ -1029,5 +1299,45 @@ int main(void) {
         let b = fuzzy("src/usb/audio_rt.c", "uart").unwrap();
         assert!(a > b);
         assert!(fuzzy("main.c", "xyz").is_none());
+    }
+}
+
+#[cfg(test)]
+mod bench {
+    use super::*;
+    /// 手动跑：QCCOM_BENCH=/path cargo test --release bench_search -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn bench_search() {
+        let Some(root) = std::env::var_os("QCCOM_BENCH").map(PathBuf::from) else { return };
+        let idx = build(&root, &shared_progress());
+        let pat = crate::pattern::Pat { q: "foo_special_marker".into(), case: false, word: false, regex: false };
+        let re = pat.compile().unwrap();
+        let never = AtomicBool::new(false);
+        // 旧算法：单线程逐行
+        let t = std::time::Instant::now();
+        let mut n_old = 0;
+        for rel in &idx.files {
+            let Some(text) = read_text(&root.join(rel)) else { continue };
+            for line in text.lines() {
+                if re.find_iter(line).any(|m| !m.is_empty()) {
+                    n_old += 1;
+                }
+            }
+        }
+        println!("old: {} hits, {:?}", n_old, t.elapsed());
+        for round in 0..2 {
+            let t = std::time::Instant::now();
+            let job = SearchJob { root: root.clone(), files: idx.files.clone(), re: re.clone(), lit: Lit::of(&pat), overrides: HashMap::new(), limit: 5000 };
+            let (tx, rx) = std::sync::mpsc::channel();
+            let done = AtomicUsize::new(0);
+            job.run(&never, &done, &tx);
+            drop(tx);
+            let n: usize = rx.into_iter().map(|(_, h)| h.len()).sum();
+            println!("new round {round}: {} hits, {:?}", n, t.elapsed());
+        }
+        let t = std::time::Instant::now();
+        let r = search(&root, &idx.files, &crate::pattern::Pat { q: r"HAL_\w+Pin".into(), case: true, word: false, regex: true }.compile().unwrap(), &never, 5000);
+        println!("regex (cached): {} hits, {:?}", r.len(), t.elapsed());
     }
 }

@@ -2860,7 +2860,6 @@ impl App {
             self.status_conns(ui);
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(TEXT3()));
-                self.status_community(ui);
                 let br = self.code.branch();
                 if !br.is_empty() {
                     let r = ui
@@ -4076,6 +4075,11 @@ impl App {
                     if activity_button(ui, Icon::Terminal, &tip, self.shells.s.open, None).clicked() {
                         self.pending_acts.push(Act::ToggleShell);
                     }
+                    let tip = self.community_tip();
+                    let dot = self.comm.has_news().then_some(ACCENT());
+                    if activity_button(ui, Icon::Chat, &tip, self.page == Page::Community, dot).clicked() {
+                        self.toggle_community();
+                    }
                     let id = egui::Id::new("gear-menu");
                     if r.clicked() {
                         ui.memory_mut(|m| m.toggle_popup(id));
@@ -4484,40 +4488,29 @@ pub(crate) fn open_url(url: &str) {
 }
 
 impl App {
-    /// 状态栏右边的社区入口：有新回复 / 新公告时亮一个小圆点
-    fn status_community(&mut self, ui: &mut egui::Ui) {
-        let (r, resp) = ui.allocate_exact_size(vec2(20.0, 16.0), Sense::click());
-        let on = self.page == Page::Community;
-        let c = if on || resp.hovered() { ACCENT() } else { TEXT3() };
-        crate::community::chat_icon(ui.painter(), Rect::from_center_size(r.center(), vec2(13.0, 13.0)), c);
-        if self.comm.has_news() {
-            ui.painter().circle_filled(r.center() + vec2(6.0, -5.0), 3.2, ACCENT());
+    /// 活动栏社区图标的提示：有新回复 / 新公告时直接说是什么
+    fn community_tip(&self) -> String {
+        match (&self.comm.notice, self.comm.unread) {
+            (_, n) if n > 0 => tf("社区与反馈：{} 条新提醒", &[&n]),
+            (Some(nt), _) if nt.id > self.comm.seen_notice => tf("社区与反馈 · 新公告：{}", &[&nt.title]),
+            _ => t("社区与反馈：提需求、投票、求助").to_string(),
         }
-        if resp.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    }
+
+    /// 点社区图标：已经在社区就回到原来的页面；有新提醒 / 新公告时直接打开它
+    fn toggle_community(&mut self) {
+        if self.page == Page::Community {
+            self.set_page(self.prev_page_or_debug());
+            return;
         }
-        let tip = match (&self.comm.notice, self.comm.unread) {
-            (_, n) if n > 0 => tf("社区：{} 条新提醒", &[&n]),
-            (Some(nt), _) if nt.id > self.comm.seen_notice => tf("新公告：{}", &[&nt.title]),
-            _ => t("社区：提需求、投票、求助").to_string(),
-        };
-        if resp.on_hover_text(tip).clicked() {
-            if self.page == Page::Community {
-                self.set_page(self.prev_page_or_debug());
-            } else {
-                // 有新公告时直接打开它
-                if self.comm.unread == 0 {
-                    if let Some(nt) = self.comm.notice.clone().filter(|n| n.id > self.comm.seen_notice) {
-                        self.comm.seen_notice = nt.id;
-                        self.comm.go(crate::community::Nav::Board(crate::community::Board::Notice));
-                        self.comm.open_post(nt.id);
-                    }
-                } else {
-                    self.comm.go(crate::community::Nav::Notifs);
-                }
-                self.set_page(Page::Community);
-            }
+        if self.comm.unread > 0 {
+            self.comm.go(crate::community::Nav::Notifs);
+        } else if let Some(nt) = self.comm.notice.clone().filter(|n| n.id > self.comm.seen_notice) {
+            self.comm.seen_notice = nt.id;
+            self.comm.go(crate::community::Nav::Board(crate::community::Board::Notice));
+            self.comm.open_post(nt.id);
         }
+        self.set_page(Page::Community);
     }
 
     fn prev_page_or_debug(&self) -> Page {
@@ -4526,35 +4519,6 @@ impl App {
         } else {
             self.prev_page
         }
-    }
-
-    /// 第一次启动时底部的一行说明：会发送匿名统计，可以关
-    fn telemetry_notice(&mut self, ctx: &egui::Context) {
-        egui::TopBottomPanel::bottom("telemetry-notice")
-            .frame(egui::Frame::new().fill(BG2()).inner_margin(egui::Margin::symmetric(14, 6)))
-            .show_separator_line(true)
-            .show(ctx, |ui| {
-                ui.horizontal(|ui| {
-                    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
-                    draw_icon(ui.painter(), r, Icon::Info, ACCENT());
-                    ui.label(
-                        RichText::new(t("QCCOM 会发送匿名使用统计（随机设备 ID、版本、系统、使用时长、打开过哪些页面），不含日志、文件和串口数据。"))
-                            .size(12.0)
-                            .color(TEXT2()),
-                    );
-                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        if ui.button(t("知道了")).clicked() {
-                            self.s.telemetry_noticed = true;
-                        }
-                        if ui.add(egui::Button::new(RichText::new(t("关闭统计")).color(TEXT2())).frame(false)).clicked() {
-                            self.s.telemetry = false;
-                            self.s.telemetry_noticed = true;
-                            crate::hub::set_enabled(false);
-                            self.toast(t("已关闭匿名统计，可以在设置里重新打开"), OK());
-                        }
-                    });
-                });
-            });
     }
 }
 
@@ -4686,9 +4650,6 @@ impl eframe::App for App {
             self.toast(m, if err { ERR() } else { OK() });
         }
         self.s.seen_notice = self.comm.seen_notice;
-        if !self.s.telemetry_noticed {
-            self.telemetry_notice(ctx);
-        }
         match self.page {
             Page::Code => {
                 self.code.ui(ctx, &acts, &self.km);
@@ -5242,6 +5203,7 @@ pub(crate) enum Icon {
     Compare,
     Swap,
     History,
+    Chat,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -5324,6 +5286,7 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
             p.line_segment([pt(-6.0, 3.5), pt(6.0, 3.5)], s);
             p.add(Shape::line(vec![pt(-3.0, 0.5), pt(-6.0, 3.5), pt(-3.0, 6.5)], s));
         }
+        Icon::Chat => crate::community::chat_icon(p, Rect::from_center_size(c0, vec2(15.0 * u, 15.0 * u)), c),
         Icon::History => {
             // 钟面 + 逆时针箭头
             let mut pts = vec![];

@@ -343,7 +343,11 @@ impl App {
                 ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
             });
         });
-        row(ui, q, t("社区与反馈"), t("提需求、给别人的需求投票、求助和分享经验"), |ui| {
+        let mut desc = format!("{}\n{} {}", t("提需求、给别人的需求投票、求助和分享经验"), t("服务器："), crate::hub::base_url());
+        if let Some((at, e)) = crate::hub::last_error() {
+            desc.push_str(&format!("\n{} {} · {}", t("最近一次出错："), crate::community::ago(at), e));
+        }
+        row(ui, q, t("社区与反馈"), &desc, |ui| {
             if ui.button(t("打开")).clicked() {
                 self.set_page(Page::Community);
             }

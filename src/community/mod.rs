@@ -247,7 +247,9 @@ pub struct Draft {
 
 /// 后台任务的结果
 pub enum Res {
-    List(u64, Result<(Vec<Post>, i64), HubErr>),
+    List(u64, Result<ListPage, HubErr>),
+    /// 预取各板块第一页（切板块不闪），顺便拿到各板块条数
+    Prefetch(Board, Result<ListPage, HubErr>),
     Detail(i64, Result<Post, HubErr>),
     Me(Result<Value, HubErr>),
     Similar(String, Vec<Post>),
@@ -304,10 +306,17 @@ pub struct Community {
     pub page: i64,
     pub loading: bool,
     pub list_err: Option<String>,
+    /// 这一页里有几条解析不了（服务器和客户端版本不一致时）
+    pub skipped: usize,
+    pub skip_err: String,
+    pub hidden_other: i64,
+    /// 各板块条数（默认筛选下），导航里显示
+    pub board_counts: HashMap<Board, i64>,
     list_seq: u64,
     /// 当前列表是否需要重新拉
     stale: bool,
     pub pane: Pane,
+    compose_back: Option<Pane>,
     pub detail: Option<Post>,
     pub detail_loading: bool,
     pub detail_err: Option<String>,
@@ -390,9 +399,14 @@ impl Default for Community {
             page: 0,
             loading: false,
             list_err: None,
+            skipped: 0,
+            skip_err: String::new(),
+            hidden_other: 0,
+            board_counts: HashMap::new(),
             list_seq: 0,
             stale: true,
             pane: Pane::Empty,
+            compose_back: None,
             detail: None,
             detail_loading: false,
             detail_err: None,
@@ -436,10 +450,37 @@ impl Default for Community {
     }
 }
 
+/// 一页列表。解析不了的条目不再悄悄丢掉：记下条数和第一条的原因，界面上提示
+#[derive(Default)]
+pub struct ListPage {
+    pub items: Vec<Post>,
+    pub total: i64,
+    pub skipped: usize,
+    pub skip_err: String,
+    /// 需求默认只看「待评估 + 计划中」；这里为空时，另外查一下全部状态有多少条
+    pub hidden_other: i64,
+}
+
+fn parse_page(v: Value) -> ListPage {
+    let mut pg = ListPage { total: v["total"].as_i64().unwrap_or(0), ..Default::default() };
+    for x in v["items"].as_array().cloned().unwrap_or_default() {
+        match serde_json::from_value::<Post>(x) {
+            Ok(p) => pg.items.push(p),
+            Err(e) => {
+                if pg.skipped == 0 {
+                    pg.skip_err = e.to_string();
+                    eprintln!("community: skip item: {e}");
+                }
+                pg.skipped += 1;
+            }
+        }
+    }
+    pg
+}
+
 fn parse_list(v: Value) -> (Vec<Post>, i64) {
-    let total = v["total"].as_i64().unwrap_or(0);
-    let items = v["items"].as_array().cloned().unwrap_or_default().into_iter().filter_map(|x| serde_json::from_value(x).ok()).collect();
-    (items, total)
+    let pg = parse_page(v);
+    (pg.items, pg.total)
 }
 
 fn enc(s: &str) -> String {
@@ -488,13 +529,26 @@ impl Community {
         }
     }
 
+    fn board_sort(&self, b: Board) -> Sort {
+        *self.sort.get(&b).unwrap_or(&match b {
+            Board::Idea => Sort::Hot,
+            Board::Notice => Sort::New,
+            _ => Sort::Active,
+        })
+    }
+
+    /// 后台把各板块第一页都拉一遍，存进缓存
+    fn prefetch(&mut self) {
+        for b in Board::ALL {
+            let sort = self.board_sort(b);
+            let path = format!("/posts?page=0&board={}&sort={}", b.id(), sort.id());
+            self.spawn(move || Res::Prefetch(b, hub::ensure_device().and_then(|_| hub::request("GET", &path, Body::None)).map(parse_page)));
+        }
+    }
+
     pub fn cur_sort(&self) -> Sort {
         match self.nav {
-            Nav::Board(b) => *self.sort.get(&b).unwrap_or(&match b {
-                Board::Idea => Sort::Hot,
-                Board::Notice => Sort::New,
-                _ => Sort::Active,
-            }),
+            Nav::Board(b) => self.board_sort(b),
             _ => Sort::New,
         }
     }
@@ -532,12 +586,15 @@ impl Community {
         if !self.active {
             self.active = true;
             self.refresh_me();
+            self.prefetch();
             let key = self.list_key();
             if self.items.is_empty() {
                 self.items = self.cache.get(&key).cloned().unwrap_or_default();
             }
+            // 只在第一次打开时拉。以前每帧都判断「列表为空就重拉」，
+            // 板块真没内容（或默认筛选下为空）时会无限重拉，一直显示骨架屏
+            self.stale = true;
         }
-        self.stale = self.stale || self.items.is_empty();
     }
 
     pub fn refresh_me(&mut self) {
@@ -590,7 +647,20 @@ impl Community {
         }
         let qs: Vec<String> = q.iter().map(|(k, v)| format!("{k}={}", enc(v))).collect();
         let path = format!("/posts?{}", qs.join("&"));
-        self.spawn(move || Res::List(seq, hub::ensure_device().and_then(|_| hub::request("GET", &path, Body::None)).map(parse_list)));
+        let default_ideas = self.nav == Nav::Board(Board::Idea) && self.idea_filter == IdeaFilter::Open && !append;
+        self.spawn(move || {
+            let r = hub::ensure_device().and_then(|_| hub::request("GET", &path, Body::None)).map(parse_page);
+            Res::List(
+                seq,
+                r.map(|mut pg| {
+                    if default_ideas && pg.items.is_empty() && pg.skipped == 0 {
+                        let all = path.replace("board=idea", "board=idea&status=all");
+                        pg.hidden_other = hub::request("GET", &all, Body::None).map(|v| v["total"].as_i64().unwrap_or(0)).unwrap_or(0);
+                    }
+                    pg
+                }),
+            )
+        });
     }
 
     pub fn load_more(&mut self) {
@@ -701,7 +771,25 @@ impl Community {
             self.draft.board = b.id().into();
         }
         self.preview = false;
+        self.enter_compose();
+    }
+
+    /// 打开发帖：记住原来在看什么，Esc / 取消后回到那里
+    fn enter_compose(&mut self) {
+        if self.pane != Pane::Compose {
+            self.compose_back = Some(self.pane.clone());
+        }
         self.pane = Pane::Compose;
+    }
+
+    /// 关掉右边当前的内容（Esc / 返回）。发帖页存草稿后回到打开前的帖子
+    pub fn close_pane(&mut self) {
+        if self.pane == Pane::Compose {
+            self.save_draft();
+            self.pane = self.compose_back.take().filter(|p| *p != Pane::Compose).unwrap_or(Pane::Empty);
+        } else {
+            self.pane = Pane::Empty;
+        }
     }
 
     /// 从日志 / 编辑器带着选中的内容发求助帖
@@ -727,7 +815,7 @@ impl Community {
 
     pub fn edit_post(&mut self, p: &Post) {
         self.draft = Draft { board: p.board.clone(), title: p.title.clone(), body: p.body.clone(), anonymous: p.author.anonymous, edit: Some(p.id) };
-        self.pane = Pane::Compose;
+        self.enter_compose();
     }
 
     pub fn save_draft(&self) {
@@ -978,7 +1066,11 @@ impl Community {
         // 提醒：打开过社区或登录了才定时拉（每 5 分钟），只亮状态栏小圆点
         let due = self.me_at.is_none_or(|t| t.elapsed() > Duration::from_secs(300));
         if due && (self.active || self.logged_in() || !hub::creds().device_id.is_empty()) {
+            let first = self.me_at.is_none();
             self.refresh_me();
+            if self.active && !first {
+                self.prefetch();
+            }
         }
         if !page_open {
             return;
@@ -1030,9 +1122,20 @@ impl Community {
                 }
                 self.loading = false;
                 match r {
-                    Ok((items, total)) => {
+                    Ok(pg) => {
+                        let ListPage { items, total, skipped, skip_err, hidden_other } = pg;
                         self.offline = false;
                         self.total = total;
+                        self.hidden_other = hidden_other;
+                        if let Nav::Board(b) = self.nav {
+                            if self.query_sent.trim().is_empty() && (b != Board::Idea || self.idea_filter == IdeaFilter::Open) {
+                                self.board_counts.insert(b, total);
+                            }
+                        }
+                        self.skipped = if self.page == 0 { skipped } else { self.skipped + skipped };
+                        if skipped > 0 {
+                            self.skip_err = skip_err;
+                        }
                         if self.page == 0 {
                             self.items = items;
                             if self.query.trim().is_empty() {
@@ -1047,6 +1150,21 @@ impl Community {
                     Err(e) => {
                         self.offline = e.code == "network";
                         self.list_err = Some(e.msg);
+                    }
+                }
+            }
+            Res::Prefetch(b, r) => {
+                if let Ok(pg) = r {
+                    self.board_counts.insert(b, pg.total);
+                    let key = format!("{}:{}:{:?}", b.id(), self.board_sort(b).id(), IdeaFilter::Open);
+                    let cur = self.nav == Nav::Board(b) && self.list_key() == key;
+                    // 正在看的板块不动（避免和正在进行的请求打架），只更新缓存
+                    if !cur || self.items.is_empty() && !self.loading {
+                        self.cache.insert(key, pg.items.into_iter().take(30).collect());
+                        if cur {
+                            self.items = self.cache.get(&self.list_key()).cloned().unwrap_or_default();
+                        }
+                        self.save_cache();
                     }
                 }
             }

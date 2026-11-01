@@ -139,7 +139,11 @@ fn net_err(e: ureq::Error) -> HubErr {
             let v: Value = serde_json::from_reader(r.into_reader()).unwrap_or(Value::Null);
             HubErr {
                 code: v["error"].as_str().unwrap_or("http").to_string(),
-                msg: v["message"].as_str().map(str::to_string).unwrap_or_else(|| crate::i18n::tf("服务器返回 {}", &[&code])),
+                msg: v["message"].as_str().map(str::to_string).unwrap_or_else(|| match code {
+                    404 => crate::i18n::tf("服务器返回 {}（社区地址或反向代理路径可能不对）", &[&code]),
+                    502 | 503 | 504 => crate::i18n::tf("服务器返回 {}（qccom-hub 服务可能没在运行）", &[&code]),
+                    _ => crate::i18n::tf("服务器返回 {}", &[&code]),
+                }),
             }
         }
         ureq::Error::Transport(t) => HubErr {
@@ -163,8 +167,18 @@ pub fn request(method: &str, path: &str, body: Body) -> Result<Value, HubErr> {
         Body::Json(v) => req.set("Content-Type", "application/json").send_string(&v.to_string()),
         Body::Bytes(b) => req.set("Content-Type", "application/octet-stream").send_bytes(&b),
     };
-    match r {
-        Ok(r) => serde_json::from_reader::<_, Value>(r.into_reader()).map_err(|e| HubErr { code: "network".into(), msg: e.to_string() }),
+    let out = match r {
+        Ok(r) => {
+            let ct = r.content_type().to_string();
+            serde_json::from_reader::<_, Value>(r.into_reader()).map_err(|e| HubErr {
+                code: "bad_reply".into(),
+                msg: if ct.contains("html") {
+                    crate::i18n::t("服务器返回了网页而不是数据，社区地址或反向代理配置可能不对").to_string()
+                } else {
+                    format!("{}: {e}", crate::i18n::t("服务器返回的数据无法解析"))
+                },
+            })
+        }
         Err(e) => {
             let e = net_err(e);
             // 登录过期：清掉，界面回到未登录
@@ -176,7 +190,28 @@ pub fn request(method: &str, path: &str, body: Body) -> Result<Value, HubErr> {
             }
             Err(e)
         }
+    };
+    match &out {
+        Err(e) if matches!(e.code.as_str(), "network" | "http" | "bad_reply" | "internal" | "db") => note_error(method, path, &e.msg),
+        _ => {}
     }
+    out
+}
+
+static LAST_ERR: Mutex<Option<(i64, String)>> = Mutex::new(None);
+
+/// 记下最近一次出错（设置页里显示，方便排查）
+pub fn note_error(method: &str, path: &str, msg: &str) {
+    let path = path.split('?').next().unwrap_or(path);
+    *LAST_ERR.lock().unwrap() = Some((now_secs(), format!("{method} {path} · {msg}")));
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs() as i64).unwrap_or(0)
+}
+
+pub fn last_error() -> Option<(i64, String)> {
+    LAST_ERR.lock().unwrap().clone()
 }
 
 /// 没有设备身份就注册一个（发帖、投票、统计都要）

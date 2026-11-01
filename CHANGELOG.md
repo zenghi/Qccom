@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.2
+
+Community polish and a fix for lists that never finished loading.
+
+- **Fixed**: a board, filter or search with no results kept reloading forever and showed the loading skeleton instead of the list or the empty message. This is why *Requests* could look blank.
+- **Community icon** moved to the activity bar, above the terminal and settings icons, with a dot for new replies or news. Click it again to go back to the page you came from. The status-bar icon is gone.
+- **Clearer errors**: failed loads show the reason with a *Retry* link, items the app can't read are counted instead of silently dropped, and *Settings → General → Community & feedback* shows the server address and the last error. Wrong proxy setups (an HTML page, 404, 502) get a plain explanation.
+- **Requests**: when nothing is under review or planned, the list says how many are done or declined and offers *Show all*. The status filter is now always-visible tabs.
+- **Look**: cards separated by whitespace with a larger title, one-line excerpt and the status in the top-right corner; a smaller vote button that fills in and bounces when you vote; post counts next to each board; *My activity* collapsed into one item with tabs; illustrated empty states; the post page has an info bar, a developer-response card and tinted replies from the author and the original poster.
+- **Interaction**: all boards are prefetched so switching doesn't flash; closing a new post (`Esc`) saves the draft and returns to the post you were reading; search terms are highlighted, and a search with no results offers to start a post with that title; right-click a card to open, vote, copy the title or copy the post number; on narrow windows the list and post fade between each other.
+- Anonymous usage stats no longer show a notice on first start; they can still be turned off in *Settings → General*.
+
 ## 1.9.1
 
 Community and feedback, built into QCCOM. Nothing new is always on screen except a small chat icon in the status bar.

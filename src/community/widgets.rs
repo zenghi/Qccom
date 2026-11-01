@@ -112,41 +112,57 @@ pub fn tag(ui: &mut Ui, text: &str, c: Color32) {
 
 /// 竖向投票胶囊：▲ + 票数。点了的高亮青色，按下时有一点缩放
 pub fn vote_capsule(ui: &mut Ui, id: egui::Id, score: i64, voted: bool, enabled: bool) -> Response {
-    let size = vec2(44.0, 50.0);
+    let size = vec2(40.0, 46.0);
     let (rect, resp) = ui.allocate_exact_size(size, if enabled { Sense::click() } else { Sense::hover() });
+    let k = bounce(ui, id, voted);
     let t = ui.ctx().animate_bool_with_time(id.with("v"), voted, 0.15);
     let press = ui.ctx().animate_bool_with_time(id.with("p"), resp.is_pointer_button_down_on(), 0.06);
-    let rect = rect.shrink(press * 1.5);
+    let rect = Rect::from_center_size(rect.center(), rect.size() * (1.0 + 0.10 * k - 0.04 * press));
     let p = ui.painter();
     let hov = resp.hovered() && enabled;
-    let fill = lerp(if hov { BG3() } else { BG2() }, ACCENT().gamma_multiply(0.16), t);
-    let stroke = lerp(if hov { LINE_HI() } else { LINE() }, ACCENT().gamma_multiply(0.6), t);
-    p.rect(rect, CornerRadius::same(8), fill, st(1.0, stroke), egui::StrokeKind::Inside);
-    let c = lerp(if hov { TEXT() } else { TEXT2() }, ACCENT(), t);
-    let a = pos2(rect.center().x, rect.top() + 13.0);
-    let lift = t * -1.0;
-    p.add(egui::Shape::convex_polygon(
-        vec![a + vec2(0.0, -4.5 + lift), a + vec2(5.5, 2.5 + lift), a + vec2(-5.5, 2.5 + lift)],
-        c,
-        Stroke::NONE,
-    ));
-    p.text(pos2(rect.center().x, rect.bottom() - 15.0), Align2::CENTER_CENTER, score.to_string(), FontId::new(14.0, mono_bold()), if voted { ACCENT() } else { TEXT() });
+    // 投过：实心强调色；没投：浅底
+    let fill = lerp(if hov { BG3() } else { BG2() }, ACCENT(), t);
+    let stroke = lerp(if hov { LINE_HI() } else { LINE() }, ACCENT(), t);
+    p.rect(rect, CornerRadius::same(9), fill, st(1.0, stroke), egui::StrokeKind::Inside);
+    let on = Color32::WHITE;
+    let c = lerp(if hov { ACCENT() } else { TEXT2() }, on, t);
+    let a = pos2(rect.center().x, rect.top() + 14.0 - 2.0 * k);
+    p.add(egui::Shape::convex_polygon(vec![a + vec2(0.0, -4.0), a + vec2(5.0, 2.5), a + vec2(-5.0, 2.5)], c, Stroke::NONE));
+    p.text(pos2(rect.center().x, rect.bottom() - 13.5), Align2::CENTER_CENTER, score.to_string(), FontId::new(13.0, mono_bold()), lerp(TEXT(), on, t));
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
 }
 
+/// 刚投上票时弹一下：返回 0..1 的弹跳量
+pub fn bounce(ui: &Ui, id: egui::Id, on: bool) -> f32 {
+    let key = id.with("bounce");
+    let (prev, at) = ui.data(|d| d.get_temp::<(bool, f64)>(key)).unwrap_or((on, -10.0));
+    let now = ui.input(|i| i.time);
+    let at = if on && !prev { now } else { at };
+    ui.data_mut(|d| d.insert_temp(key, (on, at)));
+    let x = ((now - at) / 0.32) as f32;
+    if (0.0..1.0).contains(&x) {
+        ui.ctx().request_repaint();
+        (x * std::f32::consts::PI).sin() * (1.0 - x)
+    } else {
+        0.0
+    }
+}
+
 /// 横向的小投票按钮（详情页标题旁）
 pub fn vote_pill(ui: &mut Ui, score: i64, voted: bool, enabled: bool) -> Response {
+    let k = bounce(ui, ui.id().with("pill"), voted);
     let text = score.to_string();
     let font = FontId::new(13.0, mono_bold());
     let g = ui.painter().layout_no_wrap(text, font, TEXT());
     let (rect, resp) = ui.allocate_exact_size(vec2(g.size().x + 54.0, 30.0), if enabled { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
     let hov = resp.hovered() && enabled;
+    let rect = Rect::from_center_size(rect.center(), rect.size() * (1.0 + 0.08 * k));
     let (fill, stroke, c) = if voted {
-        (ACCENT().gamma_multiply(0.16), ACCENT().gamma_multiply(0.6), ACCENT())
+        (ACCENT(), ACCENT(), Color32::WHITE)
     } else if hov {
         (BG3(), LINE_HI(), TEXT())
     } else {
@@ -156,7 +172,7 @@ pub fn vote_pill(ui: &mut Ui, score: i64, voted: bool, enabled: bool) -> Respons
     let a = pos2(rect.left() + 16.0, rect.center().y);
     p.add(egui::Shape::convex_polygon(vec![a + vec2(0.0, -5.0), a + vec2(5.5, 2.5), a + vec2(-5.5, 2.5)], c, Stroke::NONE));
     p.text(pos2(rect.left() + 28.0, rect.center().y), Align2::LEFT_CENTER, super::t("票"), FontId::proportional(12.0), c);
-    p.galley(pos2(rect.right() - 12.0 - g.size().x, rect.center().y - g.size().y / 2.0), g, if voted { ACCENT() } else { TEXT() });
+    p.galley(pos2(rect.right() - 12.0 - g.size().x, rect.center().y - g.size().y / 2.0), g, if voted { Color32::WHITE } else { TEXT() });
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }

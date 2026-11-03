@@ -825,6 +825,30 @@ impl App {
         });
     }
 
+    /// 副页面顶栏的打开 / 关闭按钮：不用点开下拉就能开关串口
+    pub(super) fn conn_toggle(&mut self, ui: &mut egui::Ui) {
+        let net = self.s.transport != Transport::Serial;
+        let live = self.conn.is_some();
+        let waiting = !live && self.reconnect.is_some();
+        let enabled = self.autobaud.is_none() && (net || live || waiting || !self.s.port.is_empty());
+        let (txt, col, tip) = if live {
+            (if net { t("断开") } else { t("关闭") }, ERR(), if net { t("断开连接") } else { t("关闭串口") })
+        } else if waiting {
+            (t("取消重连"), WARN(), t("不再等设备重新插入"))
+        } else {
+            (if net { t("连接") } else { t("打开") }, ACCENT(), if net { t("连接") } else { t("打开串口") })
+        };
+        let b = egui::Button::new(RichText::new(txt).size(12.5).strong().color(if enabled { col } else { TEXT3() }))
+            .fill(col.gamma_multiply(if enabled { 0.12 } else { 0.04 }))
+            .stroke(st(1.0, col.gamma_multiply(if enabled { 0.55 } else { 0.2 })))
+            .min_size(vec2(52.0, 26.0))
+            .corner_radius(CornerRadius::same(6));
+        if ui.add_enabled(enabled, b).on_hover_text(tip).clicked() {
+            self.toggle_connect();
+        }
+        ui.add_space(4.0);
+    }
+
     /// 打开副页面的入口给其它地方用：自动弹出的封装（按住强度）
     pub(super) fn side_or_page(&mut self, p: Pane, trig: &str, hint: &str) {
         if !self.auto_side(p, trig, Strength::Strong, hint) {

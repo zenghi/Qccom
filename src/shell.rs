@@ -132,6 +132,8 @@ pub struct Shell {
     pub attn: bool,
     /// 启动用的 shell 类型名（标签可以改名，重启时按这个找）
     kind: String,
+    /// 编号（标签会重排，用它认出是哪一个）
+    pub id: usize,
 }
 
 impl Shell {
@@ -193,6 +195,7 @@ impl Shell {
             color: 0,
             attn: false,
             kind: kind.name.clone(),
+            id: n,
         })
     }
 
@@ -290,6 +293,36 @@ pub struct Problem {
 }
 
 /// 从编译输出里找错误和警告：GCC / Clang / armclang、Keil armcc、IAR、MSVC
+/// 命令里有没有用到这个串口（COM3 不算 COM31；/dev/ttyUSB0 也认 ttyUSB0）
+pub fn uses_port(cmd: &str, port: &str) -> bool {
+    if port.is_empty() {
+        return false;
+    }
+    let cmd = cmd.to_lowercase();
+    let mut names = vec![port.to_lowercase()];
+    if let Some(base) = port.rsplit(['/', '\\']).next().filter(|b| b.len() < port.len() && b.len() >= 3) {
+        names.push(base.to_lowercase());
+    }
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    names.iter().any(|n| {
+        cmd.match_indices(n.as_str()).any(|(i, _)| {
+            let before = cmd[..i].chars().next_back();
+            let after = cmd[i + n.len()..].chars().next();
+            !word(before) && !word(after)
+        })
+    })
+}
+
+/// 回车时那一行里的提示符部分（到第一个 > $ # % 为止，再带上后面的空格）；认不出返回空
+pub fn prompt_of(line: &str) -> String {
+    let Some(i) = line.char_indices().take(160).find(|(_, c)| matches!(c, '>' | '$' | '#' | '%')).map(|(i, _)| i) else {
+        return String::new();
+    };
+    let rest = &line[i + 1..];
+    let sp = rest.len() - rest.trim_start_matches(' ').len();
+    line[..i + 1 + sp].to_string()
+}
+
 pub fn parse_problems(text: &str) -> Vec<Problem> {
     use std::sync::OnceLock;
     static RE: OnceLock<[regex_lite::Regex; 3]> = OnceLock::new();
@@ -354,6 +387,8 @@ pub enum ShellEvt {
     Open(PathBuf, usize),
     /// 点了任务按钮：(任务名, 命令)
     Task(String, String),
+    /// 在本机终端里执行了一条命令：(终端编号, 提示符 + 命令, 回车时光标所在行)
+    Command(usize, String, u64),
 }
 
 pub struct Shells {
@@ -422,6 +457,9 @@ impl Shells {
         let Some(sh) = self.tabs.get_mut(self.active) else { return };
         self.prob_from = Some((self.active, sh.tv.cursor_row()));
         self.problems.clear();
+        if !sh.remote {
+            self.events.push(ShellEvt::Command(sh.id, format!("{}{cmd}", sh.tv.cursor_line()), sh.tv.cursor_row()));
+        }
         sh.write(format!("{cmd}\r").as_bytes());
         sh.tv.focus_req = true;
         self.s.open = true;
@@ -441,6 +479,13 @@ impl Shells {
             _ => 0,
         };
         self.problems = parse_problems(&sh.tv.text_since(from));
+    }
+
+    /// 某个终端里的命令跑完、回到提示符了吗：None = 终端已经关了 / 进程退出了
+    pub fn back_at_prompt(&self, id: usize, prompt: &str, row: u64) -> Option<bool> {
+        let sh = self.tabs.iter().find(|s| s.id == id && s.exited.is_none())?;
+        let quiet = sh.tv.fed_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(700));
+        Some(quiet && sh.tv.cursor_row() > row && sh.tv.cursor_line() == prompt.trim_end())
     }
 
     pub fn kinds(&mut self) -> &[ShellKind] {
@@ -637,6 +682,9 @@ impl Shells {
         if sh.exited.is_some() {
             restart = o.input.contains(&b'\r');
         } else if !o.input.is_empty() {
+            if let Some(line) = o.enter_line.filter(|_| !sh.remote) {
+                self.events.push(ShellEvt::Command(sh.id, line, sh.tv.cursor_row()));
+            }
             sh.write(&o.input);
         }
         if let Some(m) = o.toast {
@@ -924,7 +972,28 @@ impl Shells {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_problems;
+    use super::{parse_problems, prompt_of, uses_port};
+
+    #[test]
+    fn port_in_command() {
+        assert!(uses_port("esptool.py -p COM3 write_flash 0x0 a.bin", "COM3"));
+        assert!(uses_port("idf.py -p com3 flash", "COM3"));
+        assert!(uses_port("mode \\\\.\\COM3", "COM3"));
+        assert!(!uses_port("esptool.py -p COM31 flash", "COM3"));
+        assert!(!uses_port("echo COMMAND", "COM3"));
+        assert!(uses_port("idf.py -p /dev/ttyUSB0 flash", "/dev/ttyUSB0"));
+        assert!(uses_port("stty -F ttyUSB0 115200", "/dev/ttyUSB0"));
+        assert!(!uses_port("stty -F ttyUSB01", "/dev/ttyUSB0"));
+        assert!(!uses_port("ls", ""));
+    }
+
+    #[test]
+    fn prompt_part() {
+        assert_eq!(prompt_of(r"PS C:\fw> idf.py -p COM3 flash"), r"PS C:\fw> ");
+        assert_eq!(prompt_of("zenghi@pc:~/fw$ make flash"), "zenghi@pc:~/fw$ ");
+        assert_eq!(prompt_of(r"C:\fw>flash.bat"), r"C:\fw>");
+        assert_eq!(prompt_of("flash"), "");
+    }
 
     #[test]
     fn problems() {

@@ -3,12 +3,21 @@
 
 use eframe::egui::Color32;
 
+/// 主窗口句柄（别的线程要把窗口提到前台时用）
+#[cfg(windows)]
+pub static HWND: std::sync::atomic::AtomicIsize = std::sync::atomic::AtomicIsize::new(0);
+
 #[cfg(windows)]
 pub fn apply(frame: &eframe::Frame, dark: bool, caption: Color32, text: Color32, border: Color32) {
     use raw_window_handle::{HasWindowHandle, RawWindowHandle};
     #[link(name = "dwmapi")]
     extern "system" {
         fn DwmSetWindowAttribute(hwnd: isize, attr: u32, value: *const core::ffi::c_void, size: u32) -> i32;
+    }
+    if let Ok(h) = frame.window_handle() {
+        if let RawWindowHandle::Win32(w) = h.as_raw() {
+            HWND.store(w.hwnd.get(), std::sync::atomic::Ordering::Relaxed);
+        }
     }
     // 每帧都会调用，颜色没变就不重复设置
     static LAST: std::sync::Mutex<Option<(bool, Color32, Color32, Color32)>> = std::sync::Mutex::new(None);

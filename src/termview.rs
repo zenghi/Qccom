@@ -18,6 +18,8 @@ pub struct TermOut {
     pub focused: bool,
     /// Ctrl+点击的 `文件:行号`
     pub open: Option<(String, usize)>,
+    /// 命令行里按了回车：回车前光标所在行的文字（提示符 + 命令）
+    pub enter_line: Option<String>,
 }
 
 pub struct TermView {
@@ -42,6 +44,8 @@ pub struct TermView {
     /// 最近一条命令什么时候发出、最后一次有输出是什么时候（判断长命令跑完）
     cmd_at: Option<Instant>,
     last_out: Option<Instant>,
+    /// 最后一次收到输出的时间
+    pub fed_at: Option<Instant>,
     find: Option<Find>,
 }
 
@@ -75,6 +79,7 @@ impl TermView {
             marks: vec![],
             cmd_at: None,
             last_out: None,
+            fed_at: None,
             find: None,
         }
     }
@@ -104,6 +109,12 @@ impl TermView {
     pub fn cursor_row(&self) -> u64 {
         let s = &self.term.s;
         s.dropped + (s.scrollback.len() + s.y) as u64
+    }
+
+    /// 光标所在行的文字（去掉行尾空白）
+    pub fn cursor_line(&self) -> String {
+        let s = &self.term.s;
+        s.grid.get(s.y).map(|r| term::row_text(r, 0, r.len()).trim_end().to_string()).unwrap_or_default()
     }
 
     /// 从某一行（稳定行号）到最后的文字
@@ -232,6 +243,7 @@ impl TermView {
 
     /// 喂数据；正在往回翻时保持视图不动。返回终端要回给对端的应答（如光标位置查询）
     pub fn feed(&mut self, d: &[u8]) -> Vec<u8> {
+        self.fed_at = Some(Instant::now());
         if self.cmd_at.is_some() {
             self.last_out = Some(Instant::now());
         }
@@ -328,6 +340,7 @@ impl TermView {
         if !out.is_empty() {
             // 命令块：回车时记下光标所在行（全屏程序里的回车不算）
             if self.blocks && out.contains(&b'\r') && !self.term.s.in_alt() {
+                o.enter_line = Some(self.cursor_line());
                 let s = &self.term.s;
                 let row = s.dropped + (s.scrollback.len() + s.y) as u64;
                 if self.marks.last() != Some(&row) {

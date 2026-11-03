@@ -472,6 +472,8 @@ pub struct App {
     sniff: serialx::Sniff,
     bridge: Option<crate::bridge::Bridge>,
     vcom: Option<crate::vcom::Vcom>,
+    /// 串口暂时让给了终端里的命令（烧录等），命令跑完自动重新打开
+    lent: Option<serialx::Lent>,
     serial_ui: serialx::SerialUi,
     /// AT 助手提示里选中的一项
     at_sel: usize,
@@ -676,6 +678,7 @@ impl App {
             sniff: Default::default(),
             bridge: None,
             vcom: None,
+            lent: None,
             serial_ui: Default::default(),
             at_sel: 0,
             open_log,
@@ -2395,8 +2398,9 @@ impl App {
     fn header(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             if self.compact_header {
-                // 副页面：没有侧边栏，这里放一个连接下拉
+                // 副页面：没有侧边栏，这里放一个连接下拉和打开 / 关闭按钮
                 self.conn_chip(ui);
+                self.conn_toggle(ui);
             } else if icon_button(ui, Icon::Sidebar, t("侧边栏  Ctrl+B"), !self.s.sidebar).clicked() {
                 self.s.sidebar = !self.s.sidebar;
             }
@@ -4198,6 +4202,7 @@ impl App {
         }
         self.compare_events();
         if forwarded {
+            crate::shellint::raise_window();
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
@@ -4746,6 +4751,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Windows 输入法处理过的按键（拼音上屏的回车、组字时的退格……）不交给界面
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        crate::ime::drop_ime_keys(&mut raw.events);
+    }
+
     /// 面板之间没盖住的缝隙露出的是清屏色，要跟着主题走，否则浅色下会露出黑边
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
         BG1().to_normalized_gamma_f32()
@@ -4864,8 +4874,10 @@ impl eframe::App for App {
                     self.reveal(Pane::Code, "shell.open", work::Strength::Strong);
                 }
                 ShellEvt::Task(name, cmd) => self.flash_checkpoint(&name, &cmd),
+                ShellEvt::Command(id, line, row) => self.lend_port(id, &line, row),
             }
         }
+        self.tick_lent();
         // 换了工程：不管在哪一页都要同步（命令行打开文件夹时代码页还没显示）
         let mut projs = vec![];
         self.code.events.retain(|e| match e {

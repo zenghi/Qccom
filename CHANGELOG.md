@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.9.5
+
+Fixes.
+
+- **Chinese input method, Enter commits the letters**: on Windows, pressing Enter while typing pinyin now puts the letters into the editor, terminal or text box instead of starting a new line. Backspace and arrow keys used inside the input method no longer also edit the text behind it.
+- **Terminal commands that need the serial port**: when a command typed in the built-in terminal (or a task button such as *Flash*) names the port QCCOM has open, e.g. `esptool.py -p COM3 …` or `idf.py -p /dev/ttyUSB0 flash`, QCCOM closes the port first and opens it again once the command has finished and the prompt is back. If the device re-enumerates after flashing, it waits for it to come back.
+- **Side page serial**: the serial page on the side now has an *Open* / *Close* button next to the port, so you no longer need the drop-down to connect or disconnect.
+- **Explorer right-click *Open with QCCOM***: with QCCOM already running, the window now comes to the front (and is restored if it was minimized) and opens the folder. Before, a minimized window stayed hidden and the request waited until you clicked it. Drive roots such as `D:\` open correctly too.
+- **Community**: post titles, bodies and replies can be selected and copied with `Ctrl+C`.
+
 ## 1.9.4
 
 Two pages side by side. The side page opens by itself when it helps, and otherwise stays out of the way.

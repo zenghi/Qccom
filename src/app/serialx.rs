@@ -2,6 +2,15 @@
 //! 双口监听（B 口）、串口转 TCP、配置方案。
 
 use super::*;
+
+/// 让给终端命令的串口
+pub(crate) struct Lent {
+    port: String,
+    shell: usize,
+    prompt: String,
+    row: u64,
+    since: Instant,
+}
 use crate::bridge::{Bridge, BridgeEvt};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
@@ -306,6 +315,63 @@ impl App {
                     }
                 }
                 BridgeEvt::Error(e) => self.buf.sys(tf("✗ 共享出错：{}", &[&e])),
+            }
+        }
+    }
+
+    // ------------------------------------------------------------ 终端命令要用串口：先让出来
+
+    /// 终端里执行的命令用到了 QCCOM 正开着的串口（烧录、stty、别的工具）：先关掉，命令跑完再打开
+    pub(super) fn lend_port(&mut self, shell: usize, line: &str, row: u64) {
+        if !self.slot_online(0) || self.lent.is_some() {
+            return;
+        }
+        let port = self.s.port.clone();
+        let cmd = line.strip_prefix(crate::shell::prompt_of(line).as_str()).unwrap_or(line);
+        if !crate::shell::uses_port(cmd, &port) {
+            return;
+        }
+        let prompt = crate::shell::prompt_of(line);
+        let back = !prompt.is_empty();
+        self.with_slot(0, |app| {
+            app.disconnect();
+            app.buf.sys(if back {
+                tf("终端命令要用 {}，已先关闭串口，命令结束后自动重新打开", &[&port])
+            } else {
+                tf("终端命令要用 {}，已先关闭串口", &[&port])
+            });
+        });
+        self.toast(tf("已关闭 {}，让给终端命令使用", &[&port]), WARN());
+        if back {
+            self.lent = Some(Lent {
+                port,
+                shell,
+                prompt,
+                row,
+                since: Instant::now(),
+            });
+        }
+    }
+
+    /// 让出的串口：命令回到提示符后重新打开（设备烧录后重启要重新枚举，交给自动重连等它出现）
+    pub(super) fn tick_lent(&mut self) {
+        let Some(l) = &self.lent else { return };
+        // 用户自己又打开了，或者等太久了：不管了
+        if self.slot_online(0) || l.since.elapsed() > Duration::from_secs(1800) {
+            self.lent = None;
+            return;
+        }
+        match self.shells.back_at_prompt(l.shell, &l.prompt, l.row) {
+            Some(false) => self.ctx.request_repaint_after(Duration::from_millis(500)),
+            done => {
+                let l = self.lent.take().unwrap();
+                if done.is_some() {
+                    self.with_slot(0, |app| {
+                        app.s.port = l.port.clone();
+                        app.buf.sys(tf("命令已结束，重新打开 {}", &[&l.port]));
+                        app.reconnect = Some((l.port.clone(), Instant::now()));
+                    });
+                }
             }
         }
     }

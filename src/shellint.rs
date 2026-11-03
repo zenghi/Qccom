@@ -51,9 +51,11 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
     let mut mode = "";
     let mut cmp = vec![];
     for a in args {
-        match a.as_str() {
+        // 资源管理器传 "D:\" 这种盘符根目录时，结尾的 \" 会被当成转义，参数末尾多出一个引号
+        let a = a.trim_end_matches('"');
+        match a {
             "--file" | "--project" | "--compare" => {
-                mode = a.as_str();
+                mode = a;
                 continue;
             }
             _ if a.starts_with("--") => {
@@ -101,6 +103,8 @@ pub fn forward(reqs: &[Req]) -> bool {
                 msg.push_str(&r.line());
                 msg.push('\n');
             }
+            // 这个进程是资源管理器刚启动的，有权把窗口切到前台：把这个权利让给已经开着的窗口
+            allow_foreground();
             return s.write_all(msg.as_bytes()).is_ok();
         }
         // 没人在听：自己占住端口当第 1 个窗口
@@ -129,11 +133,48 @@ pub fn listen(l: &TcpListener, ctx: eframe::egui::Context) -> Arc<Mutex<Vec<Req>
             let reqs: Vec<Req> = lines.map_while(|l| l.ok()).filter_map(|l| Req::parse(&l)).collect();
             if !reqs.is_empty() {
                 q2.lock().unwrap().extend(reqs);
+                // 窗口最小化时界面不刷新，请求会一直排队：在这个线程里直接把窗口还原、提到前台
+                raise_window();
                 ctx.request_repaint();
             }
         }
     });
     q
+}
+
+#[cfg(windows)]
+#[link(name = "user32")]
+extern "system" {
+    fn AllowSetForegroundWindow(pid: u32) -> i32;
+    fn IsIconic(hwnd: isize) -> i32;
+    fn ShowWindowAsync(hwnd: isize, cmd: i32) -> i32;
+    fn SetForegroundWindow(hwnd: isize) -> i32;
+    fn BringWindowToTop(hwnd: isize) -> i32;
+}
+
+fn allow_foreground() {
+    #[cfg(windows)]
+    unsafe {
+        // ASFW_ANY
+        AllowSetForegroundWindow(u32::MAX);
+    }
+}
+
+/// 把主窗口从最小化还原并切到前台（Windows）；其他系统由界面线程发 Focus 命令
+pub fn raise_window() {
+    #[cfg(windows)]
+    {
+        let hwnd = crate::titlebar::HWND.load(std::sync::atomic::Ordering::Relaxed);
+        if hwnd == 0 {
+            return;
+        }
+        unsafe {
+            // SW_RESTORE = 9，SW_SHOW = 5
+            ShowWindowAsync(hwnd, if IsIconic(hwnd) != 0 { 9 } else { 5 });
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+    }
 }
 
 // ------------------------------------------------------------------ 右键菜单

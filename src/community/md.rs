@@ -36,8 +36,17 @@ fn lang_of(s: &str) -> Lang {
     }
 }
 
-/// 画正文。img(id) 返回已经下载好的纹理；返回被点击的图片 ID（打开大图）
+/// 画正文。img(id) 返回已经下载好的纹理；返回被点击的图片 ID（打开大图）。
+/// 正文的文字可以拖选、Ctrl+C 复制（全局默认标签不可选，这里单独打开）
 pub fn body(ui: &mut Ui, text: &str, img: &mut dyn FnMut(&str) -> Option<(egui::TextureId, [usize; 2])>) -> Option<String> {
+    ui.scope(|ui| {
+        ui.style_mut().interaction.selectable_labels = true;
+        body_inner(ui, text, img)
+    })
+    .inner
+}
+
+fn body_inner(ui: &mut Ui, text: &str, img: &mut dyn FnMut(&str) -> Option<(egui::TextureId, [usize; 2])>) -> Option<String> {
     let mut clicked = None;
     let lines: Vec<&str> = text.lines().collect();
     let mut i = 0;

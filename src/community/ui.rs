@@ -985,7 +985,7 @@ impl Community {
                             let r = ui.add_space(0.0);
                             let _ = r;
                         }
-                        ui.add(egui::Label::new(RichText::new(&p.title).font(FontId::new(20.0, bold())).color(TEXT())).wrap());
+                        ui.add(egui::Label::new(RichText::new(&p.title).font(FontId::new(20.0, bold())).color(TEXT())).wrap().selectable(true));
                     });
                     // 信息条：作者、时间、标记；需求再加投票和状态
                     ui.add_space(4.0);

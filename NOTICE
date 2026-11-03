@@ -40,8 +40,8 @@ SIL Open Font License, Version 1.1 (full texts in assets/licenses/):
 Rust crates used by this product are listed in Cargo.toml / Cargo.lock and
 are distributed under their own licenses (mostly MIT or Apache-2.0).
 
-The Windows build bundles the unmodified com0com 3.0.0.0 signed installer
-(assets/com0com/setup_x64.exe), a null-modem virtual serial port driver by
-Vyacheslav Frolov, distributed under the GNU General Public License v2.
-Source code: https://sourceforge.net/projects/com0com/ ; it is installed only
-when the user asks for a virtual port on Windows.
+com0com (a null-modem virtual serial port driver by Vyacheslav Frolov, GNU
+General Public License v2, https://sourceforge.net/projects/com0com/) is NOT
+bundled. On Windows, when the user asks for a virtual port, QCCOM downloads the
+unmodified com0com 3.0.0.0 signed installer and runs it only if its SHA-256
+matches the value in src/vcom.rs.

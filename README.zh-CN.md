@@ -42,7 +42,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 - **内置终端、查找替换、分屏**：底部终端面板（PowerShell、cmd、Git Bash、bash 等），一键编译 / 烧录任务按钮、编译错误「问题」列表、按命令分块复制和跳转、查找、标签着色和并排，`文件:行号` 可点击跳转；文件内和全工程的正则查找替换带预览；拆分编辑器、Git 行标记和行内 Blame、外部修改自动重载、崩溃恢复、便携模式。
 - **固件工具**：Map / ELF / HEX / BIN 查看器（内存占用条、字节解读）、文本和二进制文件比较、带字段提取的位域计算器、数字悬停、代码片段、TODO 列表、Kconfig / 设备树 / 链接脚本高亮、可选 Vim 键位。
 - **调试工具**：日志数值实时波形图、过滤 / 高亮规则、二进制协议分帧和校验检查、自动应答、[Rhai](https://rhai.rs) 测试脚本、Modbus RTU / TCP 主站、XMODEM / YMODEM 发送文件、发送时自动加 CRC、AT 指令助手、多行发送、按原时序回放日志、统计、标记和书签。
-- **串口扩展**：DTR / RTS / Break 控制和 CTS / DSR / RI / CD 实时状态，一键复位（含 ESP32 下载模式时序），串口共享到网络、虚拟串口（烧录工具和别的串口助手可同时使用，不占用 COM 口；Windows 驱动已内置，一键安装），双口监听，端口别名，配置方案，多窗口。
+- **串口扩展**：DTR / RTS / Break 控制和 CTS / DSR / RI / CD 实时状态，一键复位（含 ESP32 下载模式时序），串口共享到网络、虚拟串口（烧录工具和别的串口助手可同时使用，不占用 COM 口；Windows 一键下载安装 com0com 驱动），双口监听，端口别名，配置方案，多窗口。
 - **电路仿真和接线记录**：在面包板上搭电路、通电看结果，真实求解器，接错会冒烟；万用表、示波器、逻辑分析仪；单片机引脚不写代码也能动（还能生成 Arduino / STM32 HAL / ESP-IDF / 51 代码）；AT 模块能连真实网络；72 个带讲解的示例。接线表配实物照片和编号标记，存在工程的 `.qccom/wiring/` 里。
 - **比较与合并**（`Ctrl+Shift+M`）：内置 Beyond Compare 式比较。文本比较带行内差异，两边都能直接改、一键把一段推到另一边；文件夹比较和同步；十六进制比较能自动对齐插入的字节，HEX 按地址比较；Git 冲突三方合并；CSV 和 map 符号表比较；HTML 报告。到处都能右键比较，包括系统文件管理器（「用 QCCOM 打开」「用 QCCOM 比较」）。
 - **外部修改和本地历史**：AI 工具、Keil 等别的程序改了工程文件会列出来，逐块保留或还原；每个文件自动留版本，一键打存档点、整个工程回到任意存档点，只存本机、不动 `.git`。
@@ -106,7 +106,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 
 每个版本都附带 `SHA256SUMS.txt`，可以用来校验下载的文件。
 
-> **Windows SmartScreen** 可能提示“无法识别的应用”，这是因为程序暂时还没有代码签名。点 **更多信息 → 仍要运行**，或者右键文件 → **属性** → 勾选 **解除锁定**。
+**代码签名**：Windows 版通过 SignPath.io 提供的免费代码签名、SignPath Foundation 签发的证书签名（申请中）。见[代码签名政策（Code signing policy）](CODE_SIGNING.md)和[隐私政策](https://www.zenghi.com/privacy/)。签名版发布前，**Windows SmartScreen** 可能提示“无法识别的应用”，点 **更多信息 → 仍要运行** 即可。
 
 ## 快速上手
 
@@ -154,5 +154,7 @@ QCCOM 使用 [Apache License 2.0](LICENSE) 开源。Copyright © 2026 [zenghi](h
 - 保留原有的版权和署名声明，并在修改过的文件中注明修改。
 
 请不要删除程序“关于”窗口里显示的作者和仓库信息。
+
+代码签名政策：[CODE_SIGNING.md](CODE_SIGNING.md)。
 
 内置字体：Inter 和 JetBrains Mono，均为 SIL Open Font License 1.1（见 [assets/licenses](assets/licenses)）。

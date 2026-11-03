@@ -2929,6 +2929,45 @@ impl App {
 
     // ------------------------------------------------------------ 状态栏
 
+    /// 首次运行告知一次匿名统计（第一次上报在启动 30 秒后，这条先出现）。点任一按钮或 × 后不再显示
+    fn telemetry_notice(&mut self, ctx: &egui::Context) {
+        if self.s.telemetry_noticed || !self.s.telemetry {
+            return;
+        }
+        egui::TopBottomPanel::bottom("telemetry-notice")
+            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin::symmetric(14, 5)))
+            .show_separator_line(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                    draw_icon(ui.painter(), r, Icon::Info, ACCENT());
+                    ui.label(
+                        RichText::new(t("QCCOM 会发送匿名使用统计（随机设备 ID、版本、系统、使用时长、打开过哪些页面），不含日志、文件和串口数据。"))
+                            .size(12.0)
+                            .color(TEXT2()),
+                    );
+                    ui.menu_button(t("收集了什么"), |ui| {
+                        ui.set_min_width(300.0);
+                        ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
+                    });
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if icon_button(ui, Icon::Close, t("知道了"), false).clicked() {
+                            self.s.telemetry_noticed = true;
+                        }
+                        if ui.button(t("关闭统计")).clicked() {
+                            self.s.telemetry = false;
+                            self.s.telemetry_noticed = true;
+                            crate::hub::set_enabled(false);
+                            self.toast(t("已关闭匿名统计，可以在设置里重新打开"), OK());
+                        }
+                        if ui.button(t("知道了")).clicked() {
+                            self.s.telemetry_noticed = true;
+                        }
+                    });
+                });
+            });
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
             let (col, text) = if self.autobaud.is_some() {
@@ -4855,6 +4894,7 @@ impl eframe::App for App {
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin::symmetric(14, 4)))
             .show_separator_line(true)
             .show(ctx, |ui| self.status_bar(ui));
+        self.telemetry_notice(ctx);
         self.activity_bar(ctx);
         self.shells.poll(ctx.input(|i| i.focused));
         self.ssh_poll();

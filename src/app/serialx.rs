@@ -499,7 +499,7 @@ impl App {
                     ui.set_width(ui.available_width());
                     ui.label(RichText::new(t("Windows 要先装一次虚拟串口驱动")).size(12.5).strong().color(TEXT()));
                     ui.label(
-                        RichText::new(t("用的是免费开源的 com0com，已经内置，不用另外下载。装好后自动建一对串口，以后直接用"))
+                        RichText::new(t("用的是免费开源的 com0com，点安装时自动下载官方安装包（约 250 KB）并校验。装好后自动建一对串口，以后直接用"))
                             .size(11.5)
                             .color(TEXT2()),
                     );
@@ -507,7 +507,7 @@ impl App {
                     ui.horizontal(|ui| {
                         if self.serial_ui.vc_installing.is_some() {
                             ui.spinner();
-                            ui.label(RichText::new(t("正在安装…请在弹出的窗口里点「是」")).size(12.0).color(TEXT2()));
+                            ui.label(RichText::new(t("正在下载并安装…请在弹出的窗口里点「是」")).size(12.0).color(TEXT2()));
                         } else {
                             if ui
                                 .add(egui::Button::new(RichText::new(t("一键安装")).color(ON_ACCENT())).fill(ACCENT()))

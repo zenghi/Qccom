@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.6
+
+Getting ready for free code signing (SignPath Foundation).
+
+- **Virtual port driver downloaded on demand**: the com0com installer is no longer bundled in the exe. On Windows, *Install* downloads the unmodified official com0com 3.0.0.0 installer (about 250 KB) and runs it only if its SHA-256 matches. The exe now contains only code built from this repository.
+- **Usage statistics notice**: on first run a one-line notice at the bottom says that anonymous usage statistics are sent, with *What's collected*, *Got it* and *Turn off*. Nothing is sent before the notice is shown.
+- **Code signing policy**: [CODE_SIGNING.md](CODE_SIGNING.md) describes what is signed, the team roles and the privacy policy. The release workflow submits the Windows exe to SignPath for signing on `v*` tags once the project is set up there, and the release then ships the signed exe.
+
 ## 1.9.5
 
 Fixes.

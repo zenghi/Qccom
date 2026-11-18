@@ -17,10 +17,10 @@
 </p>
 
 <p align="center">
-  English · <a href="README.zh-CN.md">简体中文</a>
+  English · <a href="README.zh-CN.md">简体中文（QCCOM 串口助手）</a> · <a href="https://www.zenghi.com/switch-from-sscom/">SSCOM32 用户的串口调试指南</a>
 </p>
 
-![QCCOM log view](docs/screenshot.png)
+![QCCOM serial monitor connected at 115200 baud, showing color-coded device logs and AT command presets](docs/screenshot.png)
 
 QCCOM is a single portable executable (about 8 MB on Windows) written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
 

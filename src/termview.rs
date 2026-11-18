@@ -198,8 +198,10 @@ impl TermView {
                 let mut cols = Vec::with_capacity(row.len());
                 for (c, cell) in row.iter().enumerate() {
                     if !cell.wide_tail {
-                        text.extend(cell.ch.to_lowercase().next());
-                        cols.push(c);
+                        for ch in cell.chars() {
+                            text.extend(ch.to_lowercase().next());
+                            cols.push(c);
+                        }
                     }
                 }
                 if text.len() < q.len() {
@@ -442,9 +444,11 @@ impl TermView {
             let r = ((p.y - origin.y) / rh).floor().clamp(0.0, (trows - 1) as f32) as usize;
             (top_abs + r, c)
         };
+        let text_rect = Rect::from_min_size(origin, vec2(tcols as f32 * cw, trows as f32 * rh)).intersect(inner);
+        let command_click = ui.input(|i| i.modifiers.command);
 
         // Ctrl+悬停 `文件:行号`：下划线，点击打开
-        if resp.hovered() && ui.input(|i| i.modifiers.command) {
+        if resp.hovered() && command_click {
             if let Some(p) = resp.hover_pos() {
                 let (abs, c) = cell_at(p);
                 if let Some(row) = self.row(abs) {
@@ -468,26 +472,37 @@ impl TermView {
             }
         }
 
-        // 鼠标拖动选择，松开自动复制
-        if resp.drag_started() {
+        // 拖动或双击选择，选完自动复制。Ctrl+点击仍用于打开链接。
+        let select_cell = |this: &Self, p| {
+            let (abs, col) = cell_at(p);
+            (abs, this.row(abs).map_or(col, |row| cell_head(row, col)))
+        };
+        if resp.drag_started_by(egui::PointerButton::Primary) {
             if let Some(p) = ui.input(|i| i.pointer.press_origin()) {
-                let c = cell_at(p);
+                let c = select_cell(self, p);
                 self.sel = Some((c, c));
             }
         }
-        if resp.dragged() {
+        if resp.dragged_by(egui::PointerButton::Primary) {
             if let (Some((a, _)), Some(p)) = (self.sel, resp.interact_pointer_pos()) {
-                self.sel = Some((a, cell_at(p)));
+                self.sel = Some((a, select_cell(self, p)));
             }
         }
-        if resp.drag_stopped() {
+        let double_click = resp.double_clicked() && !command_click;
+        if double_click {
+            self.sel = resp.interact_pointer_pos().filter(|p| text_rect.contains(*p)).and_then(|p| {
+                let (abs, col) = cell_at(p);
+                let (first, last) = word_at(self.row(abs)?, col)?;
+                Some(((abs, first), (abs, last)))
+            });
+        } else if resp.clicked() {
+            self.sel = None;
+        }
+        if double_click || resp.drag_stopped_by(egui::PointerButton::Primary) {
             if let Some(tv) = self.sel_text().filter(|tv| !tv.trim().is_empty()) {
                 ui.ctx().copy_text(tv);
                 o.toast = Some(t("已复制选中文本"));
             }
-        }
-        if resp.clicked() {
-            self.sel = None;
         }
         let mut paste = None;
         let mut reset = false;
@@ -633,7 +648,7 @@ impl TermView {
                     painter.hline(cell_rect.x_range(), cell_rect.bottom() - 1.5, st(1.0, fg));
                 }
                 // ASCII 连成一段画；中文、线框等非 ASCII 字符按格子单独放，保证对齐
-                if cell.ch.is_ascii() {
+                if cell.ch.is_ascii() && cell.combining.is_none() {
                     let key = Some((fg, st_.bold));
                     if key != run_key {
                         flush(&mut run, run_x, run_key);
@@ -646,7 +661,7 @@ impl TermView {
                     run_key = None;
                     if !draw_block_char(&painter, cell_rect, cell.ch, fg) {
                         let f = if st_.bold { &bold_font } else { &font };
-                        painter.text(cell_rect.center(), Align2::CENTER_CENTER, cell.ch, f.clone(), fg);
+                        painter.text(cell_rect.center(), Align2::CENTER_CENTER, cell.chars().collect::<String>(), f.clone(), fg);
                     }
                 }
             }
@@ -670,7 +685,7 @@ impl TermView {
                 if phase < 0.6 {
                     painter.rect_filled(cr, 1.0, ACCENT().gamma_multiply(0.85));
                     if let Some(c) = s.grid.get(s.y).and_then(|r| r.get(s.x)).filter(|c| c.ch != ' ') {
-                        painter.text(cr.center(), Align2::CENTER_CENTER, c.ch, font.clone(), ON_ACCENT());
+                        painter.text(cr.center(), Align2::CENTER_CENTER, c.chars().collect::<String>(), font.clone(), ON_ACCENT());
                     }
                 }
                 let next = if phase < 0.6 { 0.6 - phase } else { 1.06 - phase };
@@ -857,6 +872,42 @@ fn fill(p: &egui::Painter, r: Rect, c: Color32) -> bool {
     true
 }
 
+fn cell_head(row: &[term::Cell], col: usize) -> usize {
+    if row.get(col).is_some_and(|c| c.wide_tail) {
+        col.saturating_sub(1)
+    } else {
+        col
+    }
+}
+
+/// 双击选择一个单词（首尾列都包含）；宽字符的后一格也算同一个字。
+fn word_at(row: &[term::Cell], col: usize) -> Option<(usize, usize)> {
+    let col = cell_head(row, col);
+    let ch = row.get(col)?.ch;
+    if ch.is_whitespace() {
+        return None;
+    }
+    let is_word = |c: char| c.is_alphanumeric() || c == '_';
+    let (mut first, mut last) = (col, col);
+    if is_word(ch) {
+        while first > 0 {
+            let prev = cell_head(row, first - 1);
+            if !is_word(row[prev].ch) {
+                break;
+            }
+            first = prev;
+        }
+        loop {
+            let next = last + 1 + usize::from(row.get(last + 1).is_some_and(|c| c.wide_tail));
+            if !row.get(next).is_some_and(|c| is_word(c.ch)) {
+                break;
+            }
+            last = next;
+        }
+    }
+    Some((first, last))
+}
+
 /// 找 col 所在的 `文件:行号`（也认 `文件:行:列` 和 Keil / MSVC 的 `文件(行)`），返回 [起, 止) 列和解析结果
 pub fn find_link(chars: &[char], col: usize) -> Option<(usize, usize, String, usize)> {
     let delim = |c: char| c.is_whitespace() || c == '\u{0}' || "\"'`<>[]{},;|".contains(c);
@@ -928,7 +979,86 @@ fn looks_like_file(f: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::find_link;
+    use super::{find_link, term, word_at, TermOut, TermView};
+    use eframe::egui::{self, pos2, vec2, Event, Key, Modifiers, PointerButton, Rect};
+
+    fn frame(ctx: &egui::Context, tv: &mut TermView, time: f64, events: Vec<Event>) -> TermOut {
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, 300.0))),
+            time: Some(time),
+            events,
+            ..Default::default()
+        };
+        let mut out = TermOut::default();
+        let _ = ctx.run(input, |ctx| {
+            egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
+                out = tv.show(ui, &|s| s.as_bytes().to_vec(), None, false);
+            });
+        });
+        out
+    }
+
+    #[test]
+    fn double_click_selects_text_and_later_single_click_clears() {
+        let ctx = egui::Context::default();
+        crate::theme::load_fonts(&ctx);
+        let mut tv = TermView::new("click-selection", 30, 3);
+        tv.feed(b"hello world");
+        let p = pos2(13.0, 11.0);
+        let button = |pressed| Event::PointerButton {
+            pos: p,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: Modifiers::NONE,
+        };
+        frame(&ctx, &mut tv, 0.0, vec![Event::PointerMoved(p)]);
+        frame(&ctx, &mut tv, 0.1, vec![button(true)]);
+        frame(&ctx, &mut tv, 0.15, vec![button(false)]);
+        assert_eq!(tv.sel_text(), None);
+        frame(&ctx, &mut tv, 0.2, vec![button(true)]);
+        frame(&ctx, &mut tv, 0.25, vec![button(false)]);
+        assert_eq!(tv.sel_text().as_deref(), Some("hello"));
+        frame(&ctx, &mut tv, 1.0, vec![button(true)]);
+        frame(&ctx, &mut tv, 1.05, vec![button(false)]);
+        assert_eq!(tv.sel_text(), None);
+    }
+
+    #[test]
+    fn ime_enter_does_not_send_a_command_until_composition_finishes() {
+        let ctx = egui::Context::default();
+        crate::theme::load_fonts(&ctx);
+        let mut tv = TermView::new("terminal-ime", 30, 3);
+        tv.blocks = true;
+        tv.focus_req = true;
+        let enter = Event::Key {
+            key: Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: Modifiers::NONE,
+        };
+        frame(&ctx, &mut tv, 0.0, vec![]);
+        let composing = frame(&ctx, &mut tv, 0.1, vec![Event::Ime(egui::ImeEvent::Preedit("ni".into())), enter.clone()]);
+        assert!(composing.input.is_empty() && composing.enter_line.is_none());
+        let committed = frame(&ctx, &mut tv, 0.2, vec![Event::Ime(egui::ImeEvent::Commit("ni".into()))]);
+        assert_eq!(committed.input, b"ni");
+        assert!(committed.enter_line.is_none());
+        assert_eq!(frame(&ctx, &mut tv, 0.3, vec![enter]).input, b"\r");
+    }
+
+    #[test]
+    fn double_click_word_at_wide_cells_and_delimiters() {
+        let mut tv = TermView::new("selection", 30, 3);
+        tv.feed("echo 中文_name! ok".as_bytes());
+        let row = tv.row(0).unwrap();
+        for col in [5, 6, 7, 8, 9, 13] {
+            let (a, b) = word_at(row, col).unwrap();
+            assert_eq!(term::row_text(row, a, b + 1), "中文_name");
+        }
+        assert_eq!(word_at(row, 14), Some((14, 14)));
+        assert_eq!(word_at(row, 4), None);
+        assert_eq!(word_at(row, 30), None);
+    }
 
     fn link(s: &str, col: usize) -> Option<(String, usize)> {
         let v: Vec<char> = s.chars().collect();

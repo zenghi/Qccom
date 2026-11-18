@@ -978,11 +978,20 @@ impl CodeView {
                 l.close(&self.tabs[i].path);
             }
             self.tabs.remove(i);
+            self.hover = None;
+            self.tab_drag = None;
+            self.tab_out = None;
             if self.active >= self.tabs.len() {
                 self.active = self.tabs.len().saturating_sub(1);
             } else if i < self.active {
                 self.active -= 1;
             }
+            if self.tabs.is_empty() {
+                self.find = None;
+            } else {
+                self.update_find();
+            }
+            self.sync_split();
             self.sync_tabs();
         }
     }
@@ -1841,11 +1850,14 @@ impl CodeView {
                 .show_inside(ui, |ui| self.relations_ui(ui));
         }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| {
+            if !self.tabs.is_empty() {
+                self.tab_bar(ui);
+            }
+            // The tab bar can close the last document in this same frame.
             if self.tabs.is_empty() {
                 self.notice_bars(ui);
                 self.welcome(ui);
             } else {
-                self.tab_bar(ui);
                 self.breadcrumbs(ui);
                 self.notice_bars(ui);
                 if self.context_win {
@@ -1865,8 +1877,8 @@ impl CodeView {
                     }
                 }
                 self.sync_split();
-                match self.split.as_ref().and_then(|sp| self.tabs.iter().position(|d| d.path == sp.other)) {
-                    Some(oi) => self.split_editors(ui, oi),
+                match self.split.as_ref().map(|sp| sp.other.clone()) {
+                    Some(other) => self.split_editors(ui, &other),
                     None => self.editor(ui),
                 }
             }
@@ -1932,7 +1944,7 @@ impl CodeView {
             if has(Act::CloseTab) {
                 self.close_tab(self.active);
             }
-            if has(Act::NextTab) {
+            if has(Act::NextTab) && !self.tabs.is_empty() {
                 self.active = (self.active + 1) % self.tabs.len();
             }
             if has(Act::SaveFile) {
@@ -3457,7 +3469,7 @@ impl CodeView {
         sp.last = cur;
     }
 
-    fn split_editors(&mut self, ui: &mut Ui, oi: usize) {
+    fn split_editors(&mut self, ui: &mut Ui, other: &Path) {
         let full = ui.available_rect_before_wrap();
         ui.allocate_rect(full, Sense::hover());
         let ratio = self.s.split_ratio.clamp(0.2, 0.8);
@@ -3468,6 +3480,13 @@ impl CodeView {
         let (ar, or) = if active_left { (left, right) } else { (right, left) };
         let mut c = ui.new_child(egui::UiBuilder::new().max_rect(ar));
         self.editor(&mut c);
+        // A Vim command can close or switch tabs while rendering the first pane.
+        let Some(oi) = self.tabs.iter().position(|d| d.path == other).filter(|&i| i != self.active) else {
+            return;
+        };
+        if self.split.is_none() {
+            return;
+        }
         let mut c = ui.new_child(egui::UiBuilder::new().max_rect(or));
         if self.side_editor(&mut c, oi) {
             self.active = oi;
@@ -3868,11 +3887,14 @@ impl CodeView {
     // ------------------------------------------------------------ 编辑器
 
     fn editor(&mut self, ui: &mut Ui) {
+        let active = self.active;
+        if self.tabs.get(active).is_none() {
+            return;
+        }
         let mut full = ui.available_rect_before_wrap();
         ui.allocate_rect(full, Sense::hover());
         let idx = self.index.clone();
         let sem = self.sem.clone();
-        let active = self.active;
         let now = ui.input(|i| i.time);
         if self.tabs[active].show_special {
             let d = &mut self.tabs[active];
@@ -3978,10 +4000,12 @@ impl CodeView {
         if out.changed && self.find.is_some() {
             self.update_find();
         }
-        if let Some(c) = out.vim_cmd.clone() {
+        // Commands such as :q can invalidate the document used to render this frame.
+        if let Some(c) = out.vim_cmd {
             self.vim_command(&c, now);
+            ui.ctx().request_repaint();
+            return;
         }
-
         // ---- 悬浮 / Ctrl+点击
         let mut want_def: Option<(String, egui::Pos2, Option<usize>)> = None;
         let d = &self.tabs[active];
@@ -5086,4 +5110,54 @@ fn branch_label(b: &str) -> String {
         out += &format!(" ↓{n}");
     }
     out
+}
+
+#[cfg(test)]
+mod close_tests {
+    use super::*;
+
+    #[test]
+    fn closing_the_last_c_tab_during_paint_leaves_the_viewer_usable() {
+        let path = std::env::temp_dir().join(format!("qccom-last-tab-{}.c", std::process::id()));
+        std::fs::write(&path, "int main(void) { return 0; }\n").unwrap();
+        let mut code = CodeView::new(CodeSettings::default());
+        let ctx = egui::Context::default();
+        crate::theme::load_fonts(&ctx);
+        let km = crate::keymap::Keymap::with_scheme(&Default::default(), Default::default());
+        code.open_file(&path, None);
+        assert_eq!(code.tabs.len(), 1);
+
+        // A middle click on the tab closes it from tab_bar, in the same pass
+        // that used to render the now-nonexistent active editor.
+        let pos = pos2(20.0, 18.0);
+        for pressed in [None, Some(true), Some(false), None] {
+            let events = pressed.map_or_else(Vec::new, |pressed| {
+                vec![
+                    egui::Event::PointerMoved(pos),
+                    egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Middle,
+                        pressed,
+                        modifiers: egui::Modifiers::NONE,
+                    },
+                ]
+            });
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(800.0, 650.0))),
+                events,
+                ..Default::default()
+            };
+            let _ = ctx.run(input, |ctx| {
+                egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| code.ui_in(ui, &[], &km, true));
+            });
+        }
+        assert!(code.tabs.is_empty());
+        assert!(code.s.tabs.is_empty());
+
+        code.open_file(&path, None);
+        assert_eq!(code.tabs.len(), 1);
+        code.shortcuts(&ctx, &[Act::CloseTab, Act::NextTab]);
+        assert!(code.tabs.is_empty());
+        std::fs::remove_file(path).unwrap();
+    }
 }

@@ -1,7 +1,8 @@
 //! 整体仿真测试：搭几个典型电路，跑一段时间，看结果是不是符合常识。
 
 use super::mcu::{Act, Cond, McuCfg, PinCfg, PinMode, Rule};
-use super::sim::Sim;
+use super::sim::{set_v, Sim};
+use super::solver::Dev;
 use super::{lib, Circuit};
 
 /// 按 1 倍速跑 secs 秒（每帧 1/60 秒）
@@ -11,7 +12,9 @@ fn run(s: &mut Sim, c: &Circuit, secs: f64) {
         // 测试里不受 CPU 预算影响：一帧没走完就接着走
         let t_end = s.t + 1.0 / 60.0;
         while s.t < t_end - 1e-9 {
+            let t_before = s.t;
             s.advance(c, (t_end - s.t).min(1.0 / 60.0), 1.0);
+            assert!(s.t > t_before && s.ok, "simulation stalled at t={}", s.t);
         }
     }
 }
@@ -68,6 +71,92 @@ fn rc_on_breadboard() {
     let vc = s.pin_v(cap, 0).unwrap() - s.pin_v(cap, 1).unwrap();
     let vb = s.pin_v(bat, 0).unwrap() - s.pin_v(bat, 1).unwrap();
     assert!((vc / vb - 0.632).abs() < 0.06, "vc = {vc}, vb = {vb}");
+}
+
+fn reactive_series(kind: &str) -> (Circuit, u32, u32) {
+    let mut c = Circuit::default();
+    let ac = c.add_part("acsrc", 0, 0);
+    c.part_mut(ac).unwrap().set("freq", "250");
+    let res = c.add_part("res", 0, 0);
+    c.part_mut(res).unwrap().set("r", "1k");
+    let reactive = c.add_part(kind, 4, 0);
+    let ret = c.part(reactive).unwrap().pins()[1];
+    c.add_wire(vec![ret, (ret.0, 2), (0, 2)], 1);
+    (c, res, reactive)
+}
+
+#[test]
+fn reactive_terminal_currents_obey_kirchhoff() {
+    for (kind, prop, value) in [("cap", "c", "1u"), ("ind", "l", "1")] {
+        let (mut c, res, reactive) = reactive_series(kind);
+        c.part_mut(reactive).unwrap().set(prop, value);
+        let mut s = Sim::new(&c);
+        s.advance(&c, 5e-4, 1.0);
+        assert!(s.ok && s.t > 0.0);
+        let upstream = &s.ps[s.index_of(res).unwrap()];
+        let load = &s.ps[s.index_of(reactive).unwrap()];
+        assert!(upstream.i[0] > 1e-6);
+        assert!((upstream.i[1] + load.i[0]).abs() < 1e-8, "{kind}: {:?} vs {:?}", upstream.i, load.i);
+        assert!((load.i[0] + load.i[1]).abs() < 1e-8, "{kind}: {:?}", load.i);
+        assert!(load.p > 0.0, "{kind}: power {}", load.p);
+    }
+}
+
+#[test]
+fn rejected_steps_do_not_record_stale_measurements() {
+    let (mut c, _, cap) = reactive_series("cap");
+    let ac = c.parts[0].id;
+    let probe = c.add_part("probe", 4, 0);
+    let mut s = Sim::new(&c);
+    s.advance(&c, 5e-4, 1.0);
+    let ac_pi = s.index_of(ac).unwrap();
+    let cap_pi = s.index_of(cap).unwrap();
+    let cap_history = |s: &Sim| {
+        let Dev::C { v0, .. } = &s.devs_of(cap_pi)[1] else { panic!("expected capacitor companion") };
+        *v0
+    };
+    let prev = (s.t, s.solver.v.clone(), cap_history(&s), s.ps[cap_pi].i.clone(), s.traces[0].s.clone());
+    let normal = std::mem::take(&mut s.ps[ac_pi].beh);
+    let source = s.ps[ac_pi].d0;
+    set_v(&mut s.devs[source], f64::NAN);
+    s.advance(&c, 5e-4, 1.0);
+    assert!(!s.ok);
+    assert_eq!(s.real_speed, 0.0);
+    assert_eq!(s.t, prev.0);
+    assert_eq!(s.solver.v, prev.1);
+    assert_eq!(cap_history(&s), prev.2);
+    assert_eq!(s.ps[cap_pi].i, prev.3);
+    assert_eq!(s.traces[0].part, probe);
+    assert_eq!(s.traces[0].s, prev.4);
+    s.ps[ac_pi].beh = normal;
+    s.advance(&c, 5e-4, 1.0);
+    assert!(s.ok && s.t > prev.0);
+}
+
+#[test]
+fn burnt_mcu_does_not_drive_pins_and_can_be_repaired() {
+    let mut c = Circuit::default();
+    let u = c.add_part("uno", 0, 0);
+    let cfg = McuCfg {
+        pins: vec![PinCfg {
+            pin: "D2".into(),
+            mode: PinMode::OutHigh,
+        }],
+        ..Default::default()
+    };
+    c.part_mut(u).unwrap().set("mcu", serde_json::to_string(&cfg).unwrap());
+    let pin = lib::def("uno").unwrap().pin("D2").unwrap();
+    let mut s = Sim::new(&c);
+    run(&mut s, &c, 0.02);
+    assert!(s.pin_v(u, pin).unwrap() > 4.0);
+    s.burn(s.index_of(u).unwrap(), "test fault".into());
+    run(&mut s, &c, 0.02);
+    assert!(s.burnt_ids.contains(&u));
+    assert!(s.pin_v(u, pin).is_none());
+    s.repair(u);
+    run(&mut s, &c, 0.02);
+    assert!(!s.burnt_ids.contains(&u));
+    assert!(s.pin_v(u, pin).unwrap() > 4.0);
 }
 
 #[test]

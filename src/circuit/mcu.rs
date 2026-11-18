@@ -553,7 +553,7 @@ impl McuRt {
     }
 
     /// 某时刻某引脚的输出电平（None = 不驱动）
-    fn level(&self, pin: usize, t: f64) -> Option<bool> {
+    fn level(&self, pin: usize, t: f64, output: Option<bool>) -> Option<bool> {
         if !self.running || t < self.asleep_until {
             return None;
         }
@@ -570,7 +570,7 @@ impl McuRt {
         }
         let lt = t - self.boot_t;
         match self.mode_of(pin) {
-            Some(PinMode::Blink { ms }) if !self.out.contains_key(&pin) => Some(((lt * 1000.0 / (*ms).max(1) as f64) as i64) % 2 == 0),
+            Some(PinMode::Blink { ms }) if output.is_none() => Some(((lt * 1000.0 / (*ms).max(1) as f64) as i64) % 2 == 0),
             Some(PinMode::Pwm { duty, freq }) => Some(pwm_level(*duty, *freq, t)),
             Some(PinMode::Breath { ms }) => {
                 let x = (lt * 1000.0 / (*ms).max(1) as f64).fract();
@@ -585,7 +585,7 @@ impl McuRt {
             Some(PinMode::Tone { freq }) => Some((t * *freq as f64).fract() < 0.5),
             Some(PinMode::Servo { angle }) => Some(servo_level(*angle, t)),
             Some(PinMode::UartTx) => Some(true),
-            _ => self.out.get(&pin).copied(),
+            _ => output,
         }
     }
 
@@ -597,21 +597,8 @@ impl McuRt {
         }
     }
 
-    pub fn pre(&mut self, devs: &mut [Dev], v: &[f64], pin_node: &[usize], _part: &Part, t: f64, _pressed: &HashSet<u32>) {
+    pub fn pre(&self, devs: &mut [Dev], v: &[f64], pin_node: &[usize], _part: &Part, t: f64, _pressed: &HashSet<u32>) {
         let rail_v = volt(v, pin_node[self.rail]) - volt(v, pin_node[self.gnd]);
-        // 定时的引脚变化
-        let mut fired = vec![];
-        self.sched.retain(|(at, pin, lv)| {
-            if *at <= t + 1e-12 {
-                fired.push((*pin, *lv));
-                false
-            } else {
-                true
-            }
-        });
-        for (pin, lv) in fired {
-            self.out.insert(pin, lv);
-        }
         let asleep = t < self.asleep_until;
         // 单片机电流：睡眠时降到很小
         if let Some(d) = devs.get_mut(self.mcu_load) {
@@ -631,9 +618,15 @@ impl McuRt {
             }
         }
         let od_pin = |p: usize| -> bool { self.mode_of(p).is_some_and(|m| matches!(m, PinMode::I2cSda | PinMode::I2cScl)) };
-        let pins: Vec<(usize, PinDevs)> = self.devs.iter().map(|(k, d)| (*k, *d)).collect();
-        for (pin, pd) in pins {
-            let lv = self.level(pin, t);
+        for (&pin, pd) in &self.devs {
+            // A trial step may be rejected, so preview scheduled outputs without consuming them.
+            let output = self
+                .sched
+                .iter()
+                .rev()
+                .find_map(|&(at, p, high)| (p == pin && at <= t + 1e-12).then_some(high))
+                .or_else(|| self.out.get(&pin).copied());
+            let lv = self.level(pin, t, output);
             let mode = self.mode_of(pin).cloned();
             // 51 的 P1~P3：高电平是弱上拉
             let weak_hi = self.key == "stc89";
@@ -698,6 +691,15 @@ impl McuRt {
     /// 每步结束：检查电源和引脚、跑规则。返回（过载比例和原因, 下一次事件）
     #[allow(clippy::too_many_arguments)]
     pub fn post(&mut self, devs: &[Dev], v: &[f64], pin_node: &[usize], part: &Part, t: f64, dt: f64, ctx: &mut McuCtx) -> (Option<(f64, String)>, Option<f64>) {
+        let out = &mut self.out;
+        self.sched.retain(|&(at, pin, high)| {
+            if at <= t + dt + 1e-12 {
+                out.insert(pin, high);
+                false
+            } else {
+                true
+            }
+        });
         let rail_v = volt(v, pin_node[self.rail]) - volt(v, pin_node[self.gnd]);
         let mut bad: Option<(f64, String)> = None;
         let mut over = |r: f64, w: String| {
@@ -1001,7 +1003,7 @@ impl McuRt {
             }
             Act::Toggle { pin: p } => {
                 if let Some(i) = pin(self, p) {
-                    let cur = self.level(i, t).unwrap_or(false);
+                    let cur = self.level(i, t, self.out.get(&i).copied()).unwrap_or(false);
                     self.pwm_over.remove(&i);
                     self.out.insert(i, !cur);
                 }

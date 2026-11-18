@@ -110,9 +110,10 @@ fn persistence_path() -> Option<std::path::PathBuf> {
 }
 
 fn main() -> eframe::Result {
-    // 系统右键「用 QCCOM 打开 / 比较」：已经有窗口开着就交给它，不再开新窗口
+    // Files and comparisons reuse the first window; projects open a separate workspace.
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if shellint::forward(&shellint::parse_args(&args)) {
+    let startup = shellint::parse_args(&args);
+    if shellint::should_forward(&args, &startup) && shellint::forward(&startup) {
         return Ok(());
     }
     let n = instance();
@@ -131,9 +132,9 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "qccom",
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             ime::install();
-            Ok(Box::new(app::App::new(cc)))
+            Ok(Box::new(app::App::new(cc, args, startup)))
         }),
     )
 }

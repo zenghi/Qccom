@@ -131,6 +131,10 @@ impl Nl {
 
     /// v：各端口电压；out：从各端口节点流进元件的电流
     pub fn currents(&self, v: &[f64], out: &mut [f64]) {
+        self.currents_scaled(v, out, 1.0);
+    }
+
+    fn currents_scaled(&self, v: &[f64], out: &mut [f64], source_scale: f64) {
         match self {
             Nl::Diode(m) => {
                 let i = diode_with_rs(m, v[0] - v[1]);
@@ -223,7 +227,7 @@ impl Nl {
             Nl::Psu { v: e, r, ilim } => {
                 // 电流从正极流出到外部 = 流入元件的电流为负
                 // 限流以后再加一点点漏电导，牛顿迭代才有方向
-                let d = e - (v[0] - v[1]);
+                let d = source_scale * e - (v[0] - v[1]);
                 let i = ilim * soft_clip(d / r / ilim) + 1e-4 * d;
                 out[0] = -i;
                 out[1] = i;
@@ -410,6 +414,12 @@ impl Solver {
 
     /// 解一次（含牛顿迭代）。返回是否收敛。直接牛顿不收敛时，把电源从 0 慢慢加到 100% 再试（电源步进）
     pub fn solve(&mut self, devs: &[Dev], mode: Mode) -> bool {
+        self.iters = 0;
+        if let Mode::Tran(dt) = mode {
+            if !dt.is_finite() || dt <= 0.0 {
+                return false;
+            }
+        }
         let n = self.n;
         if n <= 1 {
             self.v = vec![0.0; n];
@@ -427,12 +437,15 @@ impl Solver {
         for d in devs {
             self.stamp_linear(d, mode);
         }
+        if self.g.iter().chain(&self.b).any(|x| !x.is_finite()) {
+            return false;
+        }
         let (g0, b0) = (self.g.clone(), self.b.clone());
         if let Some(x) = newton(n, &g0, &b0, 1.0, devs, &v, 120, &mut self.iters) {
             self.v = x;
             return true;
         }
-        // 电源步进：先从全 0 开始，按 λ 把独立源逐步加满
+        // 电源步进：先从全 0 开始，按 λ 把独立源（包括非线性的限流电源）逐步加满
         let mut x = vec![0.0; n];
         let mut lam: f64 = 0.0;
         let mut step: f64 = 0.1;
@@ -522,7 +535,7 @@ fn residual(n: usize, g0: &[f64], b0: &[f64], lam: f64, devs: &[Dev], v: &[f64],
             for (k, p) in pins.iter().enumerate() {
                 pv[k] = v[*p];
             }
-            m.currents(&pv[..np], &mut cur[..np]);
+            m.currents_scaled(&pv[..np], &mut cur[..np], lam);
             for k in 0..np {
                 if pins[k] != 0 {
                     out[pins[k]] += cur[k];
@@ -550,6 +563,10 @@ fn newton(n: usize, g0: &[f64], b0: &[f64], lam: f64, devs: &[Dev], start: &[f64
     let nonlinear = devs.iter().any(|d| matches!(d, Dev::N { .. }));
     residual(n, g0, b0, lam, devs, &v, &mut r);
     let mut f = norm(&r);
+    if !f.is_finite() {
+        *iters = 0;
+        return None;
+    }
     if nonlinear && f < 1e-10 {
         *iters = 0;
         return Some(v);
@@ -566,13 +583,13 @@ fn newton(n: usize, g0: &[f64], b0: &[f64], lam: f64, devs: &[Dev], start: &[f64
             for (k, p) in pins.iter().enumerate() {
                 pv[k] = v[*p];
             }
-            m.currents(&pv[..np], &mut cur[..np]);
+            m.currents_scaled(&pv[..np], &mut cur[..np], lam);
             // 数值雅可比：∂I_k/∂V_j，线性化 I_k ≈ I_k0 + Σ g_kj (V_j − V_j0)
             for j in 0..np {
                 let h = 1e-6 * (1.0 + pv[j].abs());
                 let keep = pv[j];
                 pv[j] = keep + h;
-                m.currents(&pv[..np], &mut cur2[..np]);
+                m.currents_scaled(&pv[..np], &mut cur2[..np], lam);
                 pv[j] = keep;
                 for k in 0..np {
                     let gkj = (cur2[k] - cur[k]) / h;
@@ -810,6 +827,18 @@ mod tests {
     }
 
     #[test]
+    fn invalid_transient_duration_preserves_solution() {
+        let devs = [Dev::V { p: 1, n: 0, v: 5.0, r: 0.1 }];
+        let mut s = Solver::new(2);
+        assert!(s.solve(&devs, Mode::Dc));
+        let previous = s.v.clone();
+        for dt in [0.0, -1e-3, f64::NAN, f64::INFINITY] {
+            assert!(!s.solve(&devs, Mode::Tran(dt)));
+            assert_eq!(s.v, previous);
+        }
+    }
+
+    #[test]
     fn ldo() {
         // 5V 进，3.3V 出，100Ω 负载 → 33 mA，输入电流也约 33 mA
         let devs = vec![
@@ -872,6 +901,33 @@ mod tests {
         ];
         assert!(s.solve(&devs, Mode::Dc));
         assert!((s.v[1] - 5.0).abs() < 0.01, "v = {}", s.v[1]);
+    }
+
+    #[test]
+    fn current_limited_supply_cold_starts_regulator() {
+        let devs = [
+            Dev::N {
+                pins: vec![1, 0],
+                m: Nl::Psu { v: 12.0, r: 0.01, ilim: 1.0 },
+            },
+            Dev::N {
+                pins: vec![1, 2, 0],
+                m: Nl::Reg {
+                    vset: 3.3,
+                    drop: 1.1,
+                    ilim: 1.0,
+                    iq: 5e-3,
+                    eff: 0.0,
+                    rout: 0.05,
+                    on: true,
+                },
+            },
+            Dev::R { a: 2, b: 0, r: 22.01 },
+        ];
+        let mut s = Solver::new(3);
+        assert!(s.solve(&devs, Mode::Dc), "current-limited supply must participate in source stepping");
+        assert!((s.v[1] - 12.0).abs() < 0.01, "{}", s.v[1]);
+        assert!((s.v[2] - 3.3).abs() < 0.02, "{}", s.v[2]);
     }
 
     #[test]

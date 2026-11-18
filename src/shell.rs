@@ -151,6 +151,10 @@ impl Shell {
         cmd.args(&kind.args);
         utf8_args(&mut cmd, &kind.program);
         cmd.cwd(cwd);
+        if cfg!(windows) && kind.name == "Git Bash" {
+            // Git for Windows' login profile otherwise changes to $HOME.
+            cmd.env("CHERE_INVOKING", "1");
+        }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         utf8_env(&mut cmd);
@@ -402,6 +406,7 @@ pub struct Shells {
     /// 右半边显示的标签
     split: Option<usize>,
     rename: Option<(usize, String)>,
+    project_shell_pending: bool,
     /// 当前标签的编译问题，以及从哪一行开始找（按任务按钮时记下）
     pub problems: Vec<Problem>,
     prob_from: Option<(usize, u64)>,
@@ -423,6 +428,7 @@ impl Shells {
             maximized: false,
             split: None,
             rename: None,
+            project_shell_pending: false,
             problems: vec![],
             prob_from: None,
             prob_at: None,
@@ -496,6 +502,10 @@ impl Shells {
         self.s.open && self.tabs.get(self.active).is_some_and(|sh| ctx.memory(|m| m.has_focus(sh.tv.id())))
     }
 
+    pub fn project_changed(&mut self) {
+        self.project_shell_pending = true;
+    }
+
     /// 打开 / 关闭面板；第一次打开时自动开一个默认 shell
     pub fn toggle(&mut self, ctx: &egui::Context, cwd: &Path) {
         if self.s.open && !self.focused(ctx) && !self.tabs.is_empty() {
@@ -526,6 +536,7 @@ impl Shells {
                 self.tabs.push(sh);
                 self.active = self.tabs.len() - 1;
                 self.s.open = true;
+                self.project_shell_pending = false;
             }
             Err(e) => {
                 let msg: &'static str = Box::leak(tf("启动 {} 失败：{}", &[&kind.name, &e]).into_boxed_str());
@@ -570,6 +581,11 @@ impl Shells {
         if !self.s.open {
             self.rect = None;
             return;
+        }
+        if std::mem::take(&mut self.project_shell_pending) {
+            // An existing PTY may be busy, and its launch directory isn't
+            // necessarily its current directory. Keep it open and start fresh.
+            self.new_shell(ctx, None, cwd);
         }
         let avail = ctx.available_rect().height();
         let limit = (avail - 120.0).max(120.0);

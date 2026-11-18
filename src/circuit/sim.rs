@@ -16,6 +16,7 @@ use super::solver::{Dev, DiodeM, Mode, Nl, Solver, ROFF};
 use super::{Circuit, Part};
 
 pub const NONE: usize = usize::MAX;
+const MIN_DT: f64 = 1e-8;
 
 /// 每个元件的显示状态（帧平均）
 #[derive(Clone, Debug, Default)]
@@ -549,24 +550,25 @@ impl Sim {
             self.recompile(c);
         }
         let target = (wall * speed).clamp(0.0, 0.5);
-        let t_end = self.t + target;
+        let t_start = self.t;
+        let t_end = t_start + target;
         let start = Instant::now();
         let budget = Duration::from_millis(10);
-        let mut steps = 0;
         let dt_max = (target / 8.0).clamp(1e-6, 2e-3);
         while self.t < t_end - 1e-12 {
-            let mut dt = self.dt.min(dt_max).min(t_end - self.t);
-            if self.next_ev.is_finite() && self.next_ev > self.t + 1e-12 {
-                dt = dt.min(self.next_ev - self.t);
+            let mut dt = self.dt.max(MIN_DT).min(dt_max).min(t_end - self.t);
+            let event = self.next_ev;
+            let upcoming_event = event.is_finite() && event > self.t + 1e-12;
+            if upcoming_event {
+                dt = dt.min(event - self.t);
             }
-            dt = dt.max(1e-8);
-            let at_event = self.next_ev.is_finite() && self.next_ev - self.t <= dt + 1e-15;
-            self.step(c, dt);
+            if !self.step(c, dt) {
+                break;
+            }
             // 刚到事件点（开关、PWM 边沿）：下一步用小步长，才能看到开关瞬间的过程（比如电感的反向高压）
-            if at_event {
+            if upcoming_event && self.t >= event - 1e-15 {
                 self.dt = self.dt.min(2e-6);
             }
-            steps += 1;
             if start.elapsed() > budget {
                 break;
             }
@@ -574,11 +576,13 @@ impl Sim {
                 self.recompile(c);
             }
         }
-        let done = target - (t_end - self.t).max(0.0);
+        let done = self.t - t_start;
         self.real_speed = if wall > 0.0 { done / wall } else { speed };
         self.end_frame(c);
-        self.at_frame(c);
-        self.route_serial(c);
+        if self.ok || done > 0.0 {
+            self.at_frame(c);
+            self.route_serial(c);
+        }
     }
 
     /// 主机（QCCOM 打开的仿真串口）发来数据：开发板走 USB 直接收；USB 转 TTL 从 TXD 发出去
@@ -773,32 +777,35 @@ impl Sim {
         }
     }
 
-    fn step(&mut self, c: &Circuit, dt0: f64) {
+    fn step(&mut self, c: &Circuit, dt0: f64) -> bool {
         let mut dt = dt0;
         let saved_v = self.solver.v.clone();
-        // 事件：各元件告诉下一次状态变化的时间
-        let mut ps = std::mem::take(&mut self.ps);
-        for (pi, st) in ps.iter_mut().enumerate() {
-            let part = &c.parts[pi];
-            pre_part(self, st, part, self.t, dt);
-        }
-        self.ps = ps;
         let mut tries = 0;
         loop {
+            // Retrying with a shorter step changes the sample time for sources and GPIO.
+            let ps = std::mem::take(&mut self.ps);
+            for (st, part) in ps.iter().zip(&c.parts) {
+                pre_part(self, st, part, self.t, dt);
+            }
+            self.ps = ps;
             let ok = self.solver.solve(&self.devs, Mode::Tran(dt));
             let dv = self.solver.v.iter().zip(&saved_v).map(|(a, b)| (a - b).abs()).fold(0.0, f64::max);
-            // 太大的跳变（不是事件引起的）就把步长减半重来
-            if (!ok || (dv > 1.5 && dt > 2e-7 && self.last_dv < 0.5)) && tries < 6 {
+            // 太大的跳变（不是事件引起的）就缩短步长重来
+            if (!ok || (dv > 1.5 && dt > 2e-7 && self.last_dv < 0.5)) && dt > MIN_DT && tries < 6 {
                 tries += 1;
-                dt *= 0.25;
+                dt = (dt * 0.25).max(MIN_DT);
                 self.solver.v = saved_v.clone();
                 continue;
             }
             self.ok = ok;
+            if !ok {
+                // Keep the last accepted solution and histories. Do not sample or run component behavior.
+                self.dt = dt;
+                return false;
+            }
             self.last_dv = dv;
             break;
         }
-        self.solver.commit(&mut self.devs, Mode::Tran(dt));
         let t1 = self.t + dt;
         for k in 0..self.traces.len() {
             let v = self.net_v(self.traces[k].net).unwrap_or(0.0) as f32;
@@ -813,6 +820,9 @@ impl Sim {
             post_part(self, st, c, part, self.t, dt);
         }
         self.ps = ps;
+        // Current measurements and behavior use the history from the start of this step.
+        // Only now can capacitors and inductors store the accepted end-of-step state.
+        self.solver.commit(&mut self.devs, Mode::Tran(dt));
         self.apply_effects();
         self.t += dt;
         self.frame_t += dt;
@@ -838,6 +848,7 @@ impl Sim {
                 self.next_ev = e;
             }
         }
+        true
     }
 
     fn measure(&mut self, dt: f64) {
@@ -1714,8 +1725,8 @@ fn compile_module(b: &mut Build, part: &Part, def: &PartDef) {
 }
 
 /// 每步开始前：按时间和交互状态更新器件参数
-fn pre_part(sim: &mut Sim, st: &mut PState, part: &Part, t: f64, dt: f64) {
-    if st.d1 == st.d0 && !matches!(st.beh, Beh::Mcu(_)) {
+fn pre_part(sim: &mut Sim, st: &PState, part: &Part, t: f64, dt: f64) {
+    if st.d1 == st.d0 {
         return;
     }
     let (d0, d1) = (st.d0, st.d1);
@@ -1901,7 +1912,7 @@ fn pre_part(sim: &mut Sim, st: &mut PState, part: &Part, t: f64, dt: f64) {
         }
         _ => {}
     }
-    if let Beh::Mcu(rt) = &mut st.beh {
+    if let Beh::Mcu(rt) = &st.beh {
         rt.pre(devs, &sim.solver.v, &st.pin_node, part, t1, &sim.pressed);
     }
 }
@@ -1923,7 +1934,7 @@ fn post_part(sim: &mut Sim, st: &mut PState, c: &Circuit, part: &Part, t: f64, d
     };
     let has = st.d1 > st.d0;
     match part.kind.as_str() {
-        "battery" => {
+        "battery" if has => {
             if let Beh::Battery { soc, spec, used_mah } = &mut st.beh {
                 let i = sim.solver.current(&sim.devs[st.d0], mode)[0];
                 let mah = i * dt / 3.6;
@@ -2185,7 +2196,7 @@ fn post_part(sim: &mut Sim, st: &mut PState, c: &Circuit, part: &Part, t: f64, d
             }
         }
     }
-    if let Beh::Mcu(rt) = &mut st.beh {
+    if let (true, Beh::Mcu(rt)) = (has, &mut st.beh) {
         let Sim {
             devs,
             solver,
@@ -2385,4 +2396,32 @@ fn frame_vis(sim: &Sim, st: &mut PState, part: &Part) {
         vis.status = rt.status();
     }
     let _ = Look::Resistor;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn retried_step_samples_ac_at_accepted_time() {
+        let mut c = Circuit::default();
+        let ac = c.add_part("acsrc", 0, 0);
+        c.part_mut(ac).unwrap().set("freq", "250");
+        let mut sim = Sim::new(&c);
+        let proposed = 5e-4;
+        assert!(sim.step(&c, proposed));
+        assert!(sim.t > 0.0 && sim.t < proposed, "a large voltage jump should trigger a shorter step");
+        let expected = 12.0 * (std::f64::consts::TAU * 250.0 * sim.t).sin();
+        let actual = sim.pin_v(ac, 0).unwrap();
+        assert!((actual - expected).abs() < 1e-8, "t = {}, measured {actual}, expected {expected}", sim.t);
+    }
+
+    #[test]
+    fn advance_does_not_round_up_past_frame_end() {
+        let c = Circuit::default();
+        let mut s = Sim::new(&c);
+        s.advance(&c, MIN_DT / 2.0, 1.0);
+        assert_eq!(s.t, MIN_DT / 2.0);
+        assert_eq!(s.real_speed, 1.0);
+    }
 }

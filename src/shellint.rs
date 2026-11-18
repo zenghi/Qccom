@@ -50,12 +50,16 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
     let mut out = vec![];
     let mut mode = "";
     let mut cmp = vec![];
-    for a in args {
-        // 资源管理器传 "D:\" 这种盘符根目录时，结尾的 \" 会被当成转义，参数末尾多出一个引号
-        let a = a.trim_end_matches('"');
-        match a {
+    let mut args = args.iter();
+    while let Some(a) = args.next() {
+        match a.as_str() {
             "--file" | "--project" | "--compare" => {
                 mode = a;
+                continue;
+            }
+            "--open" | "--replay" => {
+                args.next(); // This value belongs to the log viewer, not the editor.
+                mode = "";
                 continue;
             }
             _ if a.starts_with("--") => {
@@ -64,7 +68,7 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
             }
             _ => {}
         }
-        let p = absolute(Path::new(a));
+        let p = absolute(&shell_path(a));
         match mode {
             "--file" if p.is_dir() => out.push(Req::Project(p)),
             "--file" => out.push(Req::Open(p)),
@@ -80,6 +84,20 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
         _ => out.extend(cmp.into_iter().map(Req::Compare)),
     }
     out
+}
+
+fn shell_path(arg: &str) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(p) = arg.strip_suffix('"') {
+        // Older Explorer registrations wrapped a drive root as "D:\". Windows
+        // consumes the backslash as an escape and delivers D:" instead.
+        return PathBuf::from(format!("{p}\\"));
+    }
+    PathBuf::from(arg)
+}
+
+pub fn should_forward(args: &[String], reqs: &[Req]) -> bool {
+    !reqs.is_empty() && !args.iter().any(|a| matches!(a.as_str(), "--new-window" | "--open" | "--replay")) && !reqs.iter().any(|r| matches!(r, Req::Project(_)))
 }
 
 fn absolute(p: &Path) -> PathBuf {
@@ -215,9 +233,9 @@ mod sys {
         let items = [
             (KEYS[0], t("用 QCCOM 打开"), "--file", "%1"),
             (KEYS[1], t("用 QCCOM 比较"), "--compare", "%1"),
-            (KEYS[2], t("用 QCCOM 打开"), "--project", "%1"),
+            (KEYS[2], t("用 QCCOM 打开"), "--project", r"%1\."),
             (KEYS[3], t("用 QCCOM 比较"), "--compare", "%1"),
-            (KEYS[4], t("用 QCCOM 打开"), "--project", "%V"),
+            (KEYS[4], t("用 QCCOM 打开"), "--project", r"%V\."),
         ];
         for (key, label, flag, arg) in items {
             reg(&["add", key, "/ve", "/d", label, "/f"])?;
@@ -326,7 +344,36 @@ mod tests {
         for r in [Req::Open("/a b/c.txt".into()), Req::Pair("/x".into(), "/y".into()), Req::Compare("C:\\fw\\a.c".into())] {
             assert_eq!(Req::parse(&r.line()), Some(r));
         }
-        let args: Vec<String> = ["--compare", "/tmp", "/"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(parse_args(&args), vec![Req::Pair("/tmp".into(), "/".into())]);
+        let a = std::env::temp_dir();
+        let b = std::env::current_dir().unwrap();
+        let args = vec!["--compare".into(), a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned()];
+        let reqs = parse_args(&args);
+        assert_eq!(reqs, vec![Req::Pair(a, b)]);
+        assert!(should_forward(&args, &reqs));
+    }
+
+    #[test]
+    fn explorer_folder_opens_in_a_new_window() {
+        let folder = std::env::temp_dir();
+        for flag in ["--project", "--file"] {
+            let args = vec![flag.into(), folder.to_string_lossy().into_owned()];
+            let reqs = parse_args(&args);
+            assert_eq!(reqs, vec![Req::Project(folder.clone())]);
+            assert!(!should_forward(&args, &reqs));
+        }
+        let file = folder.join("file with spaces.c");
+        let mut args = vec!["--file".into(), file.to_string_lossy().into_owned()];
+        let reqs = parse_args(&args);
+        assert_eq!(reqs, vec![Req::Open(file)]);
+        assert!(should_forward(&args, &reqs));
+        args.push("--new-window".into());
+        assert!(!should_forward(&args, &reqs));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn legacy_explorer_drive_root_stays_absolute() {
+        let args = vec!["--project".into(), "D:\"".into()];
+        assert_eq!(parse_args(&args), vec![Req::Project(PathBuf::from("D:\\"))]);
     }
 }

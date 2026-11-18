@@ -225,16 +225,19 @@ pub fn rot_pt((x, y): Pt, rot: u8) -> Pt {
 
 /// 解析带单位前缀的数：10k、4.7u、4u7、100n、1M、2.2m、330、0.5、47µ、3V3
 pub fn parse_si(s: &str) -> Option<f64> {
-    let s = s.trim().replace('µ', "u").replace('μ', "u").replace('Ω', "").replace("ohm", "");
-    let s = s.trim_end_matches(|c: char| matches!(c, 'F' | 'H' | 'V' | 'A' | 'W' | 's' | 'z')).trim_end_matches("Hz").trim();
-    if s.is_empty() {
-        return None;
-    }
+    let s = s.trim();
+    // Strip one known unit, longest first. Battery capacity is stored in mAh.
+    let s = ["mAh", "ohms", "ohm", "Hz", "Ω", "F", "H", "V", "A", "W", "s"]
+        .iter()
+        .find_map(|unit| s.strip_suffix(unit))
+        .unwrap_or(s)
+        .trim_end();
+    let finite = |v: f64| v.is_finite().then_some(v);
     let mult = |c: char| -> Option<f64> {
         Some(match c {
             'p' => 1e-12,
             'n' => 1e-9,
-            'u' => 1e-6,
+            'u' | 'µ' | 'μ' => 1e-6,
             'm' => 1e-3,
             'k' | 'K' => 1e3,
             'M' => 1e6,
@@ -245,24 +248,24 @@ pub fn parse_si(s: &str) -> Option<f64> {
         })
     };
     if let Ok(v) = s.parse::<f64>() {
-        return Some(v);
+        return finite(v);
     }
-    // 4k7 / 3V3 这种：前缀字母夹在中间当小数点
-    if let Some(pos) = s.find(|c: char| c.is_ascii_alphabetic()) {
-        let (a, rest) = s.split_at(pos);
-        let mut ch = rest.chars();
-        let m = mult(ch.next()?)?;
-        let b = ch.as_str();
-        let a: f64 = if a.is_empty() { 0.0 } else { a.parse().ok()? };
-        if b.is_empty() {
-            return Some(a * m);
-        }
-        if b.chars().all(|c| c.is_ascii_digit()) {
-            let frac: f64 = format!("0.{b}").parse().ok()?;
-            return Some((a + frac) * m);
+    // Multipliers may follow a decimal or scientific number, with or without a space.
+    let (pos, last) = s.char_indices().next_back()?;
+    if let Some(m) = mult(last).filter(|_| last != 'V') {
+        if let Ok(v) = s[..pos].trim_end().parse::<f64>() {
+            return finite(v * m);
         }
     }
-    None
+    // 4k7 / 3V3: the multiplier takes the place of the decimal point.
+    let (pos, marker) = s.char_indices().find(|&(_, c)| mult(c).is_some())?;
+    let (a, b) = (&s[..pos], &s[pos + marker.len_utf8()..]);
+    let whole = a.strip_prefix(['-', '+']).unwrap_or(a);
+    if !whole.bytes().all(|c| c.is_ascii_digit()) || b.is_empty() || !b.bytes().all(|c| c.is_ascii_digit()) {
+        return None;
+    }
+    let v: f64 = format!("{a}.{b}").parse().ok()?;
+    finite(v * mult(marker)?)
 }
 
 /// 数值 → 带单位前缀的短文本：4700 → 4.7k
@@ -341,6 +344,31 @@ mod tests {
         assert_eq!(color_bands(220.0), Some([2, 2, 1, -1]));
         assert_eq!(color_bands(10_000.0), Some([1, 0, 3, -1]));
         assert_eq!(color_bands(4.7), Some([4, 7, -1, -1]));
+    }
+
+    #[test]
+    fn si_accepts_signed_values_units_and_scientific_prefixes() {
+        assert_eq!(parse_si(" -4k7Ω "), Some(-4700.0));
+        assert_eq!(parse_si("-0k5"), Some(-500.0));
+        assert_eq!(parse_si("+3V3"), Some(3.3));
+        assert_eq!(parse_si("1.5e2 kHz"), Some(150_000.0));
+        assert_eq!(parse_si("4.7 kΩ"), Some(4700.0));
+        assert_eq!(parse_si("2000 mAh"), Some(2000.0));
+        assert!((parse_si("µ7F").unwrap() - 0.7e-6).abs() < 1e-15);
+        assert!((parse_si("4μ7F").unwrap() - 4.7e-6).abs() < 1e-15);
+    }
+
+    #[test]
+    fn si_rejects_nonfinite_and_malformed_values() {
+        for text in ["NaN", "NaN V", "inf", "-inf V", "1e999", "1e307 G", "kΩ", "4kk7", "1 2", "1VHz"] {
+            assert_eq!(parse_si(text), None, "{text}");
+        }
+        let mut part = Part {
+            kind: "res".into(),
+            ..Default::default()
+        };
+        part.set("r", "NaN");
+        assert_eq!(part.num("r"), 220.0);
     }
 
     #[test]

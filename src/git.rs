@@ -31,17 +31,19 @@ pub fn git(root: &Path, args: &[&str]) -> Result<String, String> {
 
 pub fn find_root(dir: &Path) -> Result<PathBuf, String> {
     let s = git(dir, &["rev-parse", "--show-toplevel"])?;
-    Ok(PathBuf::from(s.trim()))
+    Ok(PathBuf::from(s.trim_end_matches(['\r', '\n'])))
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Branch {
     /// 显示名 main / origin/main / v1.0
     pub name: String,
+    pub refname: String,
     pub kind: RefKind,
     pub head: bool,
     pub hash: String,
     pub upstream: String,
+    pub upstream_ref: String,
     pub ahead: u32,
     pub behind: u32,
     pub gone: bool,
@@ -58,28 +60,32 @@ pub enum RefKind {
 }
 
 pub fn branches(root: &Path) -> Result<Vec<Branch>, String> {
-    let fmt = "%(refname)%00%(refname:short)%00%(HEAD)%00%(objectname:short)%00%(upstream:short)%00%(upstream:track)%00%(committerdate:unix)%00%(contents:subject)";
+    let fmt = "%(refname)%00%(symref)%00%(HEAD)%00%(objectname:short)%00%(upstream:short)%00%(upstream:track)%00%(committerdate:unix)%00%(contents:subject)%00%(upstream)";
     let out = git(root, &["for-each-ref", &format!("--format={fmt}"), "--sort=-committerdate", "refs/heads", "refs/remotes", "refs/tags"])?;
     let mut v = vec![];
     for l in out.lines() {
         let f: Vec<&str> = l.split('\0').collect();
-        if f.len() < 8 || f[0].ends_with("/HEAD") {
+        if f.len() < 9 || !f[1].is_empty() {
             continue;
         }
-        let kind = if f[0].starts_with("refs/heads/") {
-            RefKind::Local
-        } else if f[0].starts_with("refs/tags/") {
-            RefKind::Tag
+        let (kind, name) = if let Some(n) = f[0].strip_prefix("refs/heads/") {
+            (RefKind::Local, n)
+        } else if let Some(n) = f[0].strip_prefix("refs/tags/") {
+            (RefKind::Tag, n)
+        } else if let Some(n) = f[0].strip_prefix("refs/remotes/") {
+            (RefKind::Remote, n)
         } else {
-            RefKind::Remote
+            continue;
         };
         let (ahead, behind, gone) = parse_track(f[5]);
         v.push(Branch {
-            name: f[1].into(),
+            name: name.into(),
+            refname: f[0].into(),
             kind,
             head: f[2] == "*",
             hash: f[3].into(),
             upstream: f[4].into(),
+            upstream_ref: f[8].into(),
             ahead,
             behind,
             gone,
@@ -88,6 +94,33 @@ pub fn branches(root: &Path) -> Result<Vec<Branch>, String> {
         });
     }
     Ok(v)
+}
+
+pub fn switch_args(b: &Branch, branches: &[Branch]) -> (Vec<String>, String) {
+    let local_switch = |name: &str| (vec!["switch".into(), "--no-guess".into(), "--".into(), name.into()], name.into());
+    match b.kind {
+        RefKind::Local => local_switch(&b.name),
+        RefKind::Tag => (vec!["switch".into(), "--detach".into(), "--".into(), b.refname.clone()], b.name.clone()),
+        RefKind::Remote => {
+            let local = b.name.split_once('/').map_or(b.name.as_str(), |(_, branch)| branch);
+            let locals = || branches.iter().filter(|x| x.kind == RefKind::Local);
+            if let Some(tracker) = locals().filter(|x| x.upstream_ref == b.refname).min_by_key(|x| x.name != local) {
+                return local_switch(&tracker.name);
+            }
+            let available = |name: &str| {
+                !name.starts_with('-')
+                    && !locals().any(|x| x.name == name || x.name.strip_prefix(name).is_some_and(|s| s.starts_with('/')) || name.strip_prefix(x.name.as_str()).is_some_and(|s| s.starts_with('/')))
+            };
+            let target = if available(local) {
+                local.to_string()
+            } else {
+                // A same-name local branch may track another remote. Don't switch to it or reset it.
+                let base = b.name.replace('/', "-");
+                (1..).map(|i| if i == 1 { base.clone() } else { format!("{base}-{i}") }).find(|n| available(n)).unwrap()
+            };
+            (vec!["switch".into(), "-c".into(), target.clone(), "--track".into(), "--".into(), b.refname.clone()], target)
+        }
+    }
 }
 
 /// "[ahead 2, behind 1]" / "[gone]"
@@ -493,6 +526,31 @@ mod tests {
         assert_eq!(info.files[0].adds, Some(1));
         let st = status(&dir).unwrap();
         assert!(st.files.iter().any(|f| f.path == "new.txt" && f.x == '?'));
+
+        run(&["tag", "dev", "main"]);
+        run(&["branch", "feature/HEAD", "main"]);
+        run(&["remote", "add", "origin", "."]);
+        run(&["update-ref", "refs/remotes/origin/dev", "main"]);
+        run(&["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/dev"]);
+        let checkout = |kind, name| {
+            let branches = branches(&dir).unwrap();
+            let b = branches.iter().find(|b| b.kind == kind && b.name == name).unwrap();
+            let (args, target) = switch_args(b, &branches);
+            run(&args.iter().map(String::as_str).collect::<Vec<_>>());
+            target
+        };
+        assert_eq!(checkout(RefKind::Tag, "dev"), "dev");
+        assert!(git(&dir, &["symbolic-ref", "-q", "HEAD"]).is_err());
+        assert_eq!(run(&["rev-parse", "HEAD"]), run(&["rev-parse", "refs/tags/dev"]));
+        checkout(RefKind::Local, "dev");
+        assert_eq!(run(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/dev");
+        checkout(RefKind::Local, "feature/HEAD");
+        assert_eq!(run(&["symbolic-ref", "HEAD"]).trim(), "refs/heads/feature/HEAD");
+        assert_eq!(checkout(RefKind::Remote, "origin/dev"), "origin-dev");
+        assert_eq!(run(&["rev-parse", "--symbolic-full-name", "@{upstream}"]).trim(), "refs/remotes/origin/dev");
+        checkout(RefKind::Local, "main");
+        assert_eq!(checkout(RefKind::Remote, "origin/dev"), "origin-dev");
+        assert_eq!(std::fs::read_to_string(dir.join("new.txt")).unwrap(), "x\n");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

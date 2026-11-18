@@ -500,7 +500,7 @@ struct Rec {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, args: Vec<String>, startup: Vec<crate::shellint::Req>) -> Self {
         // 先按系统语言，这样第一次启动生成的默认快捷命令等也是对应语言
         i18n::apply("auto");
         let mut s: Settings = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
@@ -513,15 +513,13 @@ impl App {
         }
         i18n::apply(&s.lang);
         update::cleanup();
-        let args: Vec<String> = std::env::args().skip(1).collect();
         let just_updated = args.iter().any(|a| a == "--updated");
         // --open 文件 / --replay 文件：启动后打开或回放日志
         let mut open_log = None;
         let mut extra_port = None;
         // 参数是文件夹：在代码页打开这个工程（qccom ~/fw）
         let mut open_dir = None;
-        // --file / --project / --compare 和已有文件的参数交给 shellint 处理（系统右键菜单）
-        let startup = crate::shellint::parse_args(&args);
+        // --file / --project / --compare 和已有文件的参数由 main 交给 shellint 处理
         let mut it = args.into_iter();
         let mut in_req = false;
         while let Some(a) = it.next() {
@@ -546,6 +544,7 @@ impl App {
         s.api_mode = false;
         let (upd_tx, upd_rx) = mpsc::channel();
         let code = CodeView::new(std::mem::take(&mut s.code));
+        let last_project = code.s.root.clone();
         let gitv = GitView::new(std::mem::take(&mut s.git), cc.egui_ctx.clone());
         let cmpv = crate::compareview::CompareView::new(std::mem::take(&mut s.cmp));
         crate::hub::set_enabled(s.telemetry);
@@ -656,7 +655,7 @@ impl App {
             km,
             palette: None,
             prefs: prefs::Prefs::default(),
-            last_project: String::new(),
+            last_project,
             prev_page: Page::Debug,
             nav: Default::default(),
             maximize_in: 0,
@@ -692,7 +691,7 @@ impl App {
         app.compile_triggers();
         app.apply_frame();
         if let Some(d) = open_dir {
-            app.code.open_root(std::fs::canonicalize(&d).unwrap_or(d));
+            app.code.open_root(d);
             app.set_page(Page::Code);
         }
         if let Some(l) = crate::instance_listener() {
@@ -4052,12 +4051,15 @@ impl App {
         }
     }
 
-    /// 代码页换了工程：Git 页、HTTP / TFTP 共享目录跟着换（终端新开时也在工程目录）
+    /// 代码页换了工程：Git 页、终端、HTTP / TFTP 共享目录跟着换
     fn project_changed(&mut self, p: &std::path::Path) {
         self.gitv.follow_project(p);
         let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
         let ps = p.to_string_lossy().to_string();
         let prev = std::mem::replace(&mut self.last_project, ps.clone());
+        if prev != ps {
+            self.shells.project_changed();
+        }
         for r in [&mut self.s.tb.tftp_root, &mut self.s.tb.http_root] {
             if r.is_empty() || *r == home || (!prev.is_empty() && *r == prev) {
                 *r = ps.clone();
@@ -4222,8 +4224,12 @@ impl App {
                 }
             }
             Req::Project(p) => {
-                self.code.open_root(std::fs::canonicalize(&p).unwrap_or(p));
-                self.set_page(Page::Code);
+                if p.is_dir() {
+                    self.code.open_root(p);
+                    self.set_page(Page::Code);
+                } else {
+                    self.toast(tf("无法打开文件夹：{}", &[&p.display()]), ERR());
+                }
             }
             Req::Compare(p) => {
                 let first = self.cmpv.pending_left().is_none();

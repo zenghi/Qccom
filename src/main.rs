@@ -128,10 +128,14 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     migrate_storage();
-    eframe::run_native("qccom", options, Box::new(|cc| {
-        ime::install();
-        Ok(Box::new(app::App::new(cc)))
-    }))
+    eframe::run_native(
+        "qccom",
+        options,
+        Box::new(|cc| {
+            ime::install();
+            Ok(Box::new(app::App::new(cc)))
+        }),
+    )
 }
 
 /// 窗口图标（任务栏、标题栏）；exe 文件图标由 build.rs 写入

@@ -188,15 +188,41 @@ pub fn parse_serialcomm(out: &str) -> Vec<Pair> {
     a.into_iter().filter_map(|(n, mine)| b.get(&n).map(|other| Pair { mine, other: other.clone() })).collect()
 }
 
-/// Windows：一键安装 com0com（安装包已内置），并建好一对 COM 口。会弹一次管理员确认。阻塞，放线程里跑
+/// com0com 3.0.0.0 官方签名安装包（setup_x64.exe，原样未改）。不打包进 exe：QCCOM 只包含自己源码编译出的代码，
+/// 用户点「一键安装」时才下载，校验下面的 SHA256 一致才运行。环境变量 QCCOM_COM0COM_URL 可以临时换地址
+pub const COM0COM_URL: &str = "https://www.zenghi.com/com0com/setup_x64.exe";
+pub const COM0COM_SHA256: &str = "26486b28604b49a9008c54feb11b9ece0008a8287ee5caf0bcf2a62f4317128f";
+
+/// 安装包内容是否就是 com0com 官方那一份
+#[cfg_attr(not(windows), allow(dead_code))]
+pub fn com0com_ok(data: &[u8]) -> bool {
+    use sha2::{Digest, Sha256};
+    let hex: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
+    hex == COM0COM_SHA256
+}
+
+#[cfg(windows)]
+fn fetch_com0com() -> Result<Vec<u8>, String> {
+    use std::io::Read;
+    let url = std::env::var("QCCOM_COM0COM_URL").unwrap_or_else(|_| COM0COM_URL.into());
+    let resp = crate::update::agent()?.get(&url).call().map_err(|e| crate::i18n::tf("下载 com0com 失败：{}", &[&e]))?;
+    let mut data = Vec::new();
+    resp.into_reader().take(16 << 20).read_to_end(&mut data).map_err(|e| crate::i18n::tf("下载 com0com 失败：{}", &[&e]))?;
+    if !com0com_ok(&data) {
+        return Err(crate::i18n::t("下载到的 com0com 安装包校验不通过，没有运行").to_string());
+    }
+    Ok(data)
+}
+
+/// Windows：一键安装 com0com（先下载官方安装包并校验），并建好一对 COM 口。会弹一次管理员确认。阻塞，放线程里跑
 #[cfg(windows)]
 pub fn install_com0com() -> Result<(), String> {
     use std::os::windows::process::CommandExt;
-    static SETUP: &[u8] = include_bytes!("../assets/com0com/setup_x64.exe");
+    let setup = fetch_com0com()?;
     let dir = std::env::temp_dir().join("qccom-com0com");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let exe = dir.join("setup_com0com_x64.exe");
-    std::fs::write(&exe, SETUP).map_err(|e| e.to_string())?;
+    std::fs::write(&exe, &setup).map_err(|e| e.to_string())?;
     let log = dir.join("install.log");
     let _ = std::fs::remove_file(&log);
     // 装驱动 → 去掉安装包默认建的 CNCA0/CNCB0 → 建一对用普通 COM 号的口（大多数软件只认 COMx）
@@ -328,6 +354,12 @@ mod pty {
 
 #[cfg(test)]
 mod pair_tests {
+    #[test]
+    fn com0com_hash_check() {
+        assert!(!super::com0com_ok(b"<html>not found</html>"));
+        assert_eq!(super::COM0COM_SHA256.len(), 64);
+    }
+
     #[test]
     fn serialcomm_pairs() {
         let out = "\r\nHKEY_LOCAL_MACHINE\\HARDWARE\\DEVICEMAP\\SERIALCOMM\r\n    \\Device\\Serial0    REG_SZ    COM1\r\n    \\Device\\com0com10    REG_SZ    COM20\r\n    \\Device\\com0com20    REG_SZ    COM21\r\n    \\Device\\com0com11    REG_SZ    CNCA1\r\n";

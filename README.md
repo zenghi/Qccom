@@ -107,7 +107,7 @@ Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/r
 
 Each release also ships a `SHA256SUMS.txt` so you can verify the download.
 
-> **Windows SmartScreen** may warn that the app is unrecognized because the executable is not code-signed yet. Click **More info → Run anyway**, or right-click the file → **Properties** → tick **Unblock**.
+**Code signing**: Windows releases are signed through free code signing provided by SignPath.io, certificate by SignPath Foundation (application in progress). See the [Code signing policy](CODE_SIGNING.md) and the [Privacy policy](https://www.zenghi.com/en/privacy/). Until signed releases are out, **Windows SmartScreen** may warn that the app is unrecognized: click **More info → Run anyway**.
 
 ## Quick start
 
@@ -194,5 +194,7 @@ You may use, modify and redistribute it, including commercially. If you redistri
 - keep existing copyright and attribution notices, and mark files you changed.
 
 Please do not remove the author and repository information shown in the app's About box.
+
+Code signing policy: [CODE_SIGNING.md](CODE_SIGNING.md).
 
 Bundled fonts: Inter and JetBrains Mono, both under the SIL Open Font License 1.1 (see [assets/licenses](assets/licenses)).

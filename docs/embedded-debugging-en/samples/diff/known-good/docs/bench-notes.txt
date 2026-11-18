@@ -1,0 +1,1 @@
+Host console setup: 115200 baud, 8N1, no flow control.

@@ -2,11 +2,11 @@
   <img src="docs/logo.png" width="72" alt="QCCOM logo">
 </p>
 
-<h1 align="center">QCCOM</h1>
+<h1 align="center">QCCOM 串口助手</h1>
 
 <p align="center">
-  给嵌入式开发者的串口 / TCP / UDP / MQTT / BLE 调试助手，轻量、快速，<br>
-  自带串口终端、代码浏览器和 Git 历史查看器。
+  给嵌入式开发者的开源串口调试工具。接上开发板就能看彩色日志、收发 HEX 或文本指令。<br>
+  支持 TCP、UDP、MQTT 和 BLE，自带串口终端、代码浏览器和 Git 历史查看器。
 </p>
 
 <p align="center">
@@ -20,7 +20,9 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
-![QCCOM 日志界面](docs/screenshot.png)
+习惯用 SSCOM32 调试设备？在 QCCOM 里找 HEX 收发、定时发送和日志保存，见[从 SSCOM32 换到 QCCOM 的常用操作对照](https://www.zenghi.com/switch-from-sscom/)。
+
+![QCCOM 以 115200 波特率连接设备，中间按颜色区分警告和错误日志，右侧列出 AT 快捷命令](docs/screenshot.png)
 
 QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可执行文件（Windows 版约 8 MB），免安装、不需要运行库、不需要管理员权限。启动不到一秒，几十万行日志也能流畅滚动。
 

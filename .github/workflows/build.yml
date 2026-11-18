@@ -27,6 +27,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check SignPath configuration
+        if: runner.os == 'Windows' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        env:
+          SIGNPATH_CONFIGURED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && secrets.SIGNPATH_API_TOKEN != '' }}
+        run: |
+          if ($env:SIGNPATH_CONFIGURED -ne 'true') {
+            $message = 'Configure SIGNPATH_ORGANIZATION_ID and SIGNPATH_API_TOKEN to sign Windows releases.'
+            if ($env:GITHUB_REF -like 'refs/tags/v*') { throw $message }
+            Write-Output "::notice::$message"
+          } else {
+            Write-Output 'SignPath configuration is present.'
+          }
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -55,19 +68,18 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: dist/${{ matrix.name }}
+          if-no-files-found: error
 
-      # Code signing via SignPath (free for open source, see CODE_SIGNING.md). Runs only for v* tags and
-      # only after the repository variable SIGNPATH_ORGANIZATION_ID and the secret SIGNPATH_API_TOKEN exist,
-      # so the workflow behaves as before until the project is set up in SignPath.
-      # Each request waits for manual approval in SignPath.
+      # Each release signing request waits for manual approval in SignPath.
       - name: Version
         id: ver
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
       - name: Sign with SignPath
         id: sign
-        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v') && vars.SIGNPATH_ORGANIZATION_ID != ''
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
         uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
@@ -94,6 +106,7 @@ jobs:
         with:
           name: signed-${{ matrix.name }}
           path: dist/signed/${{ matrix.name }}
+          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -106,21 +119,11 @@ jobs:
         with:
           path: artifacts
 
-      # Prefer the signed Windows build when there is one
       - name: Collect files
         run: |
           mkdir -p dist
-          for d in artifacts/qccom-*; do
-            n=$(basename "$d")
-            if [ -f "artifacts/signed-$n/$n" ]; then
-              echo "$n: signed"
-              cp "artifacts/signed-$n/$n" "dist/$n"
-            else
-              echo "$n: unsigned"
-              cp "$d/$n" "dist/$n"
-            fi
-          done
-          ls -l dist
+          cp artifacts/signed-qccom-windows-x64.exe/qccom-windows-x64.exe dist/
+          cp artifacts/qccom-linux-x64/qccom-linux-x64 dist/
 
       - name: Checksums
         working-directory: dist
@@ -129,4 +132,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true

@@ -109,7 +109,7 @@ Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/r
 
 Each release also ships a `SHA256SUMS.txt` so you can verify the download.
 
-**Code signing**: Windows releases are signed through free code signing provided by SignPath.io, certificate by SignPath Foundation (application in progress). See the [Code signing policy](CODE_SIGNING.md) and the [Privacy policy](https://www.zenghi.com/en/privacy/). Until signed releases are out, **Windows SmartScreen** may warn that the app is unrecognized: click **More info → Run anyway**.
+**Code signing**. The Windows release workflow requires a valid Authenticode signature from SignPath. SmartScreen may still warn about a newly published build while it gains reputation. See [how to verify a Windows download](CODE_SIGNING.md#verify-a-windows-download) and the [privacy policy](https://www.zenghi.com/en/privacy/).
 
 ## Quick start
 

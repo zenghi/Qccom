@@ -108,7 +108,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 
 每个版本都附带 `SHA256SUMS.txt`，可以用来校验下载的文件。
 
-**代码签名**：Windows 版通过 SignPath.io 提供的免费代码签名、SignPath Foundation 签发的证书签名（申请中）。见[代码签名政策（Code signing policy）](CODE_SIGNING.md)和[隐私政策](https://www.zenghi.com/privacy/)。签名版发布前，**Windows SmartScreen** 可能提示“无法识别的应用”，点 **更多信息 → 仍要运行** 即可。
+**代码签名**。Windows 正式发布要求通过 SignPath 签名并验证 Authenticode。新构建在积累信誉期间仍可能触发 SmartScreen 提示。详见[如何验证 Windows 下载](CODE_SIGNING.md#验证-windows-下载)和[隐私政策](https://www.zenghi.com/privacy/)。
 
 ## 快速上手
 

@@ -90,7 +90,7 @@ The file is plain RON text and is written automatically. If you delete it, QCCOM
 `.github/workflows/build.yml`:
 
 - On every push and pull request it runs `cargo test` and builds the Linux and Windows binaries on GitHub-hosted runners, then uploads them as workflow artifacts.
-- When you push a tag such as `v0.5.0`, it also creates a GitHub Release with `qccom-windows-x64.exe`, `qccom-linux-x64` and `SHA256SUMS.txt` attached.
+- When you push a version tag, the workflow requests a Windows signature from SignPath. After approval and signature validation, it creates a GitHub Release with the signed `qccom-windows-x64.exe`, `qccom-linux-x64`, and `SHA256SUMS.txt` for those exact files.
 
 To publish a release:
 
@@ -100,7 +100,9 @@ git tag v0.5.1
 git push origin v0.5.1
 ```
 
-The workflow also contains a disabled SignPath code-signing step. See the comments in the file if you get a free open-source signing certificate from the [SignPath Foundation](https://signpath.org).
+Before pushing the tag, complete enrollment with the [SignPath Foundation](https://signpath.org) and configure the SignPath project to sign `qccom-windows-x64.exe` from this repository's Windows build job. Set `SIGNPATH_ORGANIZATION_ID` as a GitHub Actions variable and `SIGNPATH_API_TOKEN` as a GitHub Actions secret. `SIGNPATH_PROJECT_SLUG` and `SIGNPATH_POLICY_SLUG` default to `qccom` and `release-signing`. Approve the request in SignPath after the tagged build submits it. Missing configuration, an invalid signature, or a missing signed artifact stops the release.
+
+For the update server, use the signed EXE from the release. Recompute the SHA-256 and size in `1.json` from that file, then upload the signed EXE before uploading the new manifest. See [the update file format](UPDATE_SERVER.md).
 
 ## Notes for forks
 

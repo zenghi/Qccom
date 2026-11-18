@@ -2,7 +2,7 @@
 
 [中文说明在下方](#代码签名政策)
 
-Free code signing provided by [SignPath.io](https://about.signpath.io/), certificate by [SignPath Foundation](https://signpath.org/).
+The Windows release workflow uses [SignPath.io](https://about.signpath.io/) with a certificate from the [SignPath Foundation](https://signpath.org/) once the project is enrolled.
 
 ## What is signed
 
@@ -10,6 +10,15 @@ Free code signing provided by [SignPath.io](https://about.signpath.io/), certifi
 - Every executable that is signed is compiled from the source code in this repository. QCCOM does not embed third-party executables; the optional com0com virtual-port driver is downloaded from its own distribution only when the user asks for it and is verified by SHA-256 before it runs.
 - Linux binaries are not signed.
 - Builds made on a developer's machine are never submitted for signing.
+
+## Verify a Windows download
+
+In PowerShell, run the following from the folder containing the EXE. A signed release should show `Valid` and a certificate publisher. Compare the SHA-256 against the published `SHA256SUMS.txt` or `1.json` for the same download. SmartScreen may still warn while a new build gains reputation.
+
+```powershell
+Get-AuthenticodeSignature .\qccom-windows-x64.exe | Format-List Status, SignerCertificate
+Get-FileHash .\qccom-windows-x64.exe -Algorithm SHA256
+```
 
 ## Team roles
 
@@ -34,7 +43,7 @@ If you find a signed file that you believe violates this policy, please open an 
 
 # 代码签名政策
 
-免费代码签名由 [SignPath.io](https://about.signpath.io/) 提供，证书由 [SignPath Foundation](https://signpath.org/) 签发。
+项目通过审批后，Windows 发布流程使用 [SignPath.io](https://about.signpath.io/) 签名，证书由 [SignPath Foundation](https://signpath.org/) 签发。
 
 ## 签名范围
 
@@ -42,6 +51,15 @@ If you find a signed file that you believe violates this policy, please open an 
 - 被签名的程序全部由本仓库源码编译。QCCOM 不内嵌第三方可执行文件；可选的 com0com 虚拟串口驱动只在用户要求时从其发布地址下载，并校验 SHA-256 后才运行。
 - Linux 版本不签名。
 - 开发者本机编译的文件不会提交签名。
+
+## 验证 Windows 下载
+
+在 EXE 所在文件夹运行以下 PowerShell 命令。签名版的状态应为 `Valid`，并显示签名证书。将 SHA-256 与对应下载的 `SHA256SUMS.txt` 或 `1.json` 对照。新构建在积累信誉期间仍可能触发 SmartScreen 提示。
+
+```powershell
+Get-AuthenticodeSignature .\qccom-windows-x64.exe | Format-List Status, SignerCertificate
+Get-FileHash .\qccom-windows-x64.exe -Algorithm SHA256
+```
 
 ## 团队角色
 

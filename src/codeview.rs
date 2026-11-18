@@ -48,6 +48,7 @@ pub struct CodeSettings {
     pub tabs: Vec<String>,
     pub side_width: f32,
     pub minimap: bool,
+    pub context_win: bool,
     pub ctx_height: f32,
     pub split_ratio: f32,
     /// 改完停一秒自动保存
@@ -112,7 +113,8 @@ impl Default for CodeSettings {
             tabs: vec![],
             side_width: 260.0,
             minimap: true,
-            ctx_height: 220.0,
+            context_win: true,
+            ctx_height: 168.0,
             split_ratio: 0.5,
             autosave: false,
             inline_blame: true,
@@ -569,7 +571,6 @@ pub struct CodeView {
     pub events: Vec<CodeEvt>,
     sem: Option<Arc<HashMap<String, Kind>>>,
     /// Source Insight 式的上下文窗口和调用关系窗口
-    pub context_win: bool,
     pub relations: bool,
     ins: insight::Insight,
     /// 分屏：另一侧显示的文件（用路径记，标签增删、拖动都不受影响）
@@ -592,7 +593,7 @@ pub struct CodeView {
     /// clangd（可选）；lsp_for 记录它是为哪个工程、哪个设置启动的，变了就重启
     lsp: Option<lsp::Lsp>,
     lsp_for: Option<(PathBuf, bool, String)>,
-    lsp_def: Option<(mpsc::Receiver<serde_json::Value>, String, egui::Pos2, f64)>,
+    lsp_def: Option<(mpsc::Receiver<serde_json::Value>, PathBuf, u64, String, egui::Pos2, f64)>,
     /// 设置页显示用：按 clangd_path 缓存的查找结果
     clangd_found: Option<(String, Option<PathBuf>)>,
     /// 上次检查磁盘修改时间的时刻
@@ -671,7 +672,6 @@ impl CodeView {
             outline_filter: String::new(),
             events: vec![],
             sem: None,
-            context_win: false,
             relations: false,
             ins: insight::Insight::default(),
             split: None,
@@ -1035,10 +1035,11 @@ impl CodeView {
     fn goto_definition(&mut self, word: &str, at: egui::Pos2, byte: Option<usize>, now: f64) {
         if let (Some(lsp), Some(b), Some(d)) = (self.lsp.as_mut(), byte, self.tabs.get(self.active)) {
             if lsp.ready() && d.lang == Lang::C {
+                let b = d.word_at(b).filter(|(_, _, w)| *w == word).map_or(b, |(s, _, _)| s);
                 let l = d.buf.line_of(b);
                 let col = lsp::utf16_col(d.buf.line(l), b - d.buf.start(l));
                 lsp.sync(&d.path, d.buf.ver, &d.buf.text);
-                self.lsp_def = Some((lsp.definition(&d.path, l, col), word.to_string(), at, now));
+                self.lsp_def = Some((lsp.definition(&d.path, l, col), d.path.clone(), d.buf.ver, word.to_string(), at, now));
                 return;
             }
         }
@@ -1082,7 +1083,11 @@ impl CodeView {
             }
             self.lsp_for = want;
         }
-        let Some((rx, word, at, since)) = &self.lsp_def else { return };
+        let Some((rx, path, version, word, at, since)) = &self.lsp_def else { return };
+        if self.tabs.get(self.active).is_none_or(|d| d.path != *path || d.buf.ver != *version) {
+            self.lsp_def = None;
+            return;
+        }
         let now = ctx.input(|i| i.time);
         let res = match rx.try_recv() {
             Ok(v) => Some(lsp::locations(&v)),
@@ -1104,7 +1109,7 @@ impl CodeView {
             [(p, l, c)] => {
                 let (p, l, c) = (p.clone(), *l, *c);
                 self.open_file(&p, None);
-                if let Some(d) = self.tabs.get_mut(self.active) {
+                if let Some(d) = self.tabs.get_mut(self.active).filter(|d| d.path == p) {
                     let l = l.min(d.buf.lines().saturating_sub(1));
                     let b = d.buf.start(l) + lsp::byte_col(d.buf.line(l), c);
                     let e = d.buf.word_at(b).map_or(b, |w| w.1);
@@ -1125,8 +1130,14 @@ impl CodeView {
     }
 
     fn goto_definition_index(&mut self, word: &str, at: egui::Pos2) {
-        let defs = self.definitions(word);
+        let mut defs = self.definitions(word);
+        if defs.iter().any(|d| d.2 == Kind::Func.label()) {
+            defs.retain(|d| d.2 != Kind::Proto.label());
+        }
         match defs.len() {
+            0 if self.index_rx.is_some() => {
+                self.toast(t("工程索引正在构建，请稍后再跳转"), WARN());
+            }
             0 => {
                 // 没找到定义：直接做一次全局搜索
                 self.toast(tf("没找到 {} 的定义，已在全工作区搜索", &[&word]), WARN());
@@ -1142,7 +1153,7 @@ impl CodeView {
 
     fn open_at_word(&mut self, p: &Path, line: usize, word: &str) {
         self.open_file(p, None);
-        if let Some(d) = self.tabs.get_mut(self.active) {
+        if let Some(d) = self.tabs.get_mut(self.active).filter(|d| d.path == p) {
             let l = line.min(d.buf.lines().saturating_sub(1));
             let lt = d.line_text(l);
             let col = find_word(lt, word).unwrap_or(0);
@@ -1860,10 +1871,10 @@ impl CodeView {
             } else {
                 self.breadcrumbs(ui);
                 self.notice_bars(ui);
-                if self.context_win {
+                if self.s.context_win {
                     // egui 会把面板高度夹到当时可用空间并记住；这里自己记住想要的高度，
                     // 窗口变大后能恢复，拖动时才放开下限
-                    let limit = (ui.available_height() * 0.6).max(90.0);
+                    let limit = (ui.available_height() * 0.42).max(90.0);
                     let want = self.s.ctx_height.clamp(90.0, limit);
                     let dragging = ui.input(|i| i.pointer.any_down());
                     let r = egui::TopBottomPanel::bottom("code-ctx")
@@ -1998,7 +2009,7 @@ impl CodeView {
             self.quick = Some(Quick { q: "!".into(), sel: 0, focus: true });
         }
         if has(Act::ToggleContext) {
-            self.context_win = !self.context_win;
+            self.s.context_win = !self.s.context_win;
         }
         if has(Act::ToggleRelations) {
             self.relations = !self.relations;
@@ -3548,6 +3559,14 @@ impl CodeView {
         p.hline(sr.x_range(), sr.top() + 0.5, st(1.0, LINE()));
         let name = format!("{}{}", d.rel, if d.dirty() { "  ●" } else { "" });
         p.text(pos2(sr.left() + 12.0, sr.center().y), Align2::LEFT_CENTER, name, FontId::proportional(11.5), TEXT3());
+        if let Some((b, at)) = out.ctrl_click {
+            if let Some((start, _, word)) = d.word_at(b) {
+                let word = word.to_owned();
+                self.active = i;
+                self.goto_definition(&word, at, Some(start), now);
+                return false;
+            }
+        }
         out.focused
     }
 
@@ -3603,7 +3622,7 @@ impl CodeView {
                             p.hline(r.x_range().shrink(10.0), r.top() + 1.0, st(1.5, TEXT3()));
                         }
                         if d.dirty() && !xh {
-                            p.circle_filled(xr.center(), 4.0, TEXT2());
+                            p.circle_filled(xr.center(), 4.0, WARN());
                         } else if on || resp.hovered() {
                             if xh {
                                 p.rect_filled(xr, 3.0, BG3());
@@ -3767,12 +3786,18 @@ impl CodeView {
 
     fn breadcrumbs(&mut self, ui: &mut Ui) {
         let Some(d) = self.tabs.get(self.active) else { return };
-        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 26.0), Sense::hover());
-        let p = ui.painter();
-        p.rect_filled(r, 0.0, BG0());
+        let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 30.0), Sense::hover());
+        let path_bounds = Rect::from_min_max(r.min, pos2((r.right() - 228.0).max(r.left()), r.bottom()));
+        let p = &ui.painter_at(path_bounds);
+        ui.painter().rect_filled(r, 0.0, BG0());
+        ui.interact(path_bounds, ui.id().with("full-path"), Sense::hover()).on_hover_text(&d.rel);
         let mut x = r.left() + 14.0;
         let font = FontId::proportional(12.0);
-        let parts: Vec<&str> = d.rel.split('/').collect();
+        let parts: Vec<&str> = if r.width() < 640.0 {
+            vec![d.rel.rsplit('/').next().unwrap_or(&d.rel)]
+        } else {
+            d.rel.split('/').collect()
+        };
         for (i, part) in parts.iter().enumerate() {
             let last = i + 1 == parts.len();
             if last {
@@ -3803,8 +3828,8 @@ impl CodeView {
         // 右侧：后退前进、编辑开关
         let mut bx = r.right() - 10.0;
         let mut btn = |icon: Icon, tip: &str, active: bool, enabled: bool| -> bool {
-            let br = Rect::from_center_size(pos2(bx - 11.0, r.center().y), vec2(22.0, 20.0));
-            bx -= 24.0;
+            let br = Rect::from_center_size(pos2(bx - 14.0, r.center().y), vec2(28.0, 26.0));
+            bx -= 30.0;
             let resp = ui.interact(br, ui.id().with(("bc", tip)), Sense::click());
             let p = ui.painter();
             if (resp.hovered() && enabled) || active {
@@ -3826,7 +3851,7 @@ impl CodeView {
         };
         let (nb, nf) = (!self.back.is_empty(), !self.fwd.is_empty());
         let rel_on = self.relations;
-        let ctx_on = self.context_win;
+        let ctx_on = self.s.context_win;
         let split_on = self.split.is_some();
         let sp = btn(Icon::Split, t("拆分编辑器"), split_on, true);
         let rel = btn(Icon::Relations, t("调用关系"), rel_on, true);
@@ -3834,6 +3859,7 @@ impl CodeView {
         let f = btn(Icon::Forward, t("前进  Alt+→"), false, nf);
         let b = btn(Icon::Back, t("后退  Alt+←"), false, nb);
         // 特殊查看器和原文之间切换
+        let p = ui.painter();
         let toggle = match self.tabs.get(self.active).map(|d| (&d.special, d.buf.text.is_empty(), d.show_special, d.md_split)) {
             // Markdown 三种：预览 → 分屏 → 原文
             Some((Some(Special::Md(_)), false, show, split)) => Some(if show {
@@ -3874,7 +3900,7 @@ impl CodeView {
             self.relations = !self.relations;
         }
         if cx {
-            self.context_win = !self.context_win;
+            self.s.context_win = !self.s.context_win;
         }
         if b {
             self.nav(true);
@@ -4010,8 +4036,8 @@ impl CodeView {
         let mut want_def: Option<(String, egui::Pos2, Option<usize>)> = None;
         let d = &self.tabs[active];
         if let Some((b, at)) = out.ctrl_click {
-            if let Some((_, _, w)) = d.word_at(b) {
-                want_def = Some((w.to_string(), at, Some(b)));
+            if let Some((start, _, w)) = d.word_at(b) {
+                want_def = Some((w.to_string(), at, Some(start)));
             } else if let Some((s, e)) = d.buf.token_at(b).filter(|(s, _)| d.buf.text[*s..].starts_with(|c: char| c.is_ascii_digit())) {
                 let lit = d.buf.text[s..e].to_string();
                 let v = cindex::eval(&lit);

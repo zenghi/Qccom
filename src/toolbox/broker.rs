@@ -324,7 +324,6 @@ fn client(key: u64, mut s: TcpStream, addr: SocketAddr, cfg: &Config, st: &Arc<M
                     }
                     let mut ack = pid;
                     ack.extend_from_slice(&granted);
-                    s.write_all(&packet(0x90, &ack)).map_err(|e| e.to_string())?;
                     let mut g = st.lock().unwrap();
                     let retained: Vec<(String, Vec<u8>, u8)> = g
                         .retained
@@ -341,6 +340,7 @@ fn client(key: u64, mut s: TcpStream, addr: SocketAddr, cfg: &Config, st: &Arc<M
                     }
                     g.event(format!("  {id} SUB {}", names.join(", ")));
                     drop(g);
+                    s.write_all(&packet(0x90, &ack)).map_err(|e| e.to_string())?;
                     for (t, d, q) in retained {
                         s.write_all(&publish(1, &t, &d, q.min(1), true)).map_err(|e| e.to_string())?;
                     }

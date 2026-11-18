@@ -92,8 +92,10 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 | ![API](docs/gif/demo-api.gif) | ![工具箱](docs/gif/demo-toolbox.gif) |
 | **串口日志放在代码旁边** | |
 | ![副页面](docs/gif/demo-side.gif) | |
+| **编辑器补全和函数跳转** | **电压和电流示波器** |
+| ![编辑器补全和函数跳转](docs/gif/demo-editor-navigation.gif) | ![电压和电流示波器](docs/gif/demo-circuit-instruments.gif) |
 
-更多见[使用手册](docs/USER_GUIDE.zh-CN.md)。
+[中文使用手册](docs/USER_GUIDE.zh-CN.md) · [图文操作指南（Word）](docs/QCCOM-操作指南.docx)
 
 ## 下载
 

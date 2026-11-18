@@ -194,7 +194,7 @@ impl CircuitView {
             ex_open: ['A'].into_iter().collect(),
             example: None,
             tab: RTab::Props,
-            bottom: false,
+            bottom: true,
             wire_color: 0,
             path: None,
             dirty_at: None,
@@ -203,7 +203,7 @@ impl CircuitView {
             events: vec![],
             seen_log: 0,
             show_flow: true,
-            btab: BTab::Log,
+            btab: BTab::Scope,
             scope: Default::default(),
             power: Default::default(),
             net: Default::default(),
@@ -328,6 +328,7 @@ impl CircuitView {
         self.sel.clear();
         self.draft = None;
         self.placing = None;
+        self.scope = Default::default();
         self.sim = None;
         self.fit = true;
         self.dirty_at = Some(Instant::now());
@@ -417,6 +418,8 @@ impl CircuitView {
             }
             let mut s = Sim::new(&self.c);
             s.real_speed = self.speed;
+            self.scope.hold = None;
+            self.scope.la_hold = None;
             self.sim = Some(s);
             self.paused = false;
             self.seen_log = 0;
@@ -559,10 +562,13 @@ impl CircuitView {
                     top: 6,
                     bottom: 6,
                 }))
-                .default_height(if self.btab == BTab::Log { 150.0 } else { 260.0 })
-                .height_range(80.0..=520.0)
+                .default_height(if self.btab == BTab::Log { 150.0 } else { 210.0 })
+                .height_range(135.0..=(ui.available_height() * 0.48).clamp(135.0, 520.0))
                 .resizable(true)
-                .show_inside(ui, |ui| self.bottom_ui(ui));
+                .show_inside(ui, |ui| {
+                    ui.set_min_height(ui.available_height());
+                    self.bottom_ui(ui);
+                });
         }
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.canvas(ui));
         if self.dirty_at.is_some_and(|t| t.elapsed() > Duration::from_millis(800)) && !matches!(self.drag, Drag::Move { .. } | Drag::WirePt { .. }) {
@@ -963,9 +969,28 @@ impl CircuitView {
             self.code_ui(ui);
             return;
         }
+        if self.btab == BTab::Scope {
+            ui.horizontal_wrapped(|ui| {
+                ui.selectable_value(&mut self.scope.current, false, t("电压"));
+                ui.selectable_value(&mut self.scope.current, true, t("电流"));
+                ui.separator();
+                for (kind, label) in [("probe", t("＋ 电压探针")), ("ammeter", t("＋ 电流表"))] {
+                    if ui.selectable_label(self.placing.is_some_and(|p| p.0 == kind), label).clicked() {
+                        self.placing = Some((kind, false));
+                        self.place_rot = 0;
+                        self.draft = None;
+                        self.scope.current = kind == "ammeter";
+                    }
+                }
+            });
+        }
         if self.btab != BTab::Log {
             let Some(s) = &self.sim else {
-                ui.label(RichText::new(t("通电后这里显示波形。")).color(TEXT3()));
+                if self.btab == BTab::Scope {
+                    scope::idle_scope(ui);
+                } else {
+                    ui.label(RichText::new(t("通电后这里显示波形。")).color(TEXT3()));
+                }
                 return;
             };
             if self.btab == BTab::Scope {
@@ -1051,7 +1076,11 @@ fn starter() -> Circuit {
     c.add_part("bb_half", 0, 0);
     // USB 电源：+ 接上方 + 轨，− 接 − 轨
     c.add_part("usb5v", -3, -2);
-    c.add_wire(vec![(-3, -2), (3, 1)], 0);
+    c.add_part("ammeter", -1, -6);
+    c.add_wire(vec![(-3, -2), (-3, -6), (-1, -6)], 0);
+    c.add_wire(vec![(3, -6), (3, 1)], 0);
+    let probe = c.add_part("probe", 5, 6);
+    c.part_mut(probe).unwrap().rot = 1;
     c.add_wire(vec![(-3, 0), (2, 0)], 1);
     // + 轨 → 电阻（竖着插，下端在第 6 列）→ LED 正极；LED 倒过来插，负极在第 5 列，用黑线回 − 轨
     let r = c.add_part("res", 5, 1);
@@ -1123,6 +1152,10 @@ mod tests {
         for _ in 0..30 {
             s.advance(&c, 0.01, 1.0);
         }
+        let amps = s.traces.iter().find(|t| t.current_part.is_some()).unwrap().at(s.t).unwrap();
+        assert!((amps - 0.0136).abs() < 0.002, "current trace: {amps} A");
+        let voltage = s.traces.iter().find(|t| t.current_part.is_none()).unwrap().at(s.t).unwrap();
+        assert!(voltage > 1.0 && voltage < 4.0, "LED voltage: {voltage} V");
         let led = c.parts.iter().position(|p| p.kind == "led").unwrap();
         // 导线电流：串联回路里每段都约 13.6 mA
         let segs = super::flow::wire_currents(&c, &s);

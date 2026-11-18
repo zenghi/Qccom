@@ -108,6 +108,8 @@ A port that the scanner cannot see, such as a virtual `/dev/pts/3`, can be passe
 
 ## Sending data
 
+The command bar has two custom send buttons. Click an empty button, enter a name and payload, and save. Click the configured button to send to the active connection. Right-click it to edit. Text uses the current encoding and line ending. HEX sends the specified bytes. The command draft stays in the input field.
+
 Type in the command bar at the bottom (`Ctrl+K` focuses it) and press **Enter**.
 
 - **↑ / ↓** browse the command history, which is saved.
@@ -252,6 +254,12 @@ Right-click a port card to give it an alias (for example *Main board*) or to set
 **No sleep while working.** While any connection is open or a recording runs, QCCOM keeps the computer from going to sleep (the screen can still turn off).
 
 ## Code viewer
+
+The context pane opens by default and previews the symbol under the caret. Pin a definition to keep it visible or close the pane with ×. The editor remembers its visibility and height. Use the context button in the toolbar to reopen it.
+
+Type two identifier characters to see suggestions from nearby code and language keywords. Indexed C/C++ symbols also appear when available. Select with the arrow keys, accept with Tab, or dismiss with Esc. Ctrl-click a function to go to its definition and use Alt+Left to return. Multiple implementations open a picker.
+
+![Code completion and cross-file navigation](gif/demo-editor-navigation.gif)
 
 ![Macro hover and go to definition](gif/demo-code.gif)
 
@@ -402,6 +410,12 @@ Toolbox → *Communication* → **SSH / Telnet** logs in to boards, gateways and
 
 ## Circuits and wiring
 
+The oscilloscope opens below the canvas. Drag its top edge to resize it. Power on the starter LED circuit to see live probe and series ammeter readings. Select Voltage or Current to change units. Add a voltage probe to a node or insert an ammeter in series with a branch. Press R to rotate while placing or Esc to cancel. New probes take the first free channel from CH1 to CH8.
+
+The legend shows the current value and the range in the displayed interval. Hover over the waveform to inspect channel values at a specific time. Example C5 shows PWM input and filtered output together.
+
+![Voltage probes, current readings and PWM waveforms](gif/demo-circuit-instruments.gif)
+
 Toolbox → *Circuits & wiring*. The left column has the parts and the examples, the canvas is in the middle, and the right column shows properties, an explanation of the selected part and the wiring check.
 
 - **Build**: drag parts onto the canvas (or click one, then click the canvas; `R` rotates, hold `Shift` to place several). Drag from a pin or breadboard hole to draw a wire, click to add bends, number keys change the wire color. The 5 holes in a breadboard column are connected; the long strips are power rails. *Breadboard* / *Schematic* switches the view.
@@ -489,6 +503,19 @@ Values accept SI suffixes: `4k7`, `4.7k`, `100n`, `72M`.
 
 ## Terminal panel
 
+Click **Import environment** next to the build, flash and clean tasks. Choose the toolchain’s **bin directory** or a UTF-8 environment file. You can also paste the path. Give it a name and choose **Save and activate**. QCCOM opens a new terminal in the project directory. Task buttons use the active terminal. Existing sessions keep their environment, and subsequent local terminals use the selected profile.
+
+An environment file can contain the following entries.
+
+```dotenv
+BOARD=DemoBoard
+PATH_PREPEND=toolchain/bin
+```
+
+Use one assignment per line. Blank lines and lines starting with `#` are skipped. `PATH_PREPEND` accepts an absolute directory or one relative to the file and preserves the inherited PATH. QCCOM stores the profile name and path and reads the file when starting a terminal. Select **System environment** to open a session with the original environment.
+
+![Custom send buttons and a build using a named environment](gif/demo-send-environment.gif)
+
 `` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.
 
 - **Tasks.** The buttons in the panel header run a command in the current terminal. The defaults are build (`make -j8`), flash (`make flash`) and clean (`make clean`); right-click a button (or *+ Task*) to edit them.
@@ -571,6 +598,8 @@ CSV and TSV files (comma, semicolon, tab or `|` separated, detected automaticall
 If Beyond Compare, WinMerge, Meld or KDiff3 is installed, **⋯ → Open with …** on a comparison tab opens the same two files in it.
 
 ## System right-click menu
+
+On first launch, QCCOM offers to add Open and Compare to the file manager if the entries are missing. The option is checked by default and takes effect when confirmed. Skip dismisses the prompt for subsequent launches. The setting remains available under Settings → General.
 
 Settings → General → **System context menu** adds QCCOM to the file manager. No administrator rights are needed, and turning the switch off removes everything again.
 

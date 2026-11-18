@@ -76,6 +76,11 @@ impl Lang {
         }
     }
 
+    pub fn completion_words(self) -> impl Iterator<Item = &'static str> {
+        let spec = self.spec();
+        spec.kw.iter().chain(spec.ty).chain(spec.consts).copied()
+    }
+
     fn spec(self) -> Spec {
         let c_like = Spec {
             line: &["//"],

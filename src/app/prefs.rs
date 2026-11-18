@@ -71,6 +71,7 @@ pub struct Prefs {
     conflict: Option<(Act, Vec<Act>)>,
     /// 系统右键菜单是否已加入（查一次注册表 / 文件后缓存）
     ctx_menu: Option<bool>,
+    offer_menu: bool,
 }
 
 impl Default for Prefs {
@@ -82,6 +83,7 @@ impl Default for Prefs {
             key_search: String::new(),
             conflict: None,
             ctx_menu: None,
+            offer_menu: true,
         }
     }
 }
@@ -173,6 +175,48 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
 }
 
 impl App {
+    fn set_shell_menu(&mut self, v: bool) {
+        let r = if v { crate::shellint::install() } else { crate::shellint::uninstall() };
+        match r {
+            Ok(()) => {
+                self.prefs.ctx_menu = Some(crate::shellint::installed());
+                self.s.shell_menu_noticed = true;
+                let msg = if v {
+                    t("已加入系统右键菜单；程序换了位置后重新开一次")
+                } else {
+                    t("已从系统右键菜单移除")
+                };
+                self.toast(msg, OK());
+            }
+            Err(e) => self.toast(e, ERR()),
+        }
+    }
+
+    pub(super) fn shell_menu_notice(&mut self, ctx: &egui::Context) {
+        if self.s.shell_menu_noticed {
+            return;
+        }
+        if *self.prefs.ctx_menu.get_or_insert_with(crate::shellint::installed) {
+            self.s.shell_menu_noticed = true;
+            return;
+        }
+        egui::TopBottomPanel::bottom("shell-menu-offer").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.prefs.offer_menu, t("将「用 QCCOM 打开 / 比较」加入系统右键菜单"));
+                if ui.button(t("确认")).clicked() {
+                    if self.prefs.offer_menu {
+                        self.set_shell_menu(true);
+                    } else {
+                        self.s.shell_menu_noticed = true;
+                    }
+                }
+                if ui.button(t("跳过")).clicked() {
+                    self.s.shell_menu_noticed = true;
+                }
+            });
+        });
+    }
+
     pub(super) fn settings_page(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.key_pressed(Key::Escape)) && self.prefs.recording.is_none() && !ctx.wants_keyboard_input() {
             self.set_page(self.prev_page);
@@ -331,19 +375,7 @@ impl App {
         row(ui, q, t("系统右键菜单"), desc, |ui| {
             let mut v = on;
             if switch(ui, &mut v).changed() {
-                let r = if v { crate::shellint::install() } else { crate::shellint::uninstall() };
-                match r {
-                    Ok(()) => {
-                        self.prefs.ctx_menu = Some(crate::shellint::installed());
-                        let msg = if v {
-                            t("已加入系统右键菜单；程序换了位置后重新开一次")
-                        } else {
-                            t("已从系统右键菜单移除")
-                        };
-                        self.toast(msg, OK());
-                    }
-                    Err(e) => self.toast(e, ERR()),
-                }
+                self.set_shell_menu(v);
             }
         });
         row(

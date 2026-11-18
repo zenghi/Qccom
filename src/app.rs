@@ -80,6 +80,8 @@ pub struct Settings {
     pub follow_new_port: bool,
     pub line_ending: LineEnding,
     pub hex_send: bool,
+    pub send_buttons: [QuickCmd; 2],
+    pub shell_menu_noticed: bool,
     pub history: Vec<String>,
     pub keywords: String,
     pub max_lines: usize,
@@ -196,6 +198,8 @@ impl Default for Settings {
             follow_new_port: true,
             line_ending: LineEnding::CrLf,
             hex_send: false,
+            send_buttons: Default::default(),
+            shell_menu_noticed: false,
             history: vec![],
             keywords: String::new(),
             max_lines: 100_000,
@@ -366,6 +370,7 @@ pub struct App {
     scroll_to: Option<u64>,
     focus_search: bool,
     focus_send: bool,
+    send_button_edit: Option<(usize, QuickCmd)>,
     /// 选中的行（锚点, 终点），绝对行号
     sel: Option<(u64, u64)>,
     /// 按字选中的文字
@@ -595,6 +600,7 @@ impl App {
             scroll_to: None,
             focus_search: false,
             focus_send: true,
+            send_button_edit: None,
             sel: None,
             tsel: None,
             drag_scroll: 0.0,
@@ -2890,7 +2896,49 @@ impl App {
                         });
                     });
                 });
+                ui.horizontal_wrapped(|ui| {
+                    for i in 0..2 {
+                        let cmd = &self.s.send_buttons[i];
+                        let label = if cmd.name.is_empty() { tf("自定义发送 {}", &[&(i + 1)]) } else { cmd.name.clone() };
+                        let r = ui.small_button(truncate(&label, 20)).on_hover_text(format!("{}\n{}", cmd.payload, t("右键编辑")));
+                        if r.secondary_clicked() || (r.clicked() && cmd.payload.is_empty()) {
+                            self.send_button_edit = Some((i, cmd.clone()));
+                        } else if r.clicked() {
+                            self.send_quick(&cmd.clone());
+                        }
+                    }
+                });
             });
+    }
+
+    fn send_button_dialog(&mut self, ctx: &egui::Context) {
+        let Some((slot, cmd)) = self.send_button_edit.as_mut() else { return };
+        let mut open = true;
+        let mut save = false;
+        egui::Window::new(t("编辑发送按钮"))
+            .id(egui::Id::new("edit-send-button"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(t("名称"));
+                ui.text_edit_singleline(&mut cmd.name);
+                ui.label(t("发送内容"));
+                ui.text_edit_multiline(&mut cmd.payload);
+                ui.checkbox(&mut cmd.hex, "HEX");
+                let valid = !cmd.name.trim().is_empty() && !cmd.payload.trim().is_empty();
+                let bytes = cmd.bytes(self.s.encoding, self.s.line_ending);
+                if let Err(e) = &bytes {
+                    ui.colored_label(ERR(), e);
+                }
+                save = ui.add_enabled(valid && bytes.is_ok(), egui::Button::new(t("保存"))).clicked();
+            });
+        if save {
+            self.s.send_buttons[*slot] = cmd.clone();
+        }
+        if save || !open {
+            self.send_button_edit = None;
+        }
     }
 
     /// 命令栏上方的 AT 指令候选列表
@@ -4900,6 +4948,8 @@ impl eframe::App for App {
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin::symmetric(14, 4)))
             .show_separator_line(true)
             .show(ctx, |ui| self.status_bar(ui));
+        self.shell_menu_notice(ctx);
+        self.send_button_dialog(ctx);
         self.telemetry_notice(ctx);
         self.activity_bar(ctx);
         self.shells.poll(ctx.input(|i| i.focused));

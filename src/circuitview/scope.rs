@@ -16,6 +16,7 @@ const TDIVS: [f64; 19] = [1e-6, 2e-6, 5e-6, 1e-5, 2e-5, 5e-5, 1e-4, 2e-4, 5e-4, 
 
 #[derive(Default)]
 pub struct ScopeUi {
+    pub current: bool,
     /// 每格时间，0 = 自动
     pub tdiv: f64,
     /// 用 CH1 上升沿触发（波形稳定不滚动）
@@ -31,7 +32,10 @@ fn nice_tdiv(x: f64) -> f64 {
 }
 
 /// 电压读数：很小的当 0
-fn fv(v: f32) -> String {
+fn reading(v: f32, current: bool) -> String {
+    if current {
+        return fmt_si(v as f64, "A");
+    }
     if v.abs() < 1e-3 {
         "0 V".into()
     } else {
@@ -60,7 +64,7 @@ fn rising(tr: &Trace, level: f32, from: f64) -> Vec<f64> {
 /// 周期估计：最近几个上升沿的平均间隔
 fn period(tr: &Trace, now: f64) -> Option<(f64, f32, f32)> {
     let (lo, hi) = tr.range(now - 1.0, now)?;
-    if hi - lo < 0.05 {
+    if hi - lo < if tr.current_part.is_some() { 1e-8 } else { 0.05 } {
         return None;
     }
     let mid = (lo + hi) / 2.0;
@@ -86,12 +90,35 @@ fn level_at(tr: &Trace, ov: Option<&Overlay>, t: f64) -> bool {
     tr.at(t).unwrap_or(0.0) >= 1.5
 }
 
+fn grid(p: &egui::Painter, rect: Rect) {
+    p.rect_filled(rect, 4.0, Color32::from_rgb(0x0c, 0x10, 0x14));
+    let grid = Color32::from_white_alpha(18);
+    for k in 0..=10 {
+        let x = rect.left() + rect.width() * k as f32 / 10.0;
+        p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.0, grid));
+    }
+    for k in 0..=6 {
+        let y = rect.top() + rect.height() * k as f32 / 6.0;
+        p.line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(1.0, grid));
+    }
+}
+
+pub fn idle_scope(ui: &mut egui::Ui) {
+    let (rect, _) = ui.allocate_exact_size(ui.available_size().max(vec2(1.0, 1.0)), Sense::hover());
+    let p = ui.painter_at(rect);
+    grid(&p, rect);
+    p.text(rect.center(), Align2::CENTER_CENTER, t("通电后这里显示波形。"), FontId::proportional(12.0), Color32::LIGHT_GRAY);
+}
+
 pub fn scope_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) {
     let chans: Vec<(&Trace, String, Color32)> = s
         .traces
         .iter()
         .filter_map(|tr| {
             let p = c.part(tr.part)?;
+            if st.current {
+                return tr.current_part.map(|_| (tr, c.label(p.id), draw::probe_color(&((p.id % 8) + 1).to_string())));
+            }
             (p.kind == "probe").then(|| {
                 let ch = p.prop("ch").to_string();
                 (tr, format!("CH{ch}"), draw::probe_color(&ch))
@@ -99,14 +126,21 @@ pub fn scope_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) {
         })
         .collect();
     if chans.is_empty() {
-        ui.label(RichText::new(t("从元件库「仪器」里放一个示波器探针，探针尖接到要看的地方。")).color(TEXT3()));
+        ui.label(
+            RichText::new(if st.current {
+                t("将电流表串入支路即可观察电流波形。")
+            } else {
+                t("从元件库「仪器」里放一个示波器探针，探针尖接到要看的地方。")
+            })
+            .color(TEXT3()),
+        );
         return;
     }
     let now = st.hold.unwrap_or(s.t);
     let auto = period(chans[0].0, now);
     let tdiv = if st.tdiv > 0.0 { st.tdiv } else { auto.map_or(0.1, |(p, ..)| nice_tdiv(p * 2.5 / 10.0)) };
     let span = tdiv * 10.0;
-    ui.horizontal(|ui| {
+    ui.horizontal_wrapped(|ui| {
         let txt = if st.tdiv > 0.0 { fmt_tdiv(st.tdiv) } else { format!("{} {}", t("自动"), fmt_tdiv(tdiv)) };
         egui::ComboBox::from_id_salt("cv-tdiv").width(110.0).selected_text(format!("{txt}/div")).show_ui(ui, |ui| {
             ui.selectable_value(&mut st.tdiv, 0.0, t("自动"));
@@ -121,8 +155,11 @@ pub fn scope_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) {
         }
         for (tr, name, col) in &chans {
             let mut m = name.clone();
+            if let Some(sample) = tr.at(now) {
+                let _ = write!(m, "  {}", reading(sample, st.current));
+            }
             if let Some((lo, hi)) = tr.range(now - span, now) {
-                let _ = write!(m, "  {}–{}", fv(lo), fv(hi));
+                let _ = write!(m, "  {}–{}", reading(lo, st.current), reading(hi, st.current));
             }
             if let Some((p, ..)) = period(tr, now) {
                 let _ = write!(m, "  {}", fmt_si(1.0 / p, "Hz"));
@@ -143,7 +180,7 @@ pub fn scope_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) {
     };
     // 电压范围：所有通道一起，含 0 V
     let mut lo = 0.0f32;
-    let mut hi = 1.0f32;
+    let mut hi = if st.current { 1e-6f32 } else { 1.0f32 };
     for (tr, ..) in &chans {
         if let Some((a, b)) = tr.range(t0, t1) {
             lo = lo.min(a);
@@ -152,24 +189,14 @@ pub fn scope_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) {
     }
     let pad = (hi - lo) * 0.1;
     let (lo, hi) = (lo - pad, hi + pad);
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ui.available_height().max(120.0)), Sense::hover());
+    let (rect, response) = ui.allocate_exact_size(vec2(ui.available_width(), ui.available_height().max(1.0)), Sense::hover());
     let p = ui.painter_at(rect);
-    p.rect_filled(rect, 4.0, Color32::from_rgb(0x0c, 0x10, 0x14));
-    let grid = Color32::from_white_alpha(18);
-    for k in 0..=10 {
-        let x = rect.left() + rect.width() * k as f32 / 10.0;
-        p.line_segment([pos2(x, rect.top()), pos2(x, rect.bottom())], Stroke::new(1.0, grid));
-    }
-    for k in 0..=6 {
-        let y = rect.top() + rect.height() * k as f32 / 6.0;
-        p.line_segment([pos2(rect.left(), y), pos2(rect.right(), y)], Stroke::new(1.0, grid));
-    }
+    grid(&p, rect);
     let ymap = |v: f32| rect.bottom() - (v - lo) / (hi - lo).max(1e-6) * rect.height();
     // 0 V 线
     p.line_segment([pos2(rect.left(), ymap(0.0)), pos2(rect.right(), ymap(0.0))], Stroke::new(1.0, Color32::from_white_alpha(45)));
     let w = rect.width().max(1.0) as usize;
     for (tr, _, col) in &chans {
-        let mut prev: Option<(f32, f32)> = None;
         let mut line = vec![];
         for x in 0..w {
             let ta = t0 + span * x as f64 / w as f64;
@@ -183,14 +210,25 @@ pub fn scope_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) {
                 p.line_segment([pos2(px, ymap(a)), pos2(px, ymap(b))], Stroke::new(1.4, *col));
             }
             line.push(pos2(px, ymap((a + b) / 2.0)));
-            prev = Some((a, b));
         }
-        let _ = prev;
+
         p.add(egui::Shape::line(line, Stroke::new(1.6, *col)));
     }
+    if let Some(pos) = response.hover_pos() {
+        let time = t0 + span * ((pos.x - rect.left()) / rect.width().max(1.0)) as f64;
+        p.vline(pos.x, rect.y_range(), Stroke::new(1.0, Color32::from_gray(150)));
+        response.on_hover_ui(|ui| {
+            ui.monospace(fmt_si(time, "s"));
+            for (tr, name, col) in &chans {
+                if let Some(value) = tr.at(time).filter(|_| time <= s.t) {
+                    ui.colored_label(*col, format!("{name}  {}", reading(value, st.current)));
+                }
+            }
+        });
+    }
     let lab = FontId::monospace(10.5);
-    p.text(rect.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, fv(hi), lab.clone(), TEXT3());
-    p.text(rect.left_bottom() + vec2(6.0, -4.0), Align2::LEFT_BOTTOM, fv(lo), lab.clone(), TEXT3());
+    p.text(rect.left_top() + vec2(6.0, 4.0), Align2::LEFT_TOP, reading(hi, st.current), lab.clone(), TEXT3());
+    p.text(rect.left_bottom() + vec2(6.0, -4.0), Align2::LEFT_BOTTOM, reading(lo, st.current), lab.clone(), TEXT3());
     p.text(rect.right_bottom() + vec2(-6.0, -4.0), Align2::RIGHT_BOTTOM, format!("{}/div", fmt_tdiv(tdiv)), lab, TEXT3());
 }
 

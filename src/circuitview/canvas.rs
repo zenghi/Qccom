@@ -236,9 +236,17 @@ impl CircuitView {
 
     fn place(&mut self, kind: &'static str, at: Pt) {
         self.checkpoint();
+        let channel = if kind == "probe" {
+            (1..=8).map(|n| n.to_string()).find(|ch| !self.c.parts.iter().any(|p| p.kind == "probe" && p.prop("ch") == ch))
+        } else {
+            None
+        };
         let id = self.c.add_part(kind, at.0, at.1);
         if let Some(p) = self.c.part_mut(id) {
             p.rot = self.place_rot;
+            if let Some(ch) = channel {
+                p.set("ch", ch);
+            }
         }
         self.sel = vec![Sel::Part(id)];
     }
@@ -837,6 +845,11 @@ impl CircuitView {
                     if let Some(volt) = s.pin_v(id, i) {
                         lines.push(fmt_si(volt, "V"));
                     }
+                    if !is_bb(q) {
+                        if let Some(amp) = idx.get(&id).and_then(|k| s.ps[*k].i.get(i)) {
+                            lines.push(fmt_si(*amp, "A"));
+                        }
+                    }
                 }
                 tooltip(p, v.w2s(w.0, w.1), &lines);
             }
@@ -889,7 +902,11 @@ impl CircuitView {
                 ..Default::default()
             };
             let mut gp = p.clone();
-            gp.set_opacity(0.6);
+            gp.set_opacity(0.78);
+            for (x, y) in ghost.pins() {
+                let pin = v.w2s(x as f32, y as f32);
+                p.circle_stroke(pin, 5.5, Stroke::new(1.5, ACCENT()));
+            }
             if let Some(def) = lib::def(kind) {
                 let ctx = Ctx {
                     p: &gp,

@@ -2,6 +2,8 @@
 //! Linux 用 pty）。cmd / PowerShell / Git Bash / bash / zsh … 自动检测。
 //! 屏幕和按键处理复用 TermView，所以 vi、top、颜色、回滚都和串口终端一样。
 
+mod environment;
+use environment::{EnvDialog, Environment};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
@@ -132,12 +134,17 @@ pub struct Shell {
     pub attn: bool,
     /// 启动用的 shell 类型名（标签可以改名，重启时按这个找）
     kind: String,
+    environment: Option<Environment>,
     /// 编号（标签会重排，用它认出是哪一个）
     pub id: usize,
 }
 
 impl Shell {
     pub fn spawn(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize) -> Result<Shell, String> {
+        Self::spawn_with_env(ctx, kind, cwd, n, None)
+    }
+
+    fn spawn_with_env(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize, env: Option<&Environment>) -> Result<Shell, String> {
         let (cols, rows) = (100u16, 24u16);
         let pair = native_pty_system()
             .openpty(PtySize {
@@ -158,6 +165,9 @@ impl Shell {
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         utf8_env(&mut cmd);
+        if let Some(env) = env {
+            env.apply(&mut cmd)?;
+        }
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -199,6 +209,7 @@ impl Shell {
             color: 0,
             attn: false,
             kind: kind.name.clone(),
+            environment: env.cloned(),
             id: n,
         })
     }
@@ -266,6 +277,8 @@ pub struct ShellSettings {
     pub default: String,
     /// 面板头部的任务按钮（编译、烧录、清理…）
     pub tasks: Vec<Task>,
+    pub environments: Vec<Environment>,
+    pub environment: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -282,6 +295,8 @@ impl Default for ShellSettings {
             open: false,
             height: 260.0,
             default: String::new(),
+            environments: vec![],
+            environment: String::new(),
             tasks: vec![task("编译", "make -j8"), task("烧录", "make flash"), task("清理", "make clean")],
         }
     }
@@ -414,6 +429,7 @@ pub struct Shells {
     /// 面板在屏幕上的位置（拖文件进来时判断）
     pub rect: Option<Rect>,
     edit_tasks: bool,
+    env_dialog: EnvDialog,
 }
 
 impl Shells {
@@ -434,6 +450,7 @@ impl Shells {
             prob_at: None,
             rect: None,
             edit_tasks: false,
+            env_dialog: Default::default(),
         }
     }
 
@@ -531,7 +548,8 @@ impl Shells {
             return;
         };
         self.next_id += 1;
-        match Shell::spawn(ctx, &kind, cwd, self.next_id) {
+        let env = self.s.environments.iter().find(|e| e.name == self.s.environment);
+        match Shell::spawn_with_env(ctx, &kind, cwd, self.next_id, env) {
             Ok(sh) => {
                 self.tabs.push(sh);
                 self.active = self.tabs.len() - 1;
@@ -618,10 +636,11 @@ impl Shells {
                 for (i, r) in panes {
                     if self.show_tab(ui, i, r) {
                         let old = &self.tabs[i];
+                        let env = old.environment.clone();
                         let (kname, title, color, cwd) = (old.kind.clone(), old.title.clone(), old.color, old.cwd.clone());
                         if let Some(kind) = self.kinds().iter().find(|k| k.name == kname).cloned() {
                             self.next_id += 1;
-                            match Shell::spawn(ui.ctx(), &kind, &cwd, self.next_id) {
+                            match Shell::spawn_with_env(ui.ctx(), &kind, &cwd, self.next_id, env.as_ref()) {
                                 Ok(mut new) => {
                                     new.title = title;
                                     new.color = color;
@@ -941,6 +960,11 @@ impl Shells {
                         ui.memory_mut(|m| m.close_popup());
                     }
                 }
+                let env = self.tabs.get(self.active).and_then(|sh| sh.environment.as_ref());
+                let name = env.map_or(t("环境导入"), |e| e.name.as_str());
+                if ui.small_button(crate::app::truncate(name, 16)).on_hover_text(t("终端环境")).clicked() {
+                    self.env_dialog.open = true;
+                }
                 // 任务按钮（右键编辑）
                 for k in (0..self.s.tasks.len()).rev() {
                     let tk = &self.s.tasks[k];
@@ -970,6 +994,7 @@ impl Shells {
             self.run_task(&ctx, cwd, &cmd);
         }
         self.tasks_window(&ctx);
+        self.environment_dialog(&ctx, cwd);
         if let Some(i) = pick {
             self.active = i;
             self.tabs[i].attn = false;

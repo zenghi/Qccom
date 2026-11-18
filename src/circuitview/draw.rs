@@ -508,6 +508,10 @@ pub fn probe_color(ch: &str) -> Color32 {
         "2" => Color32::from_rgb(0x4f, 0xc3, 0xf7),
         "3" => Color32::from_rgb(0xf0, 0x62, 0x92),
         "4" => Color32::from_rgb(0x81, 0xc7, 0x84),
+        "5" => Color32::from_rgb(0xbe, 0xa4, 0xff),
+        "6" => Color32::from_rgb(0xff, 0xa0, 0x60),
+        "7" => Color32::from_rgb(0x64, 0xda, 0xca),
+        "8" => Color32::from_rgb(0xcc, 0xd5, 0xdf),
         _ => Color32::from_rgb(0xff, 0xd5, 0x4f),
     }
 }

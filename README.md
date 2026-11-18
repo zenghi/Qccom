@@ -93,6 +93,8 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 | ![API](docs/gif/demo-api.gif) | ![Toolbox](docs/gif/demo-toolbox.gif) |
 | **Serial log beside the code** | |
 | ![Side page](docs/gif/demo-side.gif) | |
+| **Editor completion and navigation** | **Voltage and current instruments** |
+| ![Editor completion and navigation](docs/gif/demo-editor-navigation.gif) | ![Voltage and current instruments](docs/gif/demo-circuit-instruments.gif) |
 
 More in the [user guide](docs/USER_GUIDE.md).
 

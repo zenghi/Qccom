@@ -1230,7 +1230,7 @@ fn build() -> Vec<PartDef> {
         B::new("probe", "示波器探针", Meter, "CH", Look::Probe)
             .pins(vec![p("TIP", 0, 0, 0)])
             .body(-0.6, -3.0, 0.6, 0.3)
-            .prop("ch", choice("通道", "1", &["1", "2", "3", "4"]))
+            .prop("ch", choice("通道", "1", &["1", "2", "3", "4", "5", "6", "7", "8"]))
             .kw("oscilloscope probe scope"),
     );
     v.push(

@@ -161,6 +161,8 @@ pub struct Overlay {
 /// 示波器探针 / 逻辑分析仪一个通道记下的电压。只在电压有变化时记一点（前面补上保持值），平的地方很省
 #[derive(Clone, Debug, Default)]
 pub struct Trace {
+    /// Index in ps for a series current measurement, sampled after measure().
+    pub current_part: Option<usize>,
     pub part: u32,
     pub pin: usize,
     pub net: usize,
@@ -172,8 +174,9 @@ pub struct Trace {
 impl Trace {
     fn push(&mut self, t: f64, v: f32) {
         let last = self.s.back().copied();
+        let tolerance = if self.current_part.is_some() { 1e-9 } else { 2e-3 };
         match last {
-            Some((lt, lv)) if (v - lv).abs() < 2e-3 && t - lt < 2e-3 => {
+            Some((lt, lv)) if (v - lv).abs() < tolerance && t - lt < 2e-3 => {
                 self.held = Some((t, v));
             }
             _ => {
@@ -498,8 +501,10 @@ impl Sim {
         }
         // 示波器探针、逻辑分析仪的通道（重建时保留已经记下的波形）
         let old = std::mem::take(&mut self.traces);
-        for part in &c.parts {
+        for (index, part) in c.parts.iter().enumerate() {
+            let is_current = matches!(part.kind.as_str(), "ammeter" | "pmeter") || (part.kind == "meter" && part.prop("mode") == "a");
             let pins: Vec<usize> = match part.kind.as_str() {
+                _ if is_current => vec![if part.kind == "meter" { 1 } else { 0 }],
                 "probe" => vec![0],
                 "logic" => (0..8).collect(),
                 _ => continue,
@@ -510,6 +515,7 @@ impl Sim {
                 tr.part = part.id;
                 tr.pin = pin;
                 tr.net = net;
+                tr.current_part = is_current.then_some(index);
                 self.traces.push(tr);
             }
         }
@@ -807,12 +813,15 @@ impl Sim {
             break;
         }
         let t1 = self.t + dt;
-        for k in 0..self.traces.len() {
-            let v = self.net_v(self.traces[k].net).unwrap_or(0.0) as f32;
-            self.traces[k].push(t1, v);
-        }
-        // 测量：各元件引脚电流、功率
         self.measure(dt);
+        for k in 0..self.traces.len() {
+            let tr = &self.traces[k];
+            let value = match tr.current_part {
+                Some(part) => self.ps[part].i[tr.pin],
+                None => self.net_v(tr.net).unwrap_or(0.0),
+            };
+            self.traces[k].push(t1, value as f32);
+        }
         let mut ps = std::mem::take(&mut self.ps);
         self.next_ev = f64::INFINITY;
         for (pi, st) in ps.iter_mut().enumerate() {

@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  English · <a href="README.zh-CN.md">简体中文（QCCOM 串口助手）</a> · <a href="https://www.zenghi.com/switch-from-sscom/">SSCOM32 用户的串口调试指南</a>
+  English · <a href="README.zh-CN.md">简体中文（QCCOM 串口助手）</a> · <a href="docs/serial-debug.zh-CN.md">SSCOM32 用户的串口调试</a> · <a href="docs/mqtt-tool.zh-CN.md">MQTT 工具</a> · <a href="docs/code-compare.zh-CN.md">代码对比工具</a>
 </p>
 
 ![QCCOM serial monitor connected at 115200 baud, showing color-coded device logs and AT command presets](docs/screenshot.png)

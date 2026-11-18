@@ -20,7 +20,11 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
-习惯用 SSCOM32 调试设备？在 QCCOM 里找 HEX 收发、定时发送和日志保存，见[从 SSCOM32 换到 QCCOM 的常用操作对照](https://www.zenghi.com/switch-from-sscom/)。
+## 图文上手
+
+- **串口调试**　用过 SSCOM32？用文本和 HEX 各发一次 `AT`，看设备是否回复 `OK`。[串口助手收发教程](docs/serial-debug.zh-CN.md) · [SSCOM32 常用操作对照](https://www.zenghi.com/switch-from-sscom/)
+- **MQTT 工具**　在本机订阅温度主题、发布一条读数，再到接收日志核对消息。[MQTT 发布与订阅图解](docs/mqtt-tool.zh-CN.md)
+- **代码对比工具**　在两版固件中找出改动的文件，再逐行核对 UART 波特率。[文件和文件夹对比图解](docs/code-compare.zh-CN.md)
 
 ![QCCOM 以 115200 波特率连接设备，中间按颜色区分警告和错误日志，右侧列出 AT 快捷命令](docs/screenshot.png)
 

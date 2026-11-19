@@ -545,7 +545,7 @@ impl App {
                     ui.ctx().copy_text(proj::ioc_defines(io));
                 }
                 if ui.button(t("导出 CSV…")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new()
+                    if let Some(p) = crate::diagnostics::file_dialog()
                         .set_file_name(format!("{}_pins.csv", if io.project.is_empty() { "pins" } else { &io.project }))
                         .save_file()
                     {

@@ -2070,7 +2070,7 @@ fn empty(ui: &mut Ui, art: Art, title: &str, desc: &str, action: Option<&str>) -
 }
 
 fn pick_image() -> Option<std::path::PathBuf> {
-    rfd::FileDialog::new()
+    crate::diagnostics::file_dialog()
         .set_title(t("选择图片"))
         .add_filter(t("图片"), &["png", "jpg", "jpeg", "gif", "webp", "bmp"])
         .pick_file()

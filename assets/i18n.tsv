@@ -830,6 +830,11 @@ Vim 键位	Vim keys	Vim 鍵位	Vim キー操作	Vim 키	Vim-Tasten	Touches Vim	T
 录制换到新文件：{}	Recording continues in a new file: {}	錄製換到新檔案：{}	録画を新しいファイルに切替：{}	새 파일로 녹화 계속: {}	Aufzeichnung in neuer Datei: {}	Enregistrement dans un nouveau fichier : {}	Grabación en un archivo nuevo: {}	Запись продолжена в новом файле: {}	Gravação em novo arquivo: {}
 录制分卷	Split recordings	錄製分卷	録画の分割	녹화 분할	Aufzeichnung teilen	Découper l'enregistrement	Dividir grabación	Разбивать запись	Dividir gravação
 录制文件超过大小或时长就换一个新文件（0 = 不限）	Start a new file after this size or duration (0 = no limit)	錄製檔案超過大小或時長就換一個新檔案（0 = 不限）	サイズまたは時間を超えたら新しいファイルへ（0 = 無制限）	크기나 시간을 넘으면 새 파일로(0 = 제한 없음)	Neue Datei nach dieser Größe oder Dauer (0 = unbegrenzt)	Nouveau fichier après cette taille ou durée (0 = illimité)	Nuevo archivo tras este tamaño o duración (0 = sin límite)	Новый файл после этого размера или времени (0 = без ограничения)	Novo arquivo após este tamanho ou duração (0 = sem limite)
+录制分卷大小	Recording file size	錄製分卷大小	記録ファイルのサイズ	기록 파일 크기	Größe der Aufzeichnungsdatei	Taille du fichier d'enregistrement	Tamaño del archivo de grabación	Размер файла записи	Tamanho do arquivo de gravação
+下一行会超出单个文件大小时，写入新文件（0 = 不限）	Start a new file if the next line would exceed this size (0 = no limit)	下一行會超出單一檔案大小時，寫入新檔案（0 = 不限）	次の行でこのサイズを超える場合は新しいファイルに記録（0 = 無制限）	다음 줄이 이 크기를 넘기면 새 파일에 기록(0 = 제한 없음)	Neue Datei, wenn die nächste Zeile diese Größe überschreiten würde (0 = unbegrenzt)	Nouveau fichier si la ligne suivante dépasse cette taille (0 = illimité)	Nuevo archivo si la línea siguiente supera este tamaño (0 = sin límite)	Новый файл, если следующая строка превысит этот размер (0 = без ограничения)	Novo arquivo se a próxima linha ultrapassar este tamanho (0 = sem limite)
+录制分卷时长	Recording file duration	錄製分卷時長	記録ファイルの期間	기록 파일 시간	Dauer je Aufzeichnungsdatei	Durée par fichier d'enregistrement	Duración por archivo de grabación	Длительность одного файла записи	Duração por arquivo de gravação
+达到单个文件的录制时长后，下次写入时换新文件（0 = 不限）	After this duration, write the next line to a new file (0 = no limit)	達到單一檔案的錄製時長後，下次寫入時換新檔案（0 = 不限）	この時間を過ぎたら、次の行を新しいファイルに記録（0 = 無制限）	이 시간이 지나면 다음 줄을 새 파일에 기록(0 = 제한 없음)	Nach dieser Zeit die nächste Zeile in eine neue Datei schreiben (0 = unbegrenzt)	Après cette durée, écrire la ligne suivante dans un nouveau fichier (0 = illimité)	Tras esta duración, escribir la línea siguiente en un archivo nuevo (0 = sin límite)	По истечении этого времени записать следующую строку в новый файл (0 = без ограничения)	Após este tempo, grave a próxima linha em um novo arquivo (0 = sem limite)
+文件已存在，请换一个录制文件名	File already exists. Choose a different recording name.	檔案已存在，請改用不同的錄製檔名	ファイルは既に存在します。別の記録ファイル名を選択してください。	파일이 이미 있습니다. 다른 기록 파일 이름을 선택하세요.	Datei existiert bereits. Wählen Sie einen anderen Namen für die Aufzeichnung.	Le fichier existe déjà. Choisissez un autre nom d'enregistrement.	El archivo ya existe. Elige otro nombre para la grabación.	Файл уже существует. Выберите другое имя для записи.	O arquivo já existe. Escolha outro nome para a gravação.
 多行发送间隔	Multi-line send gap	多行傳送間隔	複数行送信の間隔	여러 줄 전송 간격	Abstand beim zeilenweisen Senden	Intervalle multiligne	Intervalo multilínea	Интервал многострочной отправки	Intervalo multilinha
 命令栏多行「逐行」发送时，每行之间等待的时间	Wait between lines when the command bar sends line by line	命令列多行「逐行」傳送時，每行之間等待的時間	コマンドバーで 1 行ずつ送るときの行間の待ち時間	명령줄에서 줄마다 보낼 때 줄 사이 대기 시간	Wartezeit zwischen Zeilen beim zeilenweisen Senden	Attente entre les lignes en envoi ligne par ligne	Espera entre líneas al enviar por línea	Пауза между строками при построчной отправке	Espera entre linhas ao enviar por linha
 共享到网络	Share on network	共享到網路	ネットワーク共有	네트워크 공유	Im Netz freigeben	Partager sur le réseau	Compartir en red	Открыть в сети	Compartilhar na rede
@@ -3178,3 +3183,39 @@ build/、Objects/、*.o、*.map 等	build/, Objects/, *.o, *.map, etc.	build/、
 跳过	Skip	略過	スキップ	건너뛰기	Überspringen	Passer	Omitir	Пропустить	Pular
 ＋ 电压探针	＋ Voltage probe	＋ 電壓探針	＋ 電圧プローブ	＋ 전압 프로브	＋ Spannungstastkopf	＋ Sonde de tension	＋ Sonda de tensión	＋ Пробник напряжения	＋ Sonda de tensão
 ＋ 电流表	＋ Ammeter	＋ 電流表	＋ 電流計	＋ 전류계	＋ Amperemeter	＋ Ampèremètre	＋ Amperímetro	＋ Амперметр	＋ Amperímetro
+日志的单行超过 {} MiB，无法回放	A log line exceeds {} MiB. Replay stopped.	日誌的單行超過 {} MiB，無法回放	ログの 1 行が {} MiB を超えたため、再生を停止しました	로그 한 줄이 {} MiB를 초과하여 재생을 중지했습니다	Eine Logzeile überschreitet {} MiB. Wiedergabe gestoppt.	Une ligne du journal dépasse {} Mio. Lecture arrêtée.	Una línea del registro supera {} MiB. Se ha detenido la reproducción.	Строка журнала превышает {} МиБ. Воспроизведение остановлено.	Uma linha do log excede {} MiB. Reprodução interrompida.
+最多可同时排队 {} 个日志文件	Up to {} log files can be queued at a time	最多可同時排隊 {} 個日誌檔	一度に待機できるログファイルは最大 {} 個です	한 번에 로그 파일을 최대 {}개까지 대기열에 넣을 수 있습니다	Es können höchstens {} Logdateien gleichzeitig in der Warteschlange stehen	La file d’attente peut contenir jusqu’à {} fichiers journal	Se pueden poner en cola hasta {} archivos de registro a la vez	Одновременно в очереди может быть не более {} файлов журнала	Até {} arquivos de log podem ficar na fila ao mesmo tempo
+仅显示日志末尾（最多 {} MiB、{} 行）	Showing only the end of the log (up to {} MiB and {} lines)	僅顯示日誌末尾（最多 {} MiB、{} 行）	ログの末尾のみ表示（最大 {} MiB、{} 行）	로그 끝부분만 표시합니다(최대 {} MiB, {}줄)	Nur das Ende des Logs wird angezeigt (bis zu {} MiB, {} Zeilen)	Seule la fin du journal est affichée (jusqu’à {} Mio et {} lignes)	Solo se muestra el final del registro (hasta {} MiB y {} líneas)	Показан только конец журнала (до {} МиБ и {} строк)	Apenas o final do log é exibido (até {} MiB e {} linhas)
+已跳过 {} 个超过 {} KiB 的日志行	Skipped {} log lines longer than {} KiB	已略過 {} 個超過 {} KiB 的日誌行	{} 行のログをスキップしました（1 行が {} KiB 超）	{}개의 로그 줄을 건너뛰었습니다(각각 {} KiB 초과)	{} Logzeilen mit mehr als {} KiB wurden übersprungen	{} lignes du journal dépassant {} Kio ont été ignorées	Se omitieron {} líneas del registro de más de {} KiB	Пропущено строк: {} (длиннее {} КиБ)	Foram ignoradas {} linhas de log com mais de {} KiB
+开始回放 {}	Replaying {}	開始回放 {}	{} を再生中	{} 재생 중	{} wird wiedergegeben	Lecture de {}	Reproduciendo {}	Воспроизведение: {}	Reproduzindo {}
+回放出错：{}	Replay error: {}	回放出錯：{}	再生エラー：{}	재생 오류: {}	Wiedergabefehler: {}	Erreur de lecture : {}	Error de reproducción: {}	Ошибка воспроизведения: {}	Erro de reprodução: {}
+{} 收到无效或过大的消息	{} received a malformed or oversized message	{} 收到無效或過大的訊息	{} が無効またはサイズ超過のメッセージを受信しました	{}에서 잘못되었거나 너무 큰 메시지를 받았습니다	{} hat eine ungültige oder zu große Nachricht empfangen	{} a reçu un message mal formé ou trop volumineux	{} recibió un mensaje mal formado o demasiado grande	{} получил некорректное или слишком большое сообщение	{} recebeu uma mensagem malformada ou grande demais
+QCCOM 故障诊断	QCCOM diagnostic report								
+故障类型	Issue type								
+QCCOM 版本	QCCOM version								
+系统类型	Operating system								
+处理器架构	Processor architecture								
+将用社区账号「{}」向 {} 的求助区发布公开帖子。	This posts publicly to the Help board as the community account {} on {}.								
+报告只含故障类型、QCCOM 版本、系统类型和处理器架构。不含日志、串口数据、文件路径、崩溃堆栈或密钥。	The report contains only the issue type, QCCOM version, operating system, and processor architecture. No logs, serial data, file paths, crash stacks, or secrets are included.								
+无法启动故障报告；本地记录仍保留。	Could not start the report. The local record was kept.								
+故障报告已提交，审核后公开。	Report submitted. It will be public after moderation.								
+故障报告已公开发布。	The diagnostic report was published.								
+无法验证当前社区账号或服务器，报告仍仅保存在本机。	Could not verify the community account or server. The report remains on this device.								
+无法准备本地故障报告，没有发布。	Could not prepare the local diagnostic report. Nothing was published.								
+上次故障报告的发布状态未知，不会重试。	Delivery could not be confirmed. This report will not be retried.								
+发现上次运行的故障诊断，报告仍保存在本机。	A diagnostic report from the previous run is saved on this device.								
+查看故障报告	Review diagnostic report								
+发布前请在社区页登录已有账号。	Sign in to an existing account on the Community page to publish.								
+正在提交故障报告…	Submitting diagnostic report…								
+确认公开发布	Confirm public post								
+丢弃本地报告	Discard local report								
+无法删除本地故障报告。	Could not delete the local diagnostic report.								
+开启前请在社区页登录已有账号。	Sign in to an existing account on the Community page to enable this.								
+默认关闭。开启后，下次启动时自动提交本机的故障报告。授权只适用于此窗口、此账号和此服务器。	Off by default. When enabled, local diagnostic reports are submitted at the next launch. This applies only to this window, account, and server.								
+自动发布故障报告	Automatically post diagnostic reports								
+无法保存故障报告设置。	Could not save the diagnostic reporting setting.								
+检测到界面长时间未响应，已尝试保存本地故障诊断。	The interface stopped responding for a while. QCCOM attempted to save a local diagnostic report.								
+服务器按普通社区发帖验证已有登录；账号令牌和设备标识不会写入帖子内容。	The server verifies your existing sign-in like any other community post. Account tokens and device identifiers are not included in the post content.								
+当前账号或服务器与保存的授权不符，不会自动发布。使用当前账号启用时，请先关闭再重新开启。	The current account or server does not match your saved permission. Automatic posting is paused. To enable it for the current account, turn it off and back on.								
+脚本输入或输出积压过多，已停止	Script stopped because input or output backed up	腳本輸入或輸出積壓過多，已停止	入出力が滞留したため、スクリプトを停止しました	입력 또는 출력이 너무 많이 쌓여 스크립트를 중지했습니다	Skript wegen zu vieler ausstehender Ein- oder Ausgaben gestoppt	Le script a été arrêté en raison d’une accumulation d’entrées ou de sorties	El script se detuvo por acumulación de entradas o salidas	Сценарий остановлен из-за переполнения очереди ввода или вывода	O script foi interrompido por excesso de entradas ou saídas na fila
+每个窗口 24 小时内最多尝试自动发布一次，你仍可查看并手动发布。	Each window makes at most one automatic submission attempt in 24 hours. You can still review and post manually.								

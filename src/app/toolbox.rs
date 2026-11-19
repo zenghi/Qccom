@@ -1500,7 +1500,7 @@ pub(super) fn folder_row(ui: &mut egui::Ui, root: &mut String) {
         let w = ui.available_width() - 80.0;
         ui.add_sized(vec2(w, 26.0), egui::TextEdit::singleline(root).font(MONO(12.5)).margin(vec2(6.0, 4.0)));
         if ui.add(egui::Button::new(RichText::new(t("选择…")).size(12.0)).min_size(vec2(70.0, 26.0))).clicked() {
-            if let Some(p) = rfd::FileDialog::new().set_directory(&*root).pick_folder() {
+            if let Some(p) = crate::diagnostics::file_dialog().set_directory(&*root).pick_folder() {
                 *root = p.to_string_lossy().into_owned();
             }
         }

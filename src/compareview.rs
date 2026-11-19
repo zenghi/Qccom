@@ -682,12 +682,12 @@ fn path_row(ui: &mut Ui, label: &str, v: &mut String) {
                 .hint_text(t("路径，或把文件拖到这里")),
         );
         if icon_button(ui, Icon::Files, t("选择文件"), false).clicked() {
-            if let Some(p) = rfd::FileDialog::new().pick_file() {
+            if let Some(p) = crate::diagnostics::file_dialog().pick_file() {
                 *v = p.display().to_string();
             }
         }
         if icon_button(ui, Icon::Folder, t("选择文件夹"), false).clicked() {
-            if let Some(p) = rfd::FileDialog::new().pick_folder() {
+            if let Some(p) = crate::diagnostics::file_dialog().pick_folder() {
                 *v = p.display().to_string();
             }
         }
@@ -848,7 +848,7 @@ pub(crate) fn mono() -> FontId {
 
 /// 生成报告并用浏览器打开
 pub(crate) fn save_report(html: String, name: &str, outs: &mut Vec<Out>) {
-    if let Some(p) = rfd::FileDialog::new().set_file_name(format!("{name}.html")).add_filter("HTML", &["html"]).save_file() {
+    if let Some(p) = crate::diagnostics::file_dialog().set_file_name(format!("{name}.html")).add_filter("HTML", &["html"]).save_file() {
         match std::fs::write(&p, html) {
             Ok(_) => {
                 crate::app::open_url(&p.display().to_string());

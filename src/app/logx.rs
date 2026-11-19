@@ -5,6 +5,9 @@ use super::*;
 use crate::checksum::{self, Check};
 use crate::logbuf::{Framer, LenSpec};
 use chrono::{NaiveDateTime, NaiveTime};
+use std::fs::File;
+use std::io::{self, BufRead, BufReader, Read, Seek, SeekFrom};
+use std::sync::mpsc::{SyncSender, TryRecvError};
 
 // ---------------------------------------------------------------- 规则
 
@@ -155,10 +158,10 @@ impl FrameCfg {
 // ---------------------------------------------------------------- 回放
 
 pub(super) struct Replay {
-    /// (相对第一行的毫秒, 方向, 内容)
-    items: VecDeque<(i64, Dir, Vec<u8>)>,
-    total: usize,
-    start: Instant,
+    rx: Receiver<Result<ReplayLine, String>>,
+    next: Option<ReplayLine>,
+    total: u64,
+    consumed: u64,
     pub speed: f32,
     /// 暂停时累计的“回放时间”（毫秒）
     played: f64,
@@ -169,15 +172,180 @@ pub(super) struct Replay {
 
 impl Replay {
     pub(super) fn progress(&self) -> f32 {
-        1.0 - self.items.len() as f32 / self.total.max(1) as f32
+        (self.consumed as f64 / self.total.max(1) as f64).min(1.0) as f32
     }
+
+    pub(super) fn reset_clock(&mut self) {
+        self.last = Instant::now();
+    }
+}
+
+const LOG_WINDOW_MIB: u64 = 16;
+const LOG_WINDOW_BYTES: u64 = LOG_WINDOW_MIB * 1024 * 1024;
+const OPEN_LINE_BYTES: usize = 256 * 1024;
+const REPLAY_LINE_MIB: usize = 4;
+const REPLAY_LINE_BYTES: usize = REPLAY_LINE_MIB * 1024 * 1024;
+const LOG_MAX_LINES: usize = 100_000;
+const LOG_FRAME_BYTES: usize = OPEN_LINE_BYTES;
+const LOG_FRAME_LINES: usize = 2000;
+const LOG_PENDING_FILES: usize = 16;
+const REPLAY_BUFFER_LINES: usize = 8;
+
+type LoadedLine = (Option<NaiveDateTime>, Dir, Vec<u8>);
+
+struct ReplayLine {
+    at: i64,
+    read: u64,
+    line: LoadedLine,
+}
+
+#[derive(Default)]
+pub(super) struct LogLoader {
+    pending: VecDeque<(PathBuf, bool)>,
+    active: Option<Receiver<Result<PreparedLog, String>>>,
+    applying: VecDeque<LoadedLine>,
+}
+
+enum PreparedLog {
+    Open {
+        name: String,
+        items: VecDeque<LoadedLine>,
+        tail_only: bool,
+        skipped_long: usize,
+        max_lines: usize,
+    },
+    Replay {
+        name: String,
+        total: u64,
+        rx: Receiver<Result<ReplayLine, String>>,
+    },
+}
+
+/// Read a fixed-size snapshot of a regular file's tail. Discard a partial
+/// first line when the window starts in the middle of a record.
+fn read_log_window(mut file: impl Read + Seek, len: u64, max_bytes: u64) -> io::Result<(Vec<u8>, bool)> {
+    let offset = len.saturating_sub(max_bytes);
+    let mut starts_at_line = true;
+    if offset > 0 {
+        file.seek(SeekFrom::Start(offset - 1))?;
+        let mut prev = [0];
+        file.read_exact(&mut prev)?;
+        starts_at_line = prev[0] == b'\n';
+    }
+    let mut bytes = Vec::with_capacity((len - offset) as usize);
+    file.take(len - offset).read_to_end(&mut bytes)?;
+    if !starts_at_line {
+        let skip = bytes.iter().position(|&c| c == b'\n').map_or(bytes.len(), |i| i + 1);
+        bytes.drain(..skip);
+    }
+    Ok((bytes, offset > 0))
+}
+
+fn without_line_ending(bytes: &[u8]) -> &[u8] {
+    bytes.strip_suffix(b"\r\n").or_else(|| bytes.strip_suffix(b"\n")).unwrap_or(bytes)
+}
+
+fn parse_loaded_line(raw: &[u8]) -> LoadedLine {
+    let text = String::from_utf8_lossy(raw);
+    let (ts, dir, body) = parse_log_line(&text);
+    (ts, dir, body.as_bytes().to_vec())
+}
+
+fn parse_open_log(name: String, bytes: &[u8], tail_only: bool, max_lines: usize) -> PreparedLog {
+    let lines = bytes.split_inclusive(|&c| c == b'\n');
+    let skip = lines.clone().count().saturating_sub(max_lines);
+    let mut items = VecDeque::new();
+    let mut skipped_long = 0;
+    for raw in lines.skip(skip).map(without_line_ending) {
+        if raw.len() > OPEN_LINE_BYTES {
+            skipped_long += 1;
+            continue;
+        }
+        items.push_back(parse_loaded_line(raw));
+    }
+    PreparedLog::Open {
+        name,
+        items,
+        tail_only: tail_only || skip != 0,
+        skipped_long,
+        max_lines,
+    }
+}
+
+fn open_log_source(path: &std::path::Path) -> Result<(File, u64, String), String> {
+    let metadata = std::fs::metadata(path).map_err(|e| e.to_string())?;
+    if !metadata.is_file() {
+        return Err(t("选择文件").into());
+    }
+    let file = File::open(path).map_err(|e| e.to_string())?;
+    let len = file.metadata().map_err(|e| e.to_string())?.len();
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    Ok((file, len, name))
+}
+
+fn stream_replay(mut source: impl BufRead, tx: SyncSender<Result<ReplayLine, String>>) -> Result<(), String> {
+    let mut bytes = Vec::new();
+    let mut first = None;
+    let mut last = 0i64;
+    loop {
+        bytes.clear();
+        // Include room for CRLF, and one byte to distinguish a full line
+        // from an oversized record without collecting it all into memory.
+        let read = (&mut source).take((REPLAY_LINE_BYTES + 3) as u64).read_until(b'\n', &mut bytes).map_err(|e| e.to_string())?;
+        if read == 0 {
+            return Ok(());
+        }
+        let body = without_line_ending(&bytes);
+        if body.len() > REPLAY_LINE_BYTES {
+            return Err(tf("日志的单行超过 {} MiB，无法回放", &[&REPLAY_LINE_MIB]));
+        }
+        let line = parse_loaded_line(body);
+        // Lines without timestamps use the preceding line's time.
+        if let Some(ts) = line.0 {
+            let start = *first.get_or_insert(ts);
+            let mut elapsed = (ts - start).num_milliseconds();
+            if elapsed < last - 43_200_000 {
+                elapsed += 86_400_000; // time-only format crossing midnight
+            }
+            last = elapsed.max(last);
+        }
+        if tx.send(Ok(ReplayLine { at: last, read: read as u64, line })).is_err() {
+            return Ok(()); // cancelled / window closed
+        }
+    }
+}
+
+fn prepare_log(path: PathBuf, replay: bool, max_lines: usize, tx: Sender<Result<PreparedLog, String>>, ctx: egui::Context) {
+    let (file, len, name) = match open_log_source(&path) {
+        Ok(source) => source,
+        Err(err) => {
+            let _ = tx.send(Err(err));
+            ctx.request_repaint();
+            return;
+        }
+    };
+    if replay {
+        let (out, rx) = mpsc::sync_channel(REPLAY_BUFFER_LINES);
+        if tx.send(Ok(PreparedLog::Replay { name, total: len, rx })).is_err() {
+            return;
+        }
+        ctx.request_repaint();
+        if let Err(err) = stream_replay(BufReader::new(file.take(len)), out.clone()) {
+            let _ = out.send(Err(err));
+        }
+    } else {
+        let prepared = read_log_window(file, len, LOG_WINDOW_BYTES)
+            .map(|(bytes, tail)| parse_open_log(name, &bytes, tail, max_lines))
+            .map_err(|err| err.to_string());
+        let _ = tx.send(prepared);
+    }
+    ctx.request_repaint();
 }
 
 /// 解析日志文件的一行。认得两种格式：
 /// 保存 / 录制的 "2026-10-27 12:34:56.789 RX 内容"（RX / TX / RB / ## 表示方向），
 /// 以及从界面复制的 "12:34:56.789  TX › 内容"（"◆ " 是系统消息，"B › " 是监听口 B）。
 fn parse_log_line(line: &str) -> (Option<NaiveDateTime>, Dir, &str) {
-    let today = chrono::Local::now().date_naive();
     let mut rest = line;
     let mut ts = None;
     if line.len() >= 27 && line.is_char_boundary(23) {
@@ -195,7 +363,7 @@ fn parse_log_line(line: &str) -> (Option<NaiveDateTime>, Dir, &str) {
     }
     if line.len() >= 12 && line.is_char_boundary(12) {
         if let Ok(t) = NaiveTime::parse_from_str(&line[..12], "%H:%M:%S%.3f") {
-            ts = Some(today.and_time(t));
+            ts = Some(chrono::Local::now().date_naive().and_time(t));
             rest = line[12..].trim_start_matches(' ');
         }
     }
@@ -362,7 +530,7 @@ impl App {
     // ------------------------------------------------------------ 打开 / 回放日志文件
 
     pub(super) fn open_log_file(&mut self, replay: bool) {
-        let Some(path) = rfd::FileDialog::new().add_filter(t("日志"), &["log", "txt"]).add_filter(t("所有文件"), &["*"]).pick_file() else {
+        let Some(path) = crate::diagnostics::file_dialog().add_filter(t("日志"), &["log", "txt"]).add_filter(t("所有文件"), &["*"]).pick_file() else {
             return;
         };
         self.load_log_path(&path, replay);
@@ -370,95 +538,151 @@ impl App {
 
     /// 打开（或回放）一个日志文件：菜单、拖放、命令行 --open / --replay 都走这里
     pub(super) fn load_log_path(&mut self, path: &std::path::Path, replay: bool) {
-        let text = match std::fs::read(&path) {
-            Ok(b) => String::from_utf8_lossy(&b).into_owned(),
-            Err(e) => {
-                self.toast(tf("无法打开：{}", &[&e]), ERR());
-                return;
-            }
-        };
-        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let parsed: Vec<(Option<NaiveDateTime>, Dir, &str)> = text.lines().map(parse_log_line).collect();
-        if replay {
-            let first = parsed.iter().find_map(|p| p.0);
-            let mut items = VecDeque::new();
-            let mut last = 0i64;
-            for (ts, dir, s) in &parsed {
-                // 没有时间戳的行沿用上一行的时间
-                let at = match (ts, first) {
-                    (Some(t), Some(f)) => {
-                        let mut d = (*t - f).num_milliseconds();
-                        if d < last - 43_200_000 {
-                            d += 86_400_000; // 跨过午夜
-                        }
-                        d.max(last)
-                    }
-                    _ => last,
-                };
-                last = at;
-                items.push_back((at, *dir, s.as_bytes().to_vec()));
-            }
-            let total = items.len();
-            self.buf.sys(tf("开始回放 {}（{} 行）", &[&name, &total]));
-            self.replay = Some(Replay {
-                items,
-                total,
-                start: Instant::now(),
-                speed: 1.0,
-                played: 0.0,
-                last: Instant::now(),
-                paused: false,
-                name,
-            });
+        if self.log_load.pending.len() >= LOG_PENDING_FILES {
+            self.toast(tf("最多可同时排队 {} 个日志文件", &[&LOG_PENDING_FILES]), WARN());
             return;
         }
-        self.buf.sys(tf("打开日志文件 {}（{} 行）", &[&name, &parsed.len()]));
-        for (ts, dir, s) in parsed {
-            let ts = ts.and_then(|t| t.and_local_timezone(chrono::Local).single());
-            self.buf.push_loaded(dir, s.as_bytes().to_vec(), self.s.encoding, ts);
+        self.log_load.pending.push_back((path.to_owned(), replay));
+        self.ctx.request_repaint();
+    }
+
+    fn log_file_status(&mut self, message: impl Into<String>) {
+        // Do not write status or replay output into a live recording.
+        self.buf.push_loaded(Dir::Sys, message.into().into_bytes(), Encoding::Utf8, None);
+    }
+
+    fn add_file_line(&mut self, (ts, dir, raw): LoadedLine) {
+        let ts = ts.and_then(|t| t.and_local_timezone(chrono::Local).single());
+        self.buf.push_loaded(dir, raw, Encoding::Utf8, ts);
+    }
+
+    fn tick_log_load(&mut self) {
+        if let Some(loader) = self.log_load.active.take() {
+            match loader.try_recv() {
+                Ok(Ok(PreparedLog::Open {
+                    name,
+                    items,
+                    tail_only,
+                    skipped_long,
+                    max_lines,
+                })) => {
+                    self.log_file_status(tf("打开日志文件 {}（{} 行）", &[&name, &items.len()]));
+                    if tail_only {
+                        self.log_file_status(tf("仅显示日志末尾（最多 {} MiB、{} 行）", &[&LOG_WINDOW_MIB, &max_lines]));
+                    }
+                    if skipped_long != 0 {
+                        self.log_file_status(tf("已跳过 {} 个超过 {} KiB 的日志行", &[&skipped_long, &(OPEN_LINE_BYTES / 1024)]));
+                    }
+                    self.log_load.applying = items;
+                    self.jump_bottom = true;
+                }
+                Ok(Ok(PreparedLog::Replay { name, total, rx })) => {
+                    self.log_file_status(tf("开始回放 {}", &[&name]));
+                    self.replay = Some(Replay {
+                        rx,
+                        next: None,
+                        total,
+                        consumed: 0,
+                        speed: 1.0,
+                        played: 0.0,
+                        last: Instant::now(),
+                        paused: false,
+                        name,
+                    });
+                }
+                Ok(Err(e)) => self.toast(tf("无法打开：{}", &[&e]), ERR()),
+                Err(TryRecvError::Empty) => {
+                    self.log_load.active = Some(loader);
+                    return; // worker requests a repaint after sending its result
+                }
+                Err(TryRecvError::Disconnected) => self.toast(tf("无法打开：{}", &[&t("内部错误")]), ERR()),
+            }
         }
-        self.view_dirty = true;
-        self.jump_bottom = true;
+
+        let mut bytes = 0usize;
+        for _ in 0..LOG_FRAME_LINES {
+            let Some(line) = self.log_load.applying.pop_front() else { break };
+            bytes += line.2.len();
+            self.add_file_line(line);
+            self.jump_bottom = true;
+            if bytes >= LOG_FRAME_BYTES {
+                break;
+            }
+        }
+        if !self.log_load.applying.is_empty() {
+            self.ctx.request_repaint();
+            return;
+        }
+
+        if let Some((path, replay)) = self.log_load.pending.pop_front() {
+            let (tx, rx) = mpsc::channel();
+            let ctx = self.ctx.clone();
+            let max_lines = self.buf.max_lines.clamp(1, LOG_MAX_LINES);
+            match std::thread::Builder::new().name("log-file".into()).spawn(move || prepare_log(path, replay, max_lines, tx, ctx)) {
+                Ok(_) => self.log_load.active = Some(rx),
+                Err(e) => {
+                    self.toast(tf("无法打开：{}", &[&e]), ERR());
+                    self.ctx.request_repaint();
+                }
+            }
+        }
     }
 
     pub(super) fn tick_replay(&mut self) {
-        let Some(r) = self.replay.as_mut() else { return };
+        self.tick_log_load();
+        let Some(mut replay) = self.replay.take() else { return };
         let now = Instant::now();
-        if !r.paused {
-            r.played += now.duration_since(r.last).as_secs_f64() * 1000.0 * r.speed as f64;
+        let elapsed = now.saturating_duration_since(replay.last);
+        replay.last = now;
+        if replay.paused || self.paused {
+            self.replay = Some(replay);
+            return;
         }
-        r.last = now;
-        let _ = r.start;
-        let mut due = vec![];
-        // 每帧最多放 2000 行，免得最高速时卡住界面
-        while due.len() < 2000 && r.items.front().is_some_and(|(at, _, _)| (*at as f64) <= r.played || r.speed >= 1000.0) {
-            due.push(r.items.pop_front().unwrap());
-        }
-        let next = r.items.front().map(|(at, _, _)| ((*at as f64 - r.played) / r.speed as f64).max(1.0));
-        let done = r.items.is_empty();
-        for (_, dir, d) in due {
-            match dir {
-                Dir::Rx => {
-                    // 只进日志，不算进收发统计、不转发给网络共享和工具
-                    let mut d = d;
-                    d.push(b'\n');
-                    if self.paused {
-                        self.pause_buf.extend_from_slice(&d);
-                    } else {
-                        self.buf.push_rx(&d, self.s.encoding);
+        replay.played += elapsed.as_secs_f64() * 1000.0 * replay.speed as f64;
+        let mut bytes = 0usize;
+        let mut next_ms = 1;
+        for _ in 0..LOG_FRAME_LINES {
+            if replay.next.is_none() {
+                match replay.rx.try_recv() {
+                    Ok(Ok(line)) => replay.next = Some(line),
+                    Ok(Err(e)) => {
+                        self.log_file_status(tf("回放出错：{}", &[&e]));
+                        self.toast(tf("回放出错：{}", &[&e]), ERR());
+                        return;
+                    }
+                    Err(TryRecvError::Empty) => {
+                        next_ms = 10;
+                        break;
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        self.log_file_status(tf("回放结束：{}", &[&replay.name]));
+                        return;
                     }
                 }
-                Dir::Rx2 => self.on_sniff_data([d, b"\n".to_vec()].concat()),
-                Dir::Tx => self.buf.push_line(Dir::Tx, d, self.s.encoding),
-                Dir::Sys => self.buf.sys(String::from_utf8_lossy(&d).into_owned()),
+            }
+            let Some(line) = replay.next.take() else { break };
+            if replay.speed < 1000.0 && line.at as f64 > replay.played {
+                next_ms = (((line.at as f64 - replay.played) / replay.speed as f64).clamp(1.0, 500.0)) as u64;
+                replay.next = Some(line);
+                break;
+            }
+            replay.consumed += line.read;
+            bytes += line.line.2.len();
+            let compare = matches!(line.line.1, Dir::Rx | Dir::Rx2) && (self.s.plot.on || self.dock.trig_rt.iter().any(Option::is_some));
+            let id = self.buf.total();
+            self.add_file_line(line.line);
+            if compare {
+                if let Some(text) = self.buf.get(id).map(|l| l.plain.clone()) {
+                    self.on_line(&text, true);
+                    self.plot_line(&text);
+                }
+            }
+            if self.paused || bytes >= LOG_FRAME_BYTES {
+                break;
             }
         }
-        if done {
-            let name = self.replay.take().map(|r| r.name).unwrap_or_default();
-            self.buf.sys(tf("回放结束：{}", &[&name]));
-        } else if let Some(ms) = next {
-            self.ctx.request_repaint_after(Duration::from_millis(ms.min(500.0) as u64));
-        }
+        self.replay = Some(replay);
+        self.ctx.request_repaint_after(Duration::from_millis(next_ms));
     }
 
     // ------------------------------------------------------------ 分帧
@@ -847,6 +1071,61 @@ pub(crate) fn small_chip(ui: &mut egui::Ui, v: &mut bool, label: &str, tip: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
+
+    #[test]
+    fn log_snapshot_reads_only_requested_bytes_and_whole_tail_lines() {
+        let bytes = b"prefix\n\xE6\x97\xA5abc\nlast\r\n";
+        let (tail, trimmed) = read_log_window(Cursor::new(bytes), bytes.len() as u64, 12).unwrap();
+        assert!(trimmed);
+        assert_eq!(tail, b"last\r\n");
+        let (whole_lines, trimmed) = read_log_window(Cursor::new(bytes), bytes.len() as u64, 13).unwrap();
+        assert!(trimmed);
+        assert_eq!(whole_lines, b"\xE6\x97\xA5abc\nlast\r\n");
+        let (snapshot, trimmed) = read_log_window(Cursor::new(bytes), 7, 15).unwrap();
+        assert!(!trimmed);
+        assert_eq!(snapshot, b"prefix\n");
+    }
+
+    #[test]
+    fn open_keeps_latest_rows_and_skips_oversized_lines() {
+        let mut raw = b"older\r\n".to_vec();
+        raw.extend(std::iter::repeat_n(b'x', OPEN_LINE_BYTES + 1));
+        raw.extend_from_slice(b"\n12:34:56.789  TX \xE2\x80\xBA last\r\n");
+        let PreparedLog::Open { items, tail_only, skipped_long, .. } = parse_open_log("test".into(), &raw, false, 2) else {
+            panic!("expected open result");
+        };
+        assert!(tail_only);
+        assert_eq!(skipped_long, 1);
+        assert_eq!(items.len(), 1);
+        assert_eq!((items[0].1, items[0].2.as_slice()), (Dir::Tx, &b"last"[..]));
+    }
+
+    #[test]
+    fn replay_stream_preserves_time_direction_and_snapshot_progress() {
+        let data = b"23:59:59.950  lead\r\n23:59:59.990  TX \xE2\x80\xBA cmd\n00:00:00.010  B \xE2\x80\xBA next\ncontinuation";
+        let (tx, rx) = mpsc::sync_channel(REPLAY_BUFFER_LINES);
+        stream_replay(Cursor::new(data), tx).unwrap();
+        let rows: Vec<_> = rx.into_iter().map(Result::unwrap).collect();
+        assert_eq!(rows.iter().map(|p| p.at).collect::<Vec<_>>(), vec![0, 40, 60, 60]);
+        assert_eq!(rows.iter().map(|p| p.read).sum::<u64>(), data.len() as u64);
+        assert_eq!(rows[2].line.1, Dir::Rx2);
+        assert_eq!(rows[2].line.2, b"next");
+    }
+
+    #[test]
+    fn replay_stops_reading_when_cancelled_or_a_line_is_too_long() {
+        let (tx, rx) = mpsc::sync_channel(REPLAY_BUFFER_LINES);
+        drop(rx);
+        let mut cancelled = Cursor::new(b"one\ntwo\n");
+        stream_replay(&mut cancelled, tx).unwrap();
+        assert_eq!(cancelled.position(), 4);
+
+        let (tx, _rx) = mpsc::sync_channel(REPLAY_BUFFER_LINES);
+        let mut long = Cursor::new(vec![b'x'; REPLAY_LINE_BYTES + 100]);
+        assert!(stream_replay(&mut long, tx).is_err());
+        assert_eq!(long.position(), (REPLAY_LINE_BYTES + 3) as u64);
+    }
 
     #[test]
     fn log_lines() {
@@ -870,5 +1149,42 @@ mod tests {
         assert_eq!(fmt_delta(1500).chars().count(), fmt_delta(12).chars().count());
         let f = FrameCfg::default();
         assert_eq!(f.roles(6), vec![0, 0, 1, 2, 2, 3]);
+    }
+
+    #[test]
+    fn recording_parts_round_trip_through_replay() {
+        let dir = crate::record::tests::TempDir::new();
+        let base = dir.0.join("session.log");
+        let next = dir.0.join("session_002.log");
+        let mut buf = LogBuf::new(10);
+        buf.recording_options(ViewMode::Text, 1, 0);
+        buf.start_recording(base.clone(), Encoding::Utf8).unwrap();
+        let expected = [
+            (Dir::Rx, "温".repeat(200 * 1024)),
+            (Dir::Tx, "AT".to_owned()),
+            (Dir::Rx2, "B".repeat(600 * 1024)),
+            (Dir::Sys, "event".to_owned()),
+        ];
+        for (dir, s) in &expected {
+            buf.push_line(*dir, s.as_bytes().to_vec(), Encoding::Utf8);
+        }
+        assert_eq!(buf.stop_recording(Encoding::Utf8).unwrap(), Some(next.clone()));
+
+        let mut replayed = Vec::new();
+        for part in [base, next] {
+            let (file, len, _) = open_log_source(&part).unwrap();
+            let (tx, rx) = mpsc::sync_channel(REPLAY_BUFFER_LINES);
+            stream_replay(BufReader::new(file.take(len)), tx).unwrap();
+            let mut read = 0;
+            for event in rx {
+                let event = event.unwrap();
+                let (ts, dir, body) = event.line;
+                assert!(ts.is_some());
+                read += event.read;
+                replayed.push((dir, String::from_utf8(body).unwrap()));
+            }
+            assert_eq!(read, len);
+        }
+        assert_eq!(replayed, expected);
     }
 }

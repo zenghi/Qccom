@@ -354,7 +354,7 @@ impl ImageView {
                     if ui.button(t("导出当前帧为 PNG…")).clicked() {
                         ui.close_menu();
                         let name = format!("{}-{}.png", ident(&self.path), self.cur + 1);
-                        if let Some(p) = rfd::FileDialog::new().set_file_name(&name).add_filter("PNG", &["png"]).save_file() {
+                        if let Some(p) = crate::diagnostics::file_dialog().set_file_name(&name).add_filter("PNG", &["png"]).save_file() {
                             let f = &self.frames[self.cur].img;
                             let raw: Vec<u8> = f.pixels.iter().flat_map(|c| c.to_srgba_unmultiplied()).collect();
                             evt = Some(match image::save_buffer(&p, &raw, f.size[0] as u32, f.size[1] as u32, image::ColorType::Rgba8) {
@@ -367,7 +367,7 @@ impl ImageView {
                     if ui.button(t("和另一张图对比…")).on_hover_text(t("也可以直接把另一张图拖到这张图上")).clicked() {
                         ui.close_menu();
                         let dir = self.path.parent().map(Path::to_path_buf).unwrap_or_default();
-                        if let Some(p) = rfd::FileDialog::new().set_directory(dir).add_filter(t("图片"), IMAGE_EXT).pick_file() {
+                        if let Some(p) = crate::diagnostics::file_dialog().set_directory(dir).add_filter(t("图片"), IMAGE_EXT).pick_file() {
                             if let Err(e) = self.compare_with(p) {
                                 evt = Some(ImgEvt::Toast(e, ERR()));
                             }

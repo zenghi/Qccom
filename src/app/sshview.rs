@@ -348,12 +348,12 @@ impl App {
             }
         }
         if upload {
-            if let Some(files) = rfd::FileDialog::new().pick_files() {
+            if let Some(files) = crate::diagnostics::file_dialog().pick_files() {
                 self.ssh_upload(files);
             }
         }
         if let Some(remote) = download {
-            if let Some(dir) = rfd::FileDialog::new().pick_folder() {
+            if let Some(dir) = crate::diagnostics::file_dialog().pick_folder() {
                 let host = self.tb.ssh.tabs[self.tb.ssh.active].host.clone();
                 let x = remote::download(&self.ctx, &host, &remote, &dir);
                 self.tb.ssh.xfers.push(x);
@@ -426,7 +426,7 @@ impl App {
                             egui::TextEdit::singleline(&mut h.key).hint_text(t("默认 ~/.ssh/id_*")).font(MONO_13()).margin(vec2(6.0, 4.0)),
                         );
                         if ui.add(egui::Button::new(t("选择…")).min_size(vec2(62.0, 26.0))).clicked() {
-                            if let Some(p) = rfd::FileDialog::new().pick_file() {
+                            if let Some(p) = crate::diagnostics::file_dialog().pick_file() {
                                 h.key = p.to_string_lossy().into_owned();
                             }
                         }

@@ -76,7 +76,7 @@ impl HexTab {
                     if let Ok(h) = &self.h {
                         if icon_button(ui, Icon::Download, &t("导出差异列表"), false).clicked() {
                             let name = format!("{}-diff.txt", self.a.label);
-                            if let Some(p) = rfd::FileDialog::new().set_file_name(name).save_file() {
+                            if let Some(p) = crate::diagnostics::file_dialog().set_file_name(name).save_file() {
                                 let head = format!("# {}\n# {}\n", self.a.path.display(), self.b.path.display());
                                 match std::fs::write(&p, format!("{head}{}", h.report())) {
                                     Ok(_) => outs.push(Out::Toast(tf("已保存：{}", &[&p.display()]), OK())),

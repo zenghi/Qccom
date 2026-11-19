@@ -566,7 +566,7 @@ impl WiringUi {
                     self.photo = self.photo.saturating_sub(1);
                 }
                 if icon_button(ui, Icon::Plus, t("添加照片（也可以直接拖进来）"), false).clicked() {
-                    if let Some(fs) = rfd::FileDialog::new().add_filter(t("图片"), &["jpg", "jpeg", "png", "bmp", "webp"]).pick_files() {
+                    if let Some(fs) = crate::diagnostics::file_dialog().add_filter(t("图片"), &["jpg", "jpeg", "png", "bmp", "webp"]).pick_files() {
                         for f in fs {
                             self.add_photo(&f);
                         }

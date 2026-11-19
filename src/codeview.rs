@@ -870,13 +870,13 @@ impl CodeView {
     }
 
     fn pick_folder(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().set_title(t("打开文件夹")).pick_folder() {
+        if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开文件夹")).pick_folder() {
             self.open_root(p);
         }
     }
 
     fn pick_file(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().set_title(t("打开文件")).pick_file() {
+        if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开文件")).pick_file() {
             if self.root.is_none() {
                 if let Some(d) = p.parent() {
                     self.open_root(d.to_path_buf());
@@ -3735,7 +3735,7 @@ impl CodeView {
             let a = self.tabs[i].path.clone();
             let b = match j {
                 Some(j) => Some(self.tabs[j].path.clone()),
-                None => rfd::FileDialog::new().set_title(t("选择要比较的文件")).pick_file(),
+                None => crate::diagnostics::file_dialog().set_title(t("选择要比较的文件")).pick_file(),
             };
             if let Some(b) = b {
                 self.compare(&a, &b);

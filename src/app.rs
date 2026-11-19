@@ -4,8 +4,6 @@
 //! 设计上靠底色深浅和细分隔线分层，青色只留给焦点元素（连接按钮、当前端口、速率曲线）。
 
 use std::collections::VecDeque;
-use std::fs::File;
-use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -19,7 +17,7 @@ use crate::codeview::{CodeEvt, CodeSettings, CodeView};
 use crate::gitview::{GitEvt, GitSettings, GitView};
 use crate::i18n::{self, t, tf};
 use crate::keymap::{self, Act, Keymap, Overrides, Scope};
-use crate::logbuf::{Dir, Encoding, Level, Line, LogBuf};
+use crate::logbuf::{format_line, Dir, Encoding, Level, Line, LogBuf, ViewMode};
 use crate::net::{self, NetConfig, Transport};
 use crate::serial::{self, Cmd, Connection, Evt, PortConfig, PortEntry, COMMON_BAUDS};
 use crate::shell::{ShellEvt, ShellSettings, Shells};
@@ -28,13 +26,6 @@ use crate::theme::*;
 use crate::update::{self, Release, UpdEvt};
 use dbgtools::check_combo;
 use work::Pane;
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ViewMode {
-    Text,
-    Hex,
-    Mixed,
-}
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LineEnding {
@@ -144,7 +135,7 @@ pub struct Settings {
     pub timing_re: bool,
     pub rules: Vec<logx::Rule>,
     pub frame: logx::FrameCfg,
-    /// 录制分段：超过多少 MB / 多少分钟换一个文件（0 = 不分段）
+    /// 录制分段：单卷大小（MiB）及分钟数（0 = 不限）
     pub rec_split_mb: u32,
     pub rec_split_min: u32,
     /// 端口别名：端口名 → 显示的名字
@@ -242,7 +233,7 @@ impl Default for Settings {
             timing_re: false,
             rules: vec![],
             frame: Default::default(),
-            rec_split_mb: 0,
+            rec_split_mb: crate::record::DEFAULT_SPLIT_MIB,
             rec_split_min: 0,
             aliases: Default::default(),
             sniff_port: String::new(),
@@ -301,6 +292,7 @@ const SETTINGS_REV: u32 = 2;
 mod apiview;
 mod blex;
 mod dbgtools;
+mod diagnostics;
 mod dock;
 mod logx;
 mod minitools;
@@ -392,7 +384,6 @@ pub struct App {
     rate_t: Instant,
     rate_hist: VecDeque<f32>,
 
-    record: Option<Rec>,
     toast: Option<(String, Color32, Instant)>,
     logo: egui::TextureHandle,
     cmd_ui: CmdPanel,
@@ -432,6 +423,7 @@ pub struct App {
     circ: Option<Box<crate::circuitview::CircuitView>>,
     /// 社区页
     comm: crate::community::Community,
+    diagnostics: diagnostics::DiagnosticsUi,
     /// 其他进程转来的打开 / 比较请求（系统右键菜单）
     fwd: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::shellint::Req>>>>,
     /// 比较页有未保存修改时第一次关窗口被拦下，再关一次就直接退出
@@ -464,6 +456,7 @@ pub struct App {
     rules_rt: Vec<logx::RuleRt>,
     marker_n: u32,
     replay: Option<logx::Replay>,
+    log_load: logx::LogLoader,
     stats: logx::Stats,
     wins: logx::Wins,
     mini: minitools::Mini,
@@ -492,16 +485,6 @@ pub struct App {
     compact_header: bool,
     /// 副页面和工作台
     work: work::Work,
-}
-
-/// 正在录制：当前文件、已写字节、开始时间、第几段
-struct Rec {
-    w: BufWriter<File>,
-    base: PathBuf,
-    path: PathBuf,
-    bytes: u64,
-    since: Instant,
-    part: u32,
 }
 
 impl App {
@@ -615,7 +598,6 @@ impl App {
             rate_acc: 0,
             rate_t: Instant::now(),
             rate_hist: VecDeque::from(vec![0.0; RATE_HISTORY]),
-            record: None,
             toast: None,
             logo: cc.egui_ctx.load_texture(
                 "logo",
@@ -649,6 +631,7 @@ impl App {
             cmpv,
             circ: None,
             comm,
+            diagnostics: diagnostics::DiagnosticsUi::new(),
             close_anyway: false,
             fwd: None,
             shells,
@@ -671,6 +654,7 @@ impl App {
             rules_rt: vec![],
             marker_n: 0,
             replay: None,
+            log_load: Default::default(),
             stats: Default::default(),
             wins: Default::default(),
             mini: Default::default(),
@@ -793,7 +777,9 @@ impl App {
         self.connected_at = None;
         self.repeat = false;
         self.signals = None;
-        self.close_sniff();
+        if self.s.transport == Transport::Serial {
+            self.close_sniff();
+        }
     }
 
     /// 收到数据（串口、TCP、回放都走这里）
@@ -979,6 +965,7 @@ impl App {
     }
 
     fn handle_events(&mut self) {
+        self.configure_recording();
         while let Ok(e) = self.evt_rx.try_recv() {
             match e {
                 Evt::Ports(list) => self.on_ports(list),
@@ -1223,62 +1210,29 @@ impl App {
                 .map(|l| l.plain.clone())
                 .collect();
             for tx in texts {
-                self.on_line(&tx);
+                self.on_line(&tx, false);
                 self.plot_line(&tx);
             }
         }
-        // 录制
-        if let Some(r) = &mut self.record {
-            let mut err = None;
-            for id in &committed {
-                if let Some(l) = self.buf.get(*id) {
-                    let line = format_line(l, self.s.view);
-                    r.bytes += line.len() as u64 + 1;
-                    if let Err(e) = writeln!(r.w, "{line}") {
-                        err = Some(e);
-                        break;
-                    }
+        match self.buf.flush_recording() {
+            Ok(true) if !self.bg => {
+                if let Some(path) = self.buf.recording_path() {
+                    self.toast(tf("录制换到新文件：{}", &[&path.display()]), ACCENT());
                 }
             }
-            if !committed.is_empty() {
-                let _ = r.w.flush();
-            }
-            if let Some(e) = err {
-                self.record = None;
-                self.toast(tf("录制写入失败：{}", &[&e]), ERR());
-            } else {
-                self.split_record();
-            }
+            Ok(_) => {}
+            Err(e) => self.recording_failed(e),
         }
     }
 
-    /// 录制分段：文件太大或时间太长就换下一个文件（name_002.log …）
-    fn split_record(&mut self) {
-        let Some(r) = &mut self.record else { return };
-        let by_size = self.s.rec_split_mb > 0 && r.bytes >= self.s.rec_split_mb as u64 * 1024 * 1024;
-        let by_time = self.s.rec_split_min > 0 && r.since.elapsed() >= Duration::from_secs(self.s.rec_split_min as u64 * 60);
-        if !(by_size || by_time) {
-            return;
-        }
-        let part = r.part + 1;
-        let stem = r.base.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let ext = r.base.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-        let next = r.base.with_file_name(format!("{stem}_{part:03}{ext}"));
-        match File::create(&next) {
-            Ok(f) => {
-                let _ = r.w.flush();
-                r.w = BufWriter::new(f);
-                r.path = next.clone();
-                r.bytes = 0;
-                r.since = Instant::now();
-                r.part = part;
-                self.buf.sys(tf("录制换到新文件：{}", &[&next.display()]));
-            }
-            Err(e) => {
-                self.record = None;
-                self.toast(tf("录制写入失败：{}", &[&e]), ERR());
-            }
-        }
+    fn configure_recording(&mut self) {
+        self.buf.recording_options(self.s.view, self.s.rec_split_mb, self.s.rec_split_min);
+    }
+
+    fn recording_failed(&mut self, error: std::io::Error) {
+        let message = tf("录制写入失败：{}", &[&error]);
+        self.buf.sys(message.clone());
+        self.toast(message, ERR());
     }
 
     // ------------------------------------------------------------ 过滤
@@ -1329,7 +1283,7 @@ impl App {
             return (self.buf.lines.len(), None);
         }
         let total = self.buf.total();
-        let open = (total > 0 && self.buf.is_open(total - 1) && self.buf.get(total - 1).is_some_and(|l| self.visible(l))).then_some(total - 1);
+        let open = total.checked_sub(1).filter(|&id| self.buf.is_open(id) && self.buf.get(id).is_some_and(|l| self.visible(l)));
         (self.view_ids.len() + open.is_some() as usize, open)
     }
 
@@ -2615,7 +2569,7 @@ impl App {
         if icon_button(ui, Icon::Chart, &format!("{}  {}", t("波形图：把日志里的数字画成曲线"), self.km.label(Act::TogglePlot)), self.s.plot.on).clicked() {
             self.s.plot.on = !self.s.plot.on;
         }
-        let rec = self.record.is_some();
+        let rec = self.buf.recording_path().is_some();
         if icon_button(ui, Icon::Record, if rec { t("停止录制") } else { t("录制：把之后收到的每一行实时写入文件") }, rec).clicked() {
             self.toggle_record();
         }
@@ -2660,22 +2614,32 @@ impl App {
         self.tx_bytes = 0;
     }
 
-    fn export_text(&self) -> String {
+    fn export_rows(&self) -> impl Iterator<Item = String> + '_ {
         let (n, open) = self.rows();
+        (0..n).filter_map(move |i| self.buf.get(self.row_id(i, open))).map(move |line| format_line(line, self.s.view))
+    }
+
+    fn export_text(&self) -> String {
         let mut out = String::new();
-        for i in 0..n {
-            if let Some(l) = self.buf.get(self.row_id(i, open)) {
-                out.push_str(&format_line(l, self.s.view));
-                out.push('\n');
-            }
+        for line in self.export_rows() {
+            out.push_str(&line);
+            out.push('\n');
         }
         out
     }
 
     fn save(&mut self) {
         let name = chrono::Local::now().format("uart_%Y%m%d_%H%M%S.log").to_string();
-        if let Some(path) = rfd::FileDialog::new().set_file_name(&name).add_filter(t("日志"), &["log", "txt"]).save_file() {
-            match std::fs::write(&path, self.export_text()) {
+        if let Some(path) = crate::diagnostics::file_dialog().set_file_name(&name).add_filter(t("日志"), &["log", "txt"]).save_file() {
+            let result = (|| {
+                use std::io::Write;
+                let mut out = std::io::BufWriter::new(std::fs::File::create(&path)?);
+                for line in self.export_rows() {
+                    writeln!(out, "{line}")?;
+                }
+                out.flush()
+            })();
+            match result {
                 Ok(_) => self.toast(tf("已保存 {}", &[&path.display()]), OK()),
                 Err(e) => self.toast(tf("保存失败：{}", &[&e]), ERR()),
             }
@@ -2683,25 +2647,30 @@ impl App {
     }
 
     fn toggle_record(&mut self) {
-        if let Some(mut r) = self.record.take() {
-            let _ = r.w.flush();
-            self.buf.sys(tf("录制结束：{}", &[&r.path.display()]));
+        self.configure_recording();
+        if self.buf.recording_path().is_some() {
+            if self.s.transport == Transport::Serial {
+                self.flush_sniff();
+            }
+            match self.buf.stop_recording(self.s.encoding) {
+                Ok(Some(path)) => self.buf.sys(tf("录制结束：{}", &[&path.display()])),
+                Ok(None) => {}
+                Err(e) => self.recording_failed(e),
+            }
             return;
         }
         let name = chrono::Local::now().format("uart_rec_%Y%m%d_%H%M%S.log").to_string();
-        if let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() {
-            match File::create(&path) {
-                Ok(f) => {
-                    self.buf.sys(tf("开始录制到 {}", &[&path.display()]));
-                    self.record = Some(Rec {
-                        w: BufWriter::new(f),
-                        base: path.clone(),
-                        path,
-                        bytes: 0,
-                        since: Instant::now(),
-                        part: 1,
-                    });
+        if let Some(path) = crate::diagnostics::file_dialog().set_file_name(&name).save_file() {
+            if self.s.transport == Transport::Serial {
+                self.flush_sniff();
+            }
+            match self.buf.start_recording(path, self.s.encoding) {
+                Ok(()) => {
+                    if let Some(path) = self.buf.recording_path() {
+                        self.toast(tf("开始录制到 {}", &[&path.display()]), OK());
+                    }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => self.toast(t("文件已存在，请换一个录制文件名"), ERR()),
                 Err(e) => self.toast(tf("无法创建文件：{}", &[&e]), ERR()),
             }
         }
@@ -3061,7 +3030,7 @@ impl App {
             if self.paused {
                 ui.label(RichText::new(tf("已暂停，缓冲 {}", &[&human_bytes(self.pause_buf.len() as u64)])).small().color(WARN()));
             }
-            if let Some(Rec { path: p, .. }) = &self.record {
+            if let Some(p) = self.buf.recording_path() {
                 let t = ui.input(|i| i.time);
                 let blink = (t * 2.0) as i64 % 2 == 0;
                 ui.ctx().request_repaint_after(Duration::from_millis(500));
@@ -4865,14 +4834,27 @@ impl eframe::App for App {
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         crate::hub::final_beat();
-        if let Some(mut r) = self.record.take() {
-            let _ = r.w.flush();
+        let slot = self.cur_slot();
+        if slot != 0 && self.sessions[0].is_some() {
+            self.quiet_slot(0);
+            self.close_sniff();
+            self.quiet_slot(slot);
         }
         self.disconnect();
+        if let Err(e) = self.buf.stop_recording(self.s.encoding) {
+            eprintln!("Recording write failed on exit: {e}");
+        }
         self.close_all_sessions();
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        let _watch = crate::diagnostics::ui_frame(ctx.input(|i| i.focused && i.viewport().minimized != Some(true)));
+        if crate::diagnostics::recovered_stall() {
+            self.toast(t("检测到界面长时间未响应，已尝试保存本地故障诊断。"), WARN());
+        }
+        if let Some((message, is_error)) = self.diagnostics.tick(ctx) {
+            self.toast(message, if is_error { ERR() } else { OK() });
+        }
         crate::titlebar::apply(frame, !crate::theme::is_light(), BG0(), TEXT(), LINE());
         crate::bgimg::set(&self.s.bg);
         if !self.s.window_placed {
@@ -4951,6 +4933,7 @@ impl eframe::App for App {
         self.shell_menu_notice(ctx);
         self.send_button_dialog(ctx);
         self.telemetry_notice(ctx);
+        self.diagnostics.banner(ctx);
         self.activity_bar(ctx);
         self.shells.poll(ctx.input(|i| i.focused));
         self.ssh_poll();
@@ -5110,6 +5093,7 @@ impl eframe::App for App {
         self.switcher_ui(ctx);
         self.pair_toast(ctx);
         self.drag_overlay(ctx);
+        self.diagnostics.window(ctx);
 
         // 提示气泡
         self.update_card(ctx);
@@ -6201,22 +6185,6 @@ fn group_digits(n: u64) -> String {
         out.push(c);
     }
     out
-}
-
-fn format_line(l: &Line, view: ViewMode) -> String {
-    let tag = match l.dir {
-        Dir::Rx => "RX",
-        Dir::Rx2 => "RB",
-        Dir::Tx => "TX",
-        Dir::Sys => "##",
-    };
-    let hex = || l.raw.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ");
-    let body = match (view, l.dir) {
-        (_, Dir::Sys) | (ViewMode::Text, _) => l.plain.clone(),
-        (ViewMode::Hex, _) => hex(),
-        (ViewMode::Mixed, _) => format!("{} | {}", l.plain, hex()),
-    };
-    format!("{} {} {}", l.ts.format("%Y-%m-%d %H:%M:%S%.3f"), tag, body)
 }
 
 /// ASCII 大小写不敏感查找（不分配内存，返回的位置总在字符边界上）

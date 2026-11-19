@@ -686,7 +686,7 @@ impl App {
                 stat(ui, t("内容"), &tf("{} 字节", &[&payload.len()]), None);
                 ui.add_space(10.0);
                 if ui.button(t("保存 PNG…")).clicked() {
-                    if let Some(path) = rfd::FileDialog::new().set_file_name("qrcode.png").save_file() {
+                    if let Some(path) = crate::diagnostics::file_dialog().set_file_name("qrcode.png").save_file() {
                         let q = 4;
                         let n = (w + 2 * q) as u32;
                         let scale = 10u32;

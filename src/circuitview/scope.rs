@@ -267,7 +267,12 @@ pub fn logic_ui(ui: &mut egui::Ui, st: &mut ScopeUi, c: &Circuit, s: &Sim) -> Op
             .on_hover_text(t("导出最近 10 秒的波形，可以在工具箱的「VCD 波形」或 PulseView 里看"))
             .clicked()
         {
-            if let Some(path) = rfd::FileDialog::new().set_title(t("导出 VCD")).add_filter("VCD", &["vcd"]).set_file_name("circuit.vcd").save_file() {
+            if let Some(path) = crate::diagnostics::file_dialog()
+                .set_title(t("导出 VCD"))
+                .add_filter("VCD", &["vcd"])
+                .set_file_name("circuit.vcd")
+                .save_file()
+            {
                 let txt = vcd(&chans, s);
                 if std::fs::write(&path, txt).is_ok() {
                     export = Some(path);

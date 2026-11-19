@@ -18,6 +18,7 @@ mod community;
 mod compare;
 mod compareview;
 mod cpp;
+mod diagnostics;
 mod editor;
 mod git;
 mod gitops;
@@ -34,6 +35,7 @@ mod modbus;
 mod net;
 mod pattern;
 mod portuse;
+mod record;
 mod remote;
 mod script;
 mod serial;
@@ -129,6 +131,7 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     migrate_storage();
+    diagnostics::init(data_dir(), n);
     eframe::run_native(
         "qccom",
         options,

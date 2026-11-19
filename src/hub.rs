@@ -159,8 +159,12 @@ fn net_err(e: ureq::Error) -> HubErr {
 }
 
 pub fn request(method: &str, path: &str, body: Body) -> Result<Value, HubErr> {
-    let c = creds();
-    let mut req = agent().request(method, &format!("{}{path}", base_url()));
+    request_as(agent(), method, path, body, &creds(), &base_url())
+}
+
+/// Use a checked credential snapshot and exact consented destination for diagnostics.
+pub(crate) fn request_as(client: &ureq::Agent, method: &str, path: &str, body: Body, c: &Creds, server: &str) -> Result<Value, HubErr> {
+    let mut req = client.request(method, &format!("{server}{path}"));
     if !c.device_id.is_empty() {
         req = req.set("X-QC-Device", &c.device_id).set("X-QC-Token", &c.device_token);
     }
@@ -188,9 +192,11 @@ pub fn request(method: &str, path: &str, body: Body) -> Result<Value, HubErr> {
             let e = net_err(e);
             // 登录过期：清掉，界面回到未登录
             if e.code == "need_login" && !c.session.is_empty() && !path.starts_with("/auth/") {
-                update_creds(|c| {
-                    c.session.clear();
-                    c.user = None;
+                update_creds(|current| {
+                    if current.session == c.session {
+                        current.session.clear();
+                        current.user = None;
+                    }
                 });
             }
             Err(e)

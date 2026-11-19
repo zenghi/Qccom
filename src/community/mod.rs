@@ -3,6 +3,7 @@
 //! 网络请求都在后台线程里做，结果经通道送回界面线程；投票、点赞先改界面再发请求，失败了再改回来。
 //! 服务器接口见 qccom-hub 的 docs/API.md。
 
+pub(crate) mod diagnostics;
 mod md;
 mod ui;
 mod widgets;

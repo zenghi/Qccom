@@ -39,6 +39,8 @@ pub(super) struct Sess {
     last_error: Option<String>,
     paused: bool,
     pause_buf: Vec<u8>,
+    log_load: logx::LogLoader,
+    replay: Option<logx::Replay>,
     view_ids: VecDeque<u64>,
     view_checked: u64,
     view_dirty: bool,
@@ -57,7 +59,6 @@ pub(super) struct Sess {
     rate_acc: u64,
     rate_t: Instant,
     rate_hist: VecDeque<f32>,
-    record: Option<Rec>,
     seq: Option<(usize, VecDeque<Vec<u8>>, Instant)>,
     last_rx_at: Option<Instant>,
     last_tx_at: Option<Instant>,
@@ -72,7 +73,7 @@ pub(super) struct Sess {
 
 impl Sess {
     pub(super) fn recording(&self) -> bool {
-        self.record.is_some()
+        self.buf.recording_path().is_some()
     }
 
     pub fn new(transport: Transport, max_lines: usize, frame_gap_ms: u32) -> Self {
@@ -95,6 +96,8 @@ impl Sess {
             last_error: None,
             paused: false,
             pause_buf: vec![],
+            log_load: Default::default(),
+            replay: None,
             view_ids: VecDeque::new(),
             view_checked: 0,
             view_dirty: true,
@@ -113,7 +116,6 @@ impl Sess {
             rate_acc: 0,
             rate_t: Instant::now(),
             rate_hist: VecDeque::from(vec![0.0; RATE_HISTORY]),
-            record: None,
             seq: None,
             last_rx_at: None,
             last_tx_at: None,
@@ -159,6 +161,8 @@ impl App {
         swap(&mut self.last_error, &mut s.last_error);
         swap(&mut self.paused, &mut s.paused);
         swap(&mut self.pause_buf, &mut s.pause_buf);
+        swap(&mut self.log_load, &mut s.log_load);
+        swap(&mut self.replay, &mut s.replay);
         swap(&mut self.view_ids, &mut s.view_ids);
         swap(&mut self.view_checked, &mut s.view_checked);
         swap(&mut self.view_dirty, &mut s.view_dirty);
@@ -177,7 +181,6 @@ impl App {
         swap(&mut self.rate_acc, &mut s.rate_acc);
         swap(&mut self.rate_t, &mut s.rate_t);
         swap(&mut self.rate_hist, &mut s.rate_hist);
-        swap(&mut self.record, &mut s.record);
         swap(&mut self.seq, &mut s.seq);
         swap(&mut self.last_rx_at, &mut s.last_rx_at);
         swap(&mut self.last_tx_at, &mut s.last_tx_at);
@@ -186,6 +189,7 @@ impl App {
         swap(&mut self.net_quiet, &mut s.net_quiet);
         swap(&mut self.stats, &mut s.stats);
         swap(&mut self.signals, &mut s.signals);
+        self.configure_recording();
     }
 
     pub(super) fn cur_slot(&self) -> usize {
@@ -218,6 +222,9 @@ impl App {
             self.s.tcp_mode = s.transport;
         }
         self.sessions[cur] = Some(s);
+        if let Some(replay) = self.replay.as_mut() {
+            replay.reset_clock();
+        }
         // 日志相关的设置可能在别的会话里改过
         self.buf.max_lines = self.s.max_lines;
         self.buf.frame_gap_ms = self.s.frame_gap_ms;
@@ -434,6 +441,9 @@ impl App {
         for s in self.sessions.iter_mut().flatten() {
             if let Some(c) = s.conn.take() {
                 let _ = c.cmd.send(Cmd::Close);
+            }
+            if let Err(e) = s.buf.stop_recording(self.s.encoding) {
+                eprintln!("Recording write failed on exit: {e}");
             }
         }
     }

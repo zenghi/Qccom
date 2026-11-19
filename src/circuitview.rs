@@ -352,7 +352,7 @@ impl CircuitView {
     }
 
     fn open_file(&mut self) {
-        let Some(p) = rfd::FileDialog::new().set_title(t("打开电路")).add_filter(t("QCCOM 电路"), &["qccirc", "json"]).pick_file() else {
+        let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开电路")).add_filter(t("QCCOM 电路"), &["qccirc", "json"]).pick_file() else {
             return;
         };
         match std::fs::read_to_string(&p).map_err(|e| e.to_string()).and_then(|s| Circuit::from_json(&s)) {
@@ -363,7 +363,7 @@ impl CircuitView {
 
     fn save_as(&mut self) {
         let name = if self.c.title.is_empty() { "circuit".to_string() } else { self.c.title.clone() };
-        if let Some(p) = rfd::FileDialog::new()
+        if let Some(p) = crate::diagnostics::file_dialog()
             .set_title(t("电路另存为"))
             .add_filter(t("QCCOM 电路"), &["qccirc"])
             .set_file_name(format!("{name}.qccirc"))
@@ -1046,7 +1046,7 @@ impl CircuitView {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button(t("另存为…")).clicked() {
                     let ext = self.code_dialect.ext();
-                    if let Some(f) = rfd::FileDialog::new().set_file_name(format!("main.{ext}")).save_file() {
+                    if let Some(f) = crate::diagnostics::file_dialog().set_file_name(format!("main.{ext}")).save_file() {
                         match std::fs::write(&f, &code) {
                             Ok(_) => self.toast(t("已保存"), OK()),
                             Err(e) => self.toast(e.to_string(), ERR()),

@@ -15,6 +15,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::serial::{Cmd, Connection, Evt};
 
+/// Prevent a declared message length from accumulating unbounded data.
+/// Ordinary serial-console MQTT/WS messages are far smaller than this.
+pub(crate) const MAX_RECEIVE_PAYLOAD: usize = 4 * 1024 * 1024;
+
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug, Default)]
 pub enum Transport {
     #[default]
@@ -439,24 +443,33 @@ pub mod mqtt {
         packet(0x30 | (qos.min(2) << 1) | retain as u8, &b)
     }
 
-    /// 从缓冲区里拆出一个完整报文：(首字节, 报文体, 总长度)
-    pub fn parse(buf: &[u8]) -> Option<(u8, &[u8], usize)> {
-        let first = *buf.first()?;
+    type Packet<'a> = (u8, &'a [u8], usize);
+
+    /// 完整报文返回 (首字节, 报文体, 总长度)，未收全为 None，非法长度为 Err。
+    pub fn parse(buf: &[u8]) -> Result<Option<Packet<'_>>, ()> {
+        let Some(&first) = buf.first() else { return Ok(None) };
         let (mut len, mut mul, mut i) = (0usize, 1usize, 1usize);
         loop {
-            let b = *buf.get(i)?;
+            let Some(&b) = buf.get(i) else { return Ok(None) };
             len += (b & 0x7f) as usize * mul;
+            if len > MAX_RECEIVE_PAYLOAD {
+                return Err(());
+            }
             mul *= 128;
             i += 1;
             if b & 0x80 == 0 {
                 break;
             }
             if i > 4 {
-                return None;
+                return Err(());
             }
         }
         let end = i + len;
-        (buf.len() >= end).then(|| (first, &buf[i..end], end))
+        Ok(buf.get(i..end).map(|body| (first, body, end)))
+    }
+
+    pub(crate) fn invalid_message(_: ()) -> String {
+        tf("{} 收到无效或过大的消息", &[&"MQTT"])
     }
 
     fn connack_err(rc: u8) -> String {
@@ -490,7 +503,7 @@ pub mod mqtt {
         // 等 CONNACK
         let deadline = Instant::now() + Duration::from_secs(8);
         loop {
-            if let Some((first, body, n)) = parse(&buf) {
+            if let Some((first, body, n)) = parse(&buf).map_err(invalid_message)? {
                 if first >> 4 != 2 || body.len() < 2 {
                     return Err(t("服务器没有按 MQTT 协议回应").into());
                 }
@@ -539,7 +552,7 @@ pub mod mqtt {
                 Err(e) if is_timeout(&e) => {}
                 Err(e) => return Err(e.to_string()),
             }
-            while let Some((first, body, n)) = parse(&buf) {
+            while let Some((first, body, n)) = parse(&buf).map_err(invalid_message)? {
                 let body = body.to_vec();
                 buf.drain(..n);
                 match first >> 4 {
@@ -701,11 +714,22 @@ mod tests {
     fn varint_len() {
         for n in [0usize, 127, 128, 16383, 16384, 2_097_151] {
             let p = packet(0x30, &vec![0u8; n]);
-            let (_, body, total) = parse(&p).unwrap();
+            let (_, body, total) = parse(&p).unwrap().unwrap();
             assert_eq!(body.len(), n);
             assert_eq!(total, p.len());
         }
-        assert!(parse(&[0x30, 0x05, 1, 2]).is_none());
+        assert!(parse(&[0x30, 0x05, 1, 2]).unwrap().is_none());
+    }
+
+    #[test]
+    fn receive_length_is_validated_before_waiting_for_body() {
+        let mut header = vec![0x30];
+        encode_len(MAX_RECEIVE_PAYLOAD, &mut header);
+        assert!(parse(&header).unwrap().is_none());
+        header.truncate(1);
+        encode_len(MAX_RECEIVE_PAYLOAD + 1, &mut header);
+        assert!(parse(&header).is_err());
+        assert!(parse(&[0x30, 0x80, 0x80, 0x80, 0x80]).is_err());
     }
 
     #[test]

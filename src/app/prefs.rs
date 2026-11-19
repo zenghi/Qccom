@@ -127,6 +127,7 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
             "系统右键菜单",
             "发送匿名使用统计",
             "社区与反馈",
+            "自动发布故障报告",
             "命令面板",
             "需要时自动打开副页面",
             "来回切页时提示放在一起",
@@ -145,7 +146,8 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
             "保留行数",
             "空闲分帧",
             "时间差",
-            "录制分卷",
+            "录制分卷大小",
+            "录制分卷时长",
             "多行发送间隔",
         ],
         Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS", "共享到网络"],
@@ -404,6 +406,21 @@ impl App {
                 self.set_page(Page::Community);
             }
         });
+        if self.diagnostics.available() {
+            let account = crate::community::diagnostics::Account::current();
+            let desc = self.diagnostics.setting_description(account.as_ref());
+            row(ui, q, t("自动发布故障报告"), &desc, |ui| {
+                let mut enabled = self.diagnostics.automatic();
+                ui.add_enabled_ui(account.is_some() || enabled, |ui| {
+                    if switch(ui, &mut enabled).changed() && !self.diagnostics.set_automatic(enabled, account) {
+                        self.toast(t("无法保存故障报告设置。"), ERR());
+                    }
+                });
+                if self.diagnostics.has_report() && ui.button(t("查看故障报告")).clicked() {
+                    self.diagnostics.review();
+                }
+            });
+        }
         let pk = self.km.label(Act::Palette);
         row(ui, q, t("命令面板"), &tf("按 {} 可以搜索并执行任何功能", &[&pk]), |ui| {
             if ui.button(t("打开")).clicked() {
@@ -525,7 +542,7 @@ impl App {
         use crate::bgimg::Fit;
         let mut toast = None;
         let pick = |path: &mut String, toast: &mut Option<(String, Color32)>| {
-            if let Some(f) = rfd::FileDialog::new().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
+            if let Some(f) = crate::diagnostics::file_dialog().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
                 match crate::bgimg::import(&f) {
                     Ok(p) => *path = p.to_string_lossy().into_owned(),
                     Err(e) => *toast = Some((e, ERR())),
@@ -643,10 +660,22 @@ impl App {
                 self.view_dirty = true;
             }
         });
-        row(ui, q, t("录制分卷"), t("录制文件超过大小或时长就换一个新文件（0 = 不限）"), |ui| {
-            ui.add(egui::DragValue::new(&mut self.s.rec_split_min).range(0..=1440).suffix(t(" 分钟")));
-            ui.add(egui::DragValue::new(&mut self.s.rec_split_mb).range(0..=4096).suffix(" MB"));
+        row(ui, q, t("录制分卷大小"), t("下一行会超出单个文件大小时，写入新文件（0 = 不限）"), |ui| {
+            if ui.add(egui::DragValue::new(&mut self.s.rec_split_mb).range(0..=4096).suffix(" MiB")).changed() {
+                self.configure_recording();
+            }
         });
+        row(
+            ui,
+            q,
+            t("录制分卷时长"),
+            t("达到单个文件的录制时长后，下次写入时换新文件（0 = 不限）"),
+            |ui| {
+                if ui.add(egui::DragValue::new(&mut self.s.rec_split_min).range(0..=1440).suffix(t(" 分钟"))).changed() {
+                    self.configure_recording();
+                }
+            },
+        );
         row(ui, q, t("多行发送间隔"), t("命令栏多行「逐行」发送时，每行之间等待的时间"), |ui| {
             ui.add(egui::DragValue::new(&mut self.s.line_gap_ms).range(0..=60_000).suffix(" ms"));
         });
@@ -1055,7 +1084,7 @@ impl App {
                     self.prefs.conflict = None;
                 }
                 if ui.button(t("导出")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().set_file_name("qccom-keybindings.json").save_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog().set_file_name("qccom-keybindings.json").save_file() {
                         let txt = serde_json::to_string_pretty(&self.s.keys).unwrap_or_default();
                         match std::fs::write(&p, txt) {
                             Ok(()) => self.toast(t("已导出"), OK()),
@@ -1064,7 +1093,7 @@ impl App {
                     }
                 }
                 if ui.button(t("导入")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog().add_filter("JSON", &["json"]).pick_file() {
                         match std::fs::read_to_string(&p)
                             .map_err(|e| e.to_string())
                             .and_then(|s| serde_json::from_str::<Overrides>(&s).map_err(|e| e.to_string()))

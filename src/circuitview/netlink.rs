@@ -319,12 +319,16 @@ fn mqtt_run(id: u32, host: String, port: u16, client: String, user: String, pass
     let mut tmp = vec![0u8; 8192];
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
-        if let Some((first, body, n)) = mqtt::parse(&buf) {
-            if first >> 4 != 2 || body.len() < 2 || body[1] != 0 {
-                return fail(t("服务器没有按 MQTT 协议回应").into());
+        match mqtt::parse(&buf) {
+            Ok(Some((first, body, n))) => {
+                if first >> 4 != 2 || body.len() < 2 || body[1] != 0 {
+                    return fail(t("服务器没有按 MQTT 协议回应").into());
+                }
+                buf.drain(..n);
+                break;
             }
-            buf.drain(..n);
-            break;
+            Ok(None) => {}
+            Err(e) => return fail(mqtt::invalid_message(e)),
         }
         if Instant::now() > deadline {
             return fail(t("等待服务器响应超时").into());
@@ -379,7 +383,15 @@ fn mqtt_run(id: u32, host: String, port: u16, client: String, user: String, pass
             Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
             Err(_) => return closed(&out),
         }
-        while let Some((first, body, n)) = mqtt::parse(&buf) {
+        loop {
+            let (first, body, n) = match mqtt::parse(&buf) {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
+                Err(e) => {
+                    let _ = out.send(Out::Log(id, mqtt::invalid_message(e)));
+                    return closed(&out);
+                }
+            };
             if first >> 4 == 3 && body.len() >= 2 {
                 let tl = u16::from_be_bytes([body[0], body[1]]) as usize;
                 let qos = (first >> 1) & 3;

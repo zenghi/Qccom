@@ -100,12 +100,12 @@ impl Shells {
                 let draft = &mut self.env_dialog.draft;
                 ui.horizontal(|ui| {
                     if ui.button(t("选择工具链目录")).clicked() {
-                        if let Some(p) = rfd::FileDialog::new().pick_folder() {
+                        if let Some(p) = crate::diagnostics::file_dialog().pick_folder() {
                             draft.path = p;
                         }
                     }
                     if ui.button(t("导入环境文件")).clicked() {
-                        if let Some(p) = rfd::FileDialog::new().pick_file() {
+                        if let Some(p) = crate::diagnostics::file_dialog().pick_file() {
                             draft.path = p;
                         }
                     }

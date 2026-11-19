@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.8
+
+- **Local recording**: split long captures into numbered files at a configurable size boundary. Preserve complete records and avoid overwriting previous numbered parts.
+- **Log viewing and replay**: move large-file reads off the UI thread and stream replay with bounded buffering, reducing memory pressure and UI stalls.
+- **Crash diagnostics**: retain a small local record after Rust panics or a prolonged UI stall. On the next launch, preview it or opt in to automatic posting through the existing community Help board. No logs or files are uploaded.
+- **Runtime safety**: handle oversized WebSocket and MQTT receive frames without unbounded buffering.
+
 ## 1.9.7
 
 - **Bluetooth LE**: improve Windows connection and service discovery, and keep device ordering stable while scanning.

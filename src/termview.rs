@@ -553,7 +553,7 @@ impl TermView {
         }
         if save {
             let name = chrono::Local::now().format("terminal-%Y%m%d-%H%M%S.txt").to_string();
-            if let Some(p) = rfd::FileDialog::new().set_file_name(&name).save_file() {
+            if let Some(p) = crate::diagnostics::file_dialog().set_file_name(&name).save_file() {
                 o.toast = Some(match std::fs::write(&p, self.all_text()) {
                     Ok(_) => t("已保存"),
                     Err(_) => t("保存失败"),

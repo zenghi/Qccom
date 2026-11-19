@@ -262,7 +262,7 @@ impl GitView {
     }
 
     fn pick_folder(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().set_title(t("打开 Git 仓库")).pick_folder() {
+        if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开 Git 仓库")).pick_folder() {
             self.open_root(&p);
             if self.root.is_some() {
                 self.events.push(GitEvt::Project(p));

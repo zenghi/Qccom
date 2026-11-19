@@ -35,7 +35,7 @@ impl App {
 
     /// 每帧：有连接或正在录制就不让系统睡眠
     pub(super) fn tick_awake(&mut self) {
-        let busy = (0..sess::SLOTS).any(|k| self.slot_online(k)) || self.record.is_some() || self.sessions.iter().flatten().any(|s| s.recording());
+        let busy = (0..sess::SLOTS).any(|k| self.slot_online(k)) || self.buf.recording_path().is_some() || self.sessions.iter().flatten().any(|s| s.recording());
         self.mini.awake.set(busy);
     }
 

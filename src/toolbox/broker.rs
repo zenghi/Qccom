@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::net::mqtt::{packet, parse, publish};
+use crate::net::mqtt::{invalid_message, packet, parse, publish};
 
 #[derive(Clone, Default)]
 pub struct Config {
@@ -226,7 +226,12 @@ fn client(key: u64, mut s: TcpStream, addr: SocketAddr, cfg: &Config, st: &Arc<M
             Err(e) if crate::net::is_timeout(&e) => {}
             Err(e) => break Err(e.to_string()),
         }
-        while let Some((first, body, n)) = parse(&buf) {
+        loop {
+            let (first, body, n) = match parse(&buf) {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
+                Err(e) => break 'conn Err(invalid_message(e)),
+            };
             let body = body.to_vec();
             buf.drain(..n);
             let kind = first >> 4;

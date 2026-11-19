@@ -1,0 +1,26 @@
+serverAddr = {{ printf "%q" .Envs.QCCOM_SERVER }}
+serverPort = 7000
+natHoleStunServer = {{ printf "%q" .Envs.QCCOM_STUN }}
+auth.token = {{ printf "%q" .Envs.QCCOM_TOKEN }}
+transport.tls.enable = true
+transport.tls.trustedCaFile = {{ printf "%q" .Envs.QCCOM_CA }}
+transport.tls.serverName = "qccom-rendezvous"
+log.to = "console"
+log.level = "debug"
+log.disablePrintColor = true
+
+[[proxies]]
+type = "stcp"
+name = {{ printf "%q" (printf "%s-stcp" .Envs.QCCOM_CHANNEL) }}
+secretKey = {{ printf "%q" .Envs.QCCOM_SECRET }}
+transport.useEncryption = true
+localIP = "127.0.0.1"
+localPort = {{ .Envs.QCCOM_LOOP_PORT }}
+
+[[proxies]]
+type = "xtcp"
+name = {{ printf "%q" (printf "%s-xtcp" .Envs.QCCOM_CHANNEL) }}
+secretKey = {{ printf "%q" .Envs.QCCOM_SECRET }}
+transport.useEncryption = true
+localIP = "127.0.0.1"
+localPort = {{ .Envs.QCCOM_LOOP_PORT }}

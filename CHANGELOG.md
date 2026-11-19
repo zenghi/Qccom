@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.9.7
+
+- **Bluetooth LE**: improve Windows connection and service discovery, and keep device ordering stable while scanning.
+- **Windows multi-monitor**: correct window geometry handling when moving between displays with different DPI scaling.
+- **Circuit simulation**: open the oscilloscope by default and support eight voltage probe channels and branch-current waveforms.
+- **Editor and terminal**: improve Ctrl-click navigation and completion; add named toolchain environments and two configurable text or HEX send buttons.
+
 ## 1.9.6
 
 Getting ready for free code signing (SignPath Foundation).

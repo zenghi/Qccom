@@ -20,7 +20,7 @@ docker compose logs --tail 20
 
 ## 两台 Windows 电脑的一次性准备
 
-1. 将本版本的 qccom.exe 和 prepare-windows.ps1 放在同一目录。在设备机运行 `.\prepare-windows.ps1`。脚本下载固定版本的 frpc 和 hub4com，核对 SHA-256 后放入 exe 旁的 remote-com 子目录。
+1. 将本版本的 qccom.exe 和 prepare-windows.ps1 放在同一目录。在设备机运行 `.\prepare-windows.ps1`。脚本校验 exe 旁 remote-com 子目录里的 frpc 与 hub4com。使用已附这两个工具的测试包时可直接启动设备端；缺少工具时脚本会下载固定版本并核对 SHA-256。
 2. 在烧录机安装已签名并能在当前 Windows 加载的 com0com 驱动，然后在**管理员 PowerShell** 中运行 `.\prepare-windows.ps1 -CreatePair`。脚本增建一对空闲 COM 号，并列出配置。记住新建的 A、B 端；重复使用时保留原端口对。若驱动已安装但脚本找不到 setupc.exe，可直接在 com0com 的 Setup Command Prompt 执行下面的命令，然后单独运行 prepare-windows.ps1。
 3. QCCOM 日常使用以普通用户运行。串口驱动只需在烧录机安装。
 

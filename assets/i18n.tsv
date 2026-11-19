@@ -3245,3 +3245,8 @@ QCCOM 或烧录工具打开 {}	Open {} in QCCOM or your flasher	QCCOM 或燒錄�
 远程串口就绪 · P2P	Remote COM ready · P2P	遠端串列埠就緒 · P2P							COM remota pronta · P2P
 随应用打开和关闭远端串口	Open and close the remote port with the application	隨應用程式開啟和關閉遠端串列埠							Abrir e fechar a porta remota com o aplicativo
 默认提前连接，等串口就绪再烧录。需要靠打开串口触发复位时可勾选	The default connects ahead of time. Wait for readiness before flashing. Enable this for devices that reset on port open.	預設會預先連線，等串列埠就緒再燒錄。需要靠開啟串列埠觸發重設時可勾選							Por padrão a conexão é antecipada. Aguarde a porta ficar pronta. Ative para reiniciar o dispositivo ao abrir a porta.
+请选择新建的串口对	Select the new COM pair	請選擇新建的串列埠對							Selecione o novo par de portas
+创建烧录串口对	Create flashing COM pair	建立燒錄串列埠對							Criar par de portas
+安装 com0com 驱动	Install the com0com driver	安裝 com0com 驅動程式							Instalar o driver com0com
+装好驱动后创建串口对，Windows 会请求管理员权限	After installing the driver, create the port pair. Windows will request elevation	安裝驅動程式後建立串列埠對，Windows 會要求系統管理員權限							Após instalar o driver, crie o par com privilégios de administrador
+请先安装 com0com 驱动	Install the com0com driver first	請先安裝 com0com 驅動程式							Instale o driver com0com primeiro

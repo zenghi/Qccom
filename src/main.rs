@@ -68,7 +68,11 @@ pub fn data_dir() -> std::path::PathBuf {
 
 /// exe 旁边有 qccom-data 文件夹就是便携模式（放 U 盘里带着走，设置跟着走）
 pub fn portable_dir() -> Option<std::path::PathBuf> {
-    let d = std::env::current_exe().ok()?.parent()?.join("qccom-data");
+    let exe = std::env::current_exe().ok()?;
+    let d = exe.parent()?.join("qccom-data");
+    if exe.file_stem().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("qccom-portable")) {
+        return Some(d);
+    }
     d.is_dir().then_some(d)
 }
 
@@ -116,6 +120,14 @@ fn persistence_path() -> Option<std::path::PathBuf> {
 fn main() -> eframe::Result {
     // Files and comparisons reuse the first window; projects open a separate workspace.
     let args: Vec<String> = std::env::args().skip(1).collect();
+    #[cfg(windows)]
+    if let Some(result) = remote_com::helper_command(&args) {
+        if let Err(error) = result {
+            eprintln!("{error}");
+            std::process::exit(1);
+        }
+        return Ok(());
+    }
     let startup = shellint::parse_args(&args);
     if shellint::should_forward(&args, &startup) && shellint::forward(&startup) {
         return Ok(());
@@ -132,7 +144,11 @@ fn main() -> eframe::Result {
         persistence_path: persistence_path(),
         ..Default::default()
     };
-    migrate_storage();
+    if let Some(dir) = portable_dir() {
+        std::fs::create_dir_all(&dir).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
+    } else {
+        migrate_storage();
+    }
     diagnostics::init(data_dir(), n);
     eframe::run_native(
         "qccom",

@@ -1,0 +1,7 @@
+hub4com 2.1.0.0, Copyright (C) 2006-2012 Vyacheslav Frolov.
+Separate executable distributed under the GNU General Public License v2 or later.
+Binary: https://sourceforge.net/projects/com0com/files/hub4com/2.1.0.0/
+SHA256 (hub4com.exe): 98a5ffd853fee50ff9cc54b7b8c31ac271705c873843a6ba9026c3d0a69bdaaf
+Corresponding source and build scripts: source.zip (v2_1_0_0)
+https://github.com/KunYi/hub4com/tree/v2_1_0_0
+Extract the included source and license with qccom.exe --hub4com-source DIRECTORY.

@@ -1,10 +1,11 @@
 //! Windows remote COM. The application end of the com0com pair remains available to
 //! QCCOM or a third-party flasher. hub4com consumes the driver's ordered line-change
-//! notifications and frpc transports the resulting RFC 2217 stream.
+//! notifications. The portable build carries its serial adapter and Rust QUIC endpoint.
 use crate::i18n::{t, tf};
 use crate::serial::PortEntry;
 use eframe::egui;
 use std::collections::VecDeque;
+use std::fs::File;
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
 use std::os::windows::io::{AsRawHandle, FromRawHandle, OwnedHandle};
@@ -14,6 +15,39 @@ use std::process::{Child, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, SyncSender};
 use std::time::{Duration, Instant};
 use windows_sys::Win32::System::JobObjects::*;
+
+#[cfg(feature = "portable-remote-com")]
+const HUB4COM: &[u8] = include_bytes!("../vendor/hub4com/hub4com.exe");
+
+pub fn helper_command(args: &[String]) -> Option<Result<(), String>> {
+    match args {
+        [cmd, path, port] if cmd == "--qccom-tunnel" => Some((|| {
+            let port = port.parse::<u16>().map_err(|e| e.to_string())?;
+            qccom_tunnel::run_worker(Path::new(path), port, false).map_err(|e| format!("{e:#}"))
+        })()),
+        #[cfg(feature = "portable-remote-com")]
+        [cmd, dir] if cmd == "--hub4com-source" => Some(
+            (|| {
+                let dir = Path::new(dir);
+                std::fs::create_dir_all(dir)?;
+                for (name, bytes) in [
+                    ("hub4com-source.zip", include_bytes!("../vendor/hub4com/source.zip").as_slice()),
+                    ("LICENSE", include_bytes!("../vendor/hub4com/LICENSE").as_slice()),
+                    ("NOTICE.txt", include_bytes!("../vendor/hub4com/NOTICE.txt").as_slice()),
+                    ("QCCOM-NOTICE", include_bytes!("../NOTICE").as_slice()),
+                    ("QCCOM-LICENSE", include_bytes!("../LICENSE").as_slice()),
+                    ("OFL-Inter.txt", include_bytes!("../assets/licenses/OFL-Inter.txt").as_slice()),
+                    ("OFL-JetBrainsMono.txt", include_bytes!("../assets/licenses/OFL-JetBrainsMono.txt").as_slice()),
+                ] {
+                    File::create_new(dir.join(name))?.write_all(bytes)?;
+                }
+                Ok::<_, io::Error>(())
+            })()
+            .map_err(|e| e.to_string()),
+        ),
+        _ => None,
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Role {
@@ -115,7 +149,9 @@ fn read_log(stream: impl Read + Send + 'static, name: &'static str, tx: SyncSend
 
 struct Session {
     job: OwnedHandle,
-    _config: tempfile::NamedTempFile,
+    _config: Option<tempfile::NamedTempFile>,
+    _adapter: Option<tempfile::TempDir>,
+    negotiated: bool,
     children: Vec<(&'static str, Child)>,
     tx: SyncSender<Line>,
     rx: Receiver<Line>,
@@ -124,7 +160,7 @@ struct Session {
     started: Instant,
     registrations: usize,
     follow_open: bool,
-    relayed: bool,
+    relayed: Option<bool>,
     negotiating_since: Option<Instant>,
 }
 
@@ -133,13 +169,32 @@ impl Session {
         if !com_port(name) || profile.file_name().and_then(|s| s.to_str()) != Some(role.profile()) {
             return Err(t("请选择本机端口和对应的配对文件").into());
         }
+        let file = File::open(profile).map_err(|e| e.to_string())?;
+        if file.metadata().map_err(|e| e.to_string())?.len() > 16384 {
+            return Err(t("请选择本机端口和对应的配对文件").into());
+        }
+        let data: serde_json::Value = serde_json::from_reader(file.take(16385)).map_err(|e| e.to_string())?;
+        if data.get("format").is_some() {
+            let invite: qccom_tunnel::Invitation = serde_json::from_value(data).map_err(|e| e.to_string())?;
+            invite.validate().map_err(|e| e.to_string())?;
+            if (role == Role::Host) != (invite.role == qccom_tunnel::Role::Host) {
+                return Err(t("请选择本机端口和对应的配对文件").into());
+            }
+            let (adapter, hub) = serial_adapter()?;
+            let port = loop_port()?;
+            let mut tunnel = Command::new(std::env::current_exe().map_err(|e| e.to_string())?);
+            tunnel.arg("--qccom-tunnel").arg(profile).arg(port.to_string());
+            let serial = serial_command(&hub, role, name, port, follow_open);
+            return Self::from_commands(role, follow_open, serial, ("rust", tunnel), None, adapter);
+        }
+        // Existing frp pairing files continue to work with the original helper directory.
         let dir = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("remote-com");
         for exe in ["hub4com.exe", "frpc.exe"] {
             if !dir.join(exe).is_file() {
                 return Err(tf("缺少 {}，请先运行 prepare-windows.ps1", &[&dir.join(exe).display()]));
             }
         }
-        let port = TcpListener::bind(("127.0.0.1", 0)).and_then(|s| s.local_addr()).map_err(|e| e.to_string())?.port();
+        let port = loop_port()?;
         let profile = profile.canonicalize().map_err(|e| e.to_string())?;
         // Only the app supplies frpc configuration. An invitation contains data,
         // never plugins, commands or a choice of local services to publish.
@@ -179,12 +234,26 @@ impl Session {
             .env("QCCOM_CHANNEL", invite.channel)
             .env("QCCOM_CA", ca);
         let serial = serial_command(&dir.join("hub4com.exe"), role, name, port, follow_open);
-        let (serial, tunnel) = (("hub4com", serial), ("frpc", tunnel));
+        Self::from_commands(role, follow_open, serial, ("frpc", tunnel), Some(config), None)
+    }
+
+    fn from_commands(
+        role: Role,
+        follow_open: bool,
+        serial: Command,
+        tunnel: (&'static str, Command),
+        config: Option<tempfile::NamedTempFile>,
+        adapter: Option<tempfile::TempDir>,
+    ) -> Result<Self, String> {
+        let tunnel_kind = tunnel.0;
+        let serial = ("hub4com", serial);
         let (first, second) = if role == Role::Host { (serial, tunnel) } else { (tunnel, serial) };
         let (tx, rx) = mpsc::sync_channel(256);
         let mut session = Self {
             job: new_job().map_err(|e| e.to_string())?,
             _config: config,
+            _adapter: adapter,
+            negotiated: false,
             children: vec![],
             tx,
             rx,
@@ -193,11 +262,20 @@ impl Session {
             started: Instant::now(),
             registrations: 0,
             follow_open,
-            relayed: false,
+            relayed: (tunnel_kind == "frpc").then_some(false),
             negotiating_since: None,
         };
         session.launch(first)?;
         Ok(session)
+    }
+
+    fn ready_status(&self) -> &'static str {
+        match self.role {
+            Role::Host => t("远端已协商串口参数"),
+            Role::Client if self.relayed.is_none() => t("远端已协商串口参数"),
+            Role::Client if self.relayed == Some(true) => t("远程串口就绪 · 服务器中继"),
+            Role::Client => t("远程串口就绪 · P2P"),
+        }
     }
 
     fn launch(&mut self, (name, mut cmd): (&'static str, Command)) -> Result<(), String> {
@@ -227,6 +305,16 @@ impl Session {
                 log.pop_front();
             }
             log.push_back(format!("[{name}] {line}"));
+            if name == "rust" && line == "READY" {
+                self.registrations = 2;
+                *status = t("隧道已注册，等待应用打开串口").into();
+            }
+            if name == "rust" && (line == "PATH relay" || line == "PATH direct") {
+                self.relayed = Some(line == "PATH relay");
+                if self.negotiated && self.role == Role::Client {
+                    *status = self.ready_status().into();
+                }
+            }
             if name == "frpc" && (line.contains("control message dispatcher exited") || self.registrations > 0 && line.contains("login to server success")) {
                 return Err(t("服务器连接已中断，请重新启动映射").into());
             }
@@ -250,7 +338,8 @@ impl Session {
                 *status = t("正在协商远端串口").into();
             }
             if name == "hub4com" && line.ends_with(": Disconnected") {
-                self.relayed = false;
+                self.relayed = self._config.is_some().then_some(false);
+                self.negotiated = false;
                 self.negotiating_since = None;
                 if self.role == Role::Client && !self.follow_open {
                     return Err(t("远端连接已断开，请重新启动映射").into());
@@ -258,17 +347,13 @@ impl Session {
                 *status = t("连接已关闭，等待重新打开串口").into();
             }
             if name == "frpc" && line.contains("try to transfer connection to visitor: serial-stcp") {
-                self.relayed = true;
+                self.relayed = Some(true);
                 *status = t("正在通过服务器中继").into();
             }
             if name == "hub4com" && line.ends_with(" RECV: SB 44") {
                 self.negotiating_since = None;
-                *status = match self.role {
-                    Role::Host => t("远端已协商串口参数"),
-                    Role::Client if self.relayed => t("远程串口就绪 · 服务器中继"),
-                    Role::Client => t("远程串口就绪 · P2P"),
-                }
-                .into();
+                self.negotiated = true;
+                *status = self.ready_status().into();
             }
             let serial_failure = line.contains(" ERROR ")
                 && ["CreateFile(", "ReadFileEx(", "WriteFileEx(", "SetCommState(", "EscapeCommFunction("]
@@ -291,11 +376,62 @@ impl Session {
     }
 }
 
+#[cfg(feature = "portable-remote-com")]
+fn serial_adapter() -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
+    let adapter = tempfile::Builder::new().prefix("qccom-serial-").tempdir().map_err(|e| e.to_string())?;
+    let hub = adapter.path().join("hub4com.exe");
+    File::create_new(&hub).and_then(|mut f| f.write_all(HUB4COM)).map_err(|e| e.to_string())?;
+    Ok((Some(adapter), hub))
+}
+
+#[cfg(not(feature = "portable-remote-com"))]
+fn serial_adapter() -> Result<(Option<tempfile::TempDir>, PathBuf), String> {
+    let hub = std::env::current_exe().map_err(|e| e.to_string())?.with_file_name("remote-com").join("hub4com.exe");
+    if !hub.is_file() {
+        return Err(tf("缺少 {}，请先运行 prepare-windows.ps1", &[&hub.display()]));
+    }
+    Ok((None, hub))
+}
+
+fn loop_port() -> Result<u16, String> {
+    TcpListener::bind(("127.0.0.1", 0)).and_then(|s| s.local_addr()).map(|addr| addr.port()).map_err(|e| e.to_string())
+}
+
+fn create_pair() -> Result<(), String> {
+    let setup = ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|dir| PathBuf::from(dir).join("com0com").join("setupc.exe"))
+        .find(|p| p.is_file())
+        .ok_or_else(|| t("请先安装 com0com 驱动").to_owned())?;
+    let windows = std::env::var_os("SystemRoot").ok_or_else(|| "SystemRoot".to_owned())?;
+    let status = Command::new(PathBuf::from(windows).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+        .creation_flags(0x0800_0000)
+        .env("QCCOM_PAIR_SETUP", setup)
+        .args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $p=Start-Process -FilePath $env:QCCOM_PAIR_SETUP -WorkingDirectory (Split-Path $env:QCCOM_PAIR_SETUP) -Verb RunAs -Wait -PassThru -ArgumentList 'install','PortName=COM#,ri=ropen','PortName=COM#,EmuBR=yes'; exit $p.ExitCode"])
+        .status().map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err(format!("com0com setup: {status}"));
+    }
+    Ok(())
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        // Windows won't remove the extracted executable until its process has exited.
+        for (_, child) in &mut self.children {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct Panel {
     profile: Option<PathBuf>,
     port: String,
     pairs: Vec<crate::vcom::Pair>,
+    pairing: Option<Receiver<Result<(), String>>>,
     session: Option<Session>,
     follow_open: bool,
     status: String,
@@ -304,6 +440,17 @@ pub struct Panel {
 
 impl Panel {
     pub fn tick(&mut self, ctx: &egui::Context) {
+        if let Some(rx) = &self.pairing {
+            match rx.try_recv() {
+                Ok(result) => {
+                    self.pairing = None;
+                    self.pairs = crate::vcom::pairs();
+                    self.status = result.err().unwrap_or_else(|| t("请选择新建的串口对").into());
+                }
+                Err(mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(200)),
+                Err(mpsc::TryRecvError::Disconnected) => self.pairing = None,
+            }
+        }
         if let Some(session) = &mut self.session {
             if let Err(e) = session.poll(&mut self.status, &mut self.log) {
                 self.status = e;
@@ -355,10 +502,18 @@ impl Panel {
             if role == Role::Client {
                 ui.add_enabled(self.session.is_none(), egui::Checkbox::new(&mut self.follow_open, t("随应用打开和关闭远端串口")))
                     .on_hover_text(t("默认提前连接，等串口就绪再烧录。需要靠打开串口触发复位时可勾选"));
+                if self.session.is_none() && ui.add_enabled(self.pairing.is_none(), egui::Button::new(t("创建烧录串口对"))).clicked() {
+                    let (tx, rx) = mpsc::channel();
+                    self.pairing = Some(rx);
+                    std::thread::spawn(move || {
+                        let _ = tx.send(create_pair());
+                    });
+                }
                 if let Some(p) = self.pairs.iter().find(|p| p.mine == self.port) {
                     ui.label(tf("QCCOM 或烧录工具打开 {}", &[&p.other]));
                 } else {
-                    ui.small(t("请先用 prepare-windows.ps1 -CreatePair 创建烧录口，再选择配对文件"));
+                    ui.hyperlink_to(t("安装 com0com 驱动"), "https://sourceforge.net/projects/com0com/files/com0com/3.0.0.0/");
+                    ui.small(t("装好驱动后创建串口对，Windows 会请求管理员权限"));
                 }
             }
             if self.session.is_some() {

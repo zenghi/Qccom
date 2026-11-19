@@ -11,6 +11,10 @@ readme = "README.md"
 keywords = ["serial", "uart", "mqtt", "terminal", "embedded"]
 categories = ["development-tools", "embedded", "gui"]
 
+[features]
+# Opt-in unsigned standalone distribution. Tagged builds use the default features.
+portable-remote-com = []
+
 [dependencies]
 eframe = { version = "0.31", default-features = false, features = ["glow", "x11", "wayland", "persistence"] }
 serialport = "4"
@@ -53,6 +57,7 @@ arboard = "3"
 ureq = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 raw-window-handle = "0.6"
+qccom-tunnel = { path = "remote-com", features = ["endpoint"] }
 tempfile = "3"
 windows-sys = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading"] }
 
@@ -77,3 +82,8 @@ winresource = "0.1.34"
 # eframe uses winit 0.30, which has not released the Windows 11 mixed-DPI drag fix.
 # See vendor/winit/QCCOM-PATCH.md; remove this override when a fixed release is available.
 winit = { path = "vendor/winit" }
+
+[workspace]
+members = ["remote-com"]
+default-members = ["."]
+resolver = "2"

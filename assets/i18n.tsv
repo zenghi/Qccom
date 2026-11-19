@@ -3219,3 +3219,29 @@ QCCOM 版本	QCCOM version
 当前账号或服务器与保存的授权不符，不会自动发布。使用当前账号启用时，请先关闭再重新开启。	The current account or server does not match your saved permission. Automatic posting is paused. To enable it for the current account, turn it off and back on.								
 脚本输入或输出积压过多，已停止	Script stopped because input or output backed up	腳本輸入或輸出積壓過多，已停止	入出力が滞留したため、スクリプトを停止しました	입력 또는 출력이 너무 많이 쌓여 스크립트를 중지했습니다	Skript wegen zu vieler ausstehender Ein- oder Ausgaben gestoppt	Le script a été arrêté en raison d’une accumulation d’entrées ou de sorties	El script se detuvo por acumulación de entradas o salidas	Сценарий остановлен из-за переполнения очереди ввода или вывода	O script foi interrompido por excesso de entradas ou saídas na fila
 每个窗口 24 小时内最多尝试自动发布一次，你仍可查看并手动发布。	Each window makes at most one automatic submission attempt in 24 hours. You can still review and post manually.								
+请选择本机端口和对应的配对文件	Select the local port and its pairing profile	請選擇本機連接埠和對應的配對檔案							Selecione a porta local e o arquivo de pareamento
+缺少 {}，请先运行 prepare-windows.ps1	Missing {}. Run prepare-windows.ps1 first	缺少 {}，請先執行 prepare-windows.ps1							Falta {}. Execute prepare-windows.ps1
+隧道已注册，等待应用打开串口	Tunnel registered. Waiting for an application to open the port	通道已註冊，等待應用程式開啟串列埠							Túnel registrado. Aguardando a abertura da porta
+连接已关闭，等待重新打开串口	Connection closed. Waiting for the port to reopen	連線已關閉，等待重新開啟串列埠							Conexão fechada. Aguardando a reabertura da porta
+正在通过服务器中继	Using the server relay	正在透過伺服器中繼							Usando retransmissão pelo servidor
+启动超时，请检查端口、配对文件及服务器日志	Startup timed out. Check the port, pairing profile and server log	啟動逾時，請檢查連接埠、配對檔案及伺服器記錄							Tempo esgotado. Confira a porta, o perfil e o log do servidor
+远程 COM（P2P）	Remote COM (P2P)	遠端 COM（P2P）							COM remota (P2P)
+选择配对文件	Choose pairing profile	選擇配對檔案							Selecionar perfil de pareamento
+设备端打开 host.json，烧录端打开 client.json	Choose host.json on the device PC or client.json on the flashing PC	裝置端開啟 host.json，燒錄端開啟 client.json							Abra host.json no PC do dispositivo ou client.json no PC de gravação
+设备端 · 物理串口	Device PC · physical COM port	裝置端 · 實體串列埠							PC do dispositivo · porta física
+烧录端 · 虚拟串口对	Flashing PC · virtual COM pair	燒錄端 · 虛擬串列埠對							PC de gravação · par de portas virtuais
+QCCOM 或烧录工具打开 {}	Open {} in QCCOM or your flasher	QCCOM 或燒錄工具開啟 {}							Abra {} no QCCOM ou no gravador
+请先用 prepare-windows.ps1 -CreatePair 创建烧录口，再选择配对文件	Run prepare-windows.ps1 -CreatePair to create the flashing port, then select the profile	請先用 prepare-windows.ps1 -CreatePair 建立燒錄埠，再選擇配對檔案							Execute prepare-windows.ps1 -CreatePair e selecione o perfil
+停止映射	Stop mapping	停止對映							Parar mapeamento
+已停止	Stopped	已停止							Parado
+启动映射	Start mapping	啟動對映							Iniciar mapeamento
+正在启动	Starting	正在啟動							Iniciando
+连接日志	Connection log	連線記錄							Log da conexão
+服务器连接已中断，请重新启动映射	Server connection lost. Restart the mapping	伺服器連線已中斷，請重新啟動對映							Conexão com o servidor perdida. Reinicie o mapeamento
+正在协商远端串口	Negotiating remote serial settings	正在協商遠端串列埠							Negociando a porta remota
+远端连接已断开，请重新启动映射	Remote connection lost. Restart the mapping	遠端連線已中斷，請重新啟動對映							Conexão remota perdida. Reinicie o mapeamento
+远端已协商串口参数	Remote serial settings negotiated	遠端已協商串列埠參數							Parâmetros seriais negociados
+远程串口就绪 · 服务器中继	Remote COM ready · server relay	遠端串列埠就緒 · 伺服器中繼							COM remota pronta · retransmissão
+远程串口就绪 · P2P	Remote COM ready · P2P	遠端串列埠就緒 · P2P							COM remota pronta · P2P
+随应用打开和关闭远端串口	Open and close the remote port with the application	隨應用程式開啟和關閉遠端串列埠							Abrir e fechar a porta remota com o aplicativo
+默认提前连接，等串口就绪再烧录。需要靠打开串口触发复位时可勾选	The default connects ahead of time. Wait for readiness before flashing. Enable this for devices that reset on port open.	預設會預先連線，等串列埠就緒再燒錄。需要靠開啟串列埠觸發重設時可勾選							Por padrão a conexão é antecipada. Aguarde a porta ficar pronta. Ative para reiniciar o dispositivo ao abrir a porta.

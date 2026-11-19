@@ -24,6 +24,10 @@
 
 QCCOM is a single portable executable (about 8 MB on Windows) written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
 
+## Remote COM on Windows
+
+Pair two QCCOM instances through your own rendezvous server and open the mapped COM port in QCCOM or a UART flasher. [Deployment and flashing guide (Chinese)](deploy/remote-com/README.md)
+
 ## Highlights
 
 - **Serial ports that just work.** Ports are rescanned every second and shown with their chip name and VID:PID (`COM5 · CH340 (1a86:7523)`). A newly plugged device is selected for you, and an unplugged one is reconnected automatically when it comes back.

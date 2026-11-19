@@ -473,6 +473,8 @@ pub struct App {
     /// 串口暂时让给了终端里的命令（烧录等），命令跑完自动重新打开
     lent: Option<serialx::Lent>,
     serial_ui: serialx::SerialUi,
+    #[cfg(windows)]
+    remote_com: crate::remote_com::Panel,
     /// AT 助手提示里选中的一项
     at_sel: usize,
     /// 命令行指定、启动后要打开 / 回放的日志
@@ -669,6 +671,8 @@ impl App {
             vcom: None,
             lent: None,
             serial_ui: Default::default(),
+            #[cfg(windows)]
+            remote_com: Default::default(),
             at_sel: 0,
             open_log,
             sessions: (0..sess::SLOTS).map(|_| None).collect(),
@@ -1725,6 +1729,9 @@ impl App {
                             );
                         }
                         ui.add_space(10.0);
+
+                        #[cfg(windows)]
+                        self.remote_com.ui(ui, &self.ports);
 
                         // ---- 连接按钮
                         self.connect_button(ui);
@@ -4868,6 +4875,8 @@ impl eframe::App for App {
                 ctx.request_repaint_after(std::time::Duration::from_millis(50));
             }
         }
+        #[cfg(windows)]
+        self.remote_com.tick(ctx);
         self.nav_tick(ctx);
         self.work_tick(ctx);
         // 调试页显示串口；工具箱里选了网络工具就显示那个连接；主页面不用连接时看副页面

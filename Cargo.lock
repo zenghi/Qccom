@@ -2883,12 +2883,14 @@ dependencies = [
  "sha1",
  "sha2",
  "sys-locale",
+ "tempfile",
  "tokio",
  "unicode-width",
  "ureq",
  "uuid",
  "vte",
  "webpki-roots 0.26.11",
+ "windows-sys 0.61.2",
  "winresource",
 ]
 

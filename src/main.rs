@@ -37,6 +37,8 @@ mod pattern;
 mod portuse;
 mod record;
 mod remote;
+#[cfg(windows)]
+mod remote_com;
 mod script;
 mod serial;
 mod shell;

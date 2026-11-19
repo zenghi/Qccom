@@ -53,6 +53,8 @@ arboard = "3"
 ureq = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 raw-window-handle = "0.6"
+tempfile = "3"
+windows-sys = { version = "0.61", features = ["Win32_System_JobObjects", "Win32_Security", "Win32_System_Threading"] }
 
 [target.'cfg(not(windows))'.dependencies]
 # 虚拟串口（openpty）：已经被其他依赖带进来了

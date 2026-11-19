@@ -20,6 +20,10 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
+## Windows 远程 COM
+
+两台 QCCOM 可通过自建服务器配对，使用本地虚拟 COM 调试或烧录远端 UART 设备。[部署与烧录指南](deploy/remote-com/README.md)
+
 ## 图文上手
 
 - **串口调试**　用过 SSCOM32？用文本和 HEX 各发一次 `AT`，看设备是否回复 `OK`。[串口助手收发教程](docs/serial-debug.zh-CN.md) · [SSCOM32 常用操作对照](https://www.zenghi.com/switch-from-sscom/)

@@ -58,6 +58,12 @@ jobs:
           if ($p.ExitCode -ne 0) { throw 'Source export failed' }
           if ((Get-FileHash licenses/hub4com-source.zip).Hash -ne (Get-FileHash ../vendor/hub4com/source.zip).Hash) { throw 'Source mismatch' }
           Pop-Location
+      - name: Exercise the Windows executable against the Rust server
+        shell: pwsh
+        run: |
+          cargo build --locked -p qccom-tunnel --features server --bin qccom-server
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python tests/remote_com_rust.py target/debug/qccom-server.exe portable/qccom-portable.exe
       - uses: actions/upload-artifact@v4
         with:
           name: qccom-portable-windows-x64

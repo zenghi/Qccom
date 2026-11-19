@@ -43,6 +43,13 @@ def receive(sock, size):
     return bytes(result)
 
 
+def worker_args(profile, port):
+    args = [WORKER]
+    if WORKER.name.lower() == "qccom-portable.exe":
+        args.append("--qccom-tunnel")
+    return [*args, profile, str(port)]
+
+
 def transfer(root, relay_only):
     with ExitStack() as stack:
         device = stack.enter_context(socket.socket())
@@ -53,7 +60,7 @@ def transfer(root, relay_only):
             reservation.bind(("127.0.0.1", 0))
             port = reservation.getsockname()[1]
         for role, local in [("host", device.getsockname()[1]), ("client", port)]:
-            args = [WORKER, root / "qccom-pair" / (role + ".json"), str(local)]
+            args = worker_args(root / "qccom-pair" / (role + ".json"), local)
             if relay_only:
                 args.append("--relay-only")
             worker = stack.enter_context(launch(args, root, role))
@@ -86,7 +93,8 @@ def main():
         with launch([SERVER, "serve"], root, "server") as service:
             wait(service, "rendezvous ready")
             transfer(root, False)
-            transfer(root, True)
+            if WORKER.name.lower() != "qccom-portable.exe":
+                transfer(root, True)
             other = root / "other"
             other.mkdir()
             subprocess.run([SERVER, "init", "127.0.0.1"], cwd=other, check=True)
@@ -95,7 +103,7 @@ def main():
             unauthorized["certificate"] = json.loads(first)["certificate"]
             profile = other / "wrong.json"
             profile.write_text(json.dumps(unauthorized))
-            attempt = subprocess.run([WORKER, profile, "10000"], capture_output=True, timeout=22)
+            attempt = subprocess.run(worker_args(profile, 10000), capture_output=True, timeout=22)
             assert attempt.returncode and b"READY" not in attempt.stdout
             print("unpaired identity rejected")
 

@@ -31,6 +31,8 @@ mod ime;
 mod keymap;
 mod logbuf;
 mod lsp;
+#[cfg(windows)]
+mod mappings;
 mod modbus;
 mod net;
 mod pattern;

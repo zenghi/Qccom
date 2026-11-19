@@ -1,62 +1,100 @@
-# 单文件远程 COM
+# QCCOM 1.9.8 端口映射
 
-在两台 Windows x64 电脑上各放一份 `qccom-portable.exe`。设备机接开发板，烧录机通过系统虚拟 COM 使用本地烧录软件。Linux x86_64 服务器只运行 `qccom-server`。客户端内置 Rust QUIC 传输和串口适配器，服务端使用 Rust 的 iroh-relay 提供配对节点的会合、中继及公网地址探测。
+两台 Windows x64 电脑各运行一个 `qccom-portable.exe`，一台 Linux x86_64 公网服务器运行一个 Rust 可执行文件 `qccom-server`。串口、MQTT 和被动 FTP 共用经过身份认证的 QUIC 端点，可以同时开启。接开发板或运行 MQTT、FTP 服务的电脑称为设备端，运行烧录工具或网络客户端的电脑称为使用端。
 
-## 部署服务器
+## 部署公网服务器
 
-将 `qccom-server` 传到服务器上一个属于服务账号的目录。在该目录执行以下命令，将示例地址换成两端均能访问的服务器公网 IPv4 或 DNS 名。初始化和运行均使用普通用户权限。
+把域名的 A 记录指向服务器。防火墙和云安全组放行 **TCP 7000**（会合及加密中继）和 **UDP 7842**（公网地址探测）。使用 CDN 的域名需选用能直达这两个端口的 DNS 记录。为服务器域名申请客户端信任的公网 TLS 证书，准备 PEM 格式的完整证书链和私钥。解压部署包后可直接前台启动。
 
 ```sh
 chmod +x qccom-server
-./qccom-server init serial.example.com
-./qccom-server serve
+./qccom-server serve --cert /path/to/fullchain.pem --key /path/to/privkey.pem
 ```
 
-防火墙和云安全组放行 **TCP 7000**（TLS 会合与中继）和 **UDP 7842**（公网地址探测）。直连还需要两台电脑能相互发送 UDP。两端通过固定的服务器证书注册，再用对方的公钥验证 QUIC 连接。连接可先经服务器建立，发现可用直连路径后会自动切换；受限网络可持续走中继。串口流在任一路径上都经过端到端加密。
+设备端在「高级设置 → 穿透服务器」填写证书覆盖的域名。默认是 `www.zenghi.com`，该服务器需要先更新并按上面的命令启动。使用公网 IP 时，证书的 SAN 须包含该 IP。设备端生成的连接地址会自动带上服务器地址，使用端粘贴后无需另行配置服务器。
 
-首次 init 生成 `qccom-pair/`，里面有三份私密配置：
+地址共享模式默认对每条中继连接的接收流量限速为 8 MiB/s，允许 1 MiB 突发。设置 `QCCOM_RELAY_BYTES_PER_SECOND` 可调整速率，单位为字节/秒，最小值为 10。限速只作用于中继路径。
 
-| 文件 | 放置位置 |
-| --- | --- |
-| server.json | 留在服务器，由 serve 读取 |
-| host.json | 私下交给接开发板的设备机 |
-| client.json | 私下交给运行烧录工具的电脑 |
+### 开机自启
 
-重启时在原目录执行 `./qccom-server serve`。如用 systemd 托管，将 WorkingDirectory 指向该目录，ExecStart 指向可执行文件并带 serve 参数。备份整个 qccom-pair 目录。初始化会拒绝覆盖已有配置；更换地址或轮换凭据时先停止服务并移走旧目录，再初始化和分发新文件。服务端允许这两个端点身份登录，设备端只接受与其配对的烧录端。
-
-## 使用 Windows 便携版
-
-1. 将 `qccom-portable.exe` 放在可写目录。两端均可直接运行。该文件名启用便携存储，设置放在旁边的 qccom-data 目录。更新便携版时退出程序，用新版同名 EXE 替换，保留设置和配对文件。
-2. 设备机进入串口侧栏的 **远程 COM（P2P）**，打开 host.json，选择板子使用的物理串口并启动映射。先释放其他程序占用的同一物理口。部分 USB 转串口在打开时会短暂改变 DTR/RTS。
-3. 烧录机首次使用时安装与本机 Windows 兼容的签名 com0com 驱动。在 QCCOM 选择 client.json，点击 **创建烧录串口对** 并接受 Windows 管理员提示。已有按下述方式配置好的端口对可以复用。设备机免装此虚拟串口驱动。
-4. 选取虚拟串口对并启动映射。等“远程串口就绪”后，在烧录工具或本地 QCCOM 普通串口面板打开界面提示的应用端。例如 A=COM20、B=COM21 时，映射占用 COM20，烧录软件打开 COM21。普通串口面板与烧录软件轮流使用 COM21。
-5. 默认提前建立连接以便烧录工具打开后立即发起复位。依靠串口打开/关闭触发动作的板子，可以在启动前勾选“随应用打开和关闭远端串口”。专用端口对的 A 端使用 ri=ropen，B 端使用 EmuBR=yes。
-6. 完成后点击“停止映射”。启动映射时，便携版将内置 hub4com 释放到用户临时目录，停止映射后回收。传输进程和串口进程随 QCCOM 退出。配对配置须单独保管。
-
-**适用范围。** RFC 2217 传递串口数据、波特率、数据位、校验、停止位、DTR、RTS 和 Break。公网抖动会影响复位脉宽和握手超时。首次使用应先读芯片 ID，再写入已知镜像并运行烧录工具的读回校验。断线或拔线后重新启动映射、重新识别芯片并从头烧录。USB DFU、SWD 和 JTAG 需要各自的调试接口。
-
-**迁移旧测试版。** 原 frps 如果正在使用 TCP 7000，先在旧部署目录执行 `docker compose down` 并保留配置。Rust 服务使用 init 生成的新配对文件。原 frp 配置仍可搭配原服务器和原 remote-com 工具目录使用。[旧版部署说明](LEGACY-FRP.md)
-
-## 构建与验证
-
-使用当前稳定版 Rust 和仓库的 Cargo.lock。在 Windows 构建便携版，然后将生成的 target/release/qccom.exe 命名为 qccom-portable.exe。
+用部署包中的 systemd 单元安装服务，再通过 drop-in 启用地址共享。先停止占用同一端口的旧实例。
 
 ```sh
-cargo build --locked --release --features portable-remote-com
+sudo install -m 0755 qccom-server /usr/local/bin/qccom-server
+sudo install -m 0644 qccom-server.service /etc/systemd/system/qccom-server.service
+sudo systemctl edit qccom-server
 ```
 
-在 Linux 上构建服务。发布的 x86_64 Linux 单文件使用 musl 静态链接，构建机需安装 musl C 工具链。
+在编辑器中加入下面内容，把证书路径改成服务器上的实际路径。systemd 会将证书和私钥复制到服务的凭据目录，供动态服务账户读取。
+
+```ini
+[Service]
+LoadCredential=relay-fullchain.pem:/etc/letsencrypt/live/www.zenghi.com/fullchain.pem
+LoadCredential=relay-privkey.pem:/etc/letsencrypt/live/www.zenghi.com/privkey.pem
+ExecStart=
+ExecStart=/usr/local/bin/qccom-server serve --cert %d/relay-fullchain.pem --key %d/relay-privkey.pem
+```
+
+```sh
+sudo systemctl enable qccom-server
+sudo systemctl restart qccom-server
+sudo journalctl -u qccom-server -n 20
+```
+
+证书续期后重启服务以加载新证书。原有 JSON 凭据配对继续使用 `qccom-server run`，已有 `qccom-pair/` 目录应保留。凭据模式和地址共享模式分别占用相同的默认端口，若要同时提供两种服务，可分别部署到两台服务器。
+
+Windows 便携模式把设置保存在 EXE 同目录的 `qccom-data`。把程序和此目录放在当前用户专有的可写位置。
+
+## 在设备列表中使用
+
+| 用途 | 设备端操作 | 使用端操作 |
+| --- | --- | --- |
+| 串口烧录 | 点板子所接实体 COM 行右侧的「映射此端口」，再点「复制连接地址」 | 点「连接映射」，粘贴地址后点「连接设备端」。烧录工具选择窗口显示的本机虚拟 COM |
+| MQTT | 点「共享服务」并选择 MQTT，填写 broker 的主机和端口，默认 `127.0.0.1:1883`，复制连接地址 | 粘贴地址并连接，MQTT 客户端连本机 `127.0.0.1:1883`。认证和消息照常交给 broker 处理 |
+| FTP | 点「共享服务」并选择 FTP，目标默认 `127.0.0.1:21`。在 FTP 服务配置被动端口 `50000–50009`，或改成服务实际范围，再复制连接地址 | 粘贴地址并连接，使用被动 FTP，默认连本机 `127.0.0.1:2121`。两端自动协商数据端口范围 |
+
+连接地址形如 `qccom://域名:7000/…`，包含该映射的授权。只需复制和粘贴完整地址，两端自动完成握手，无需导入 JSON 或额外输入配对码。地址可在生成后 15 分钟内用于建立连接，请仅发给要连接的人。停止共享或退出设备端 QCCOM 后，该地址失效。到期时，等待连接的共享会自动停止。已有连接可以继续使用，结束后可点「重新共享」生成新地址。
+
+使用端只在回环地址监听。同机另一个程序已占用端口时，更改「本机监听端口」；FTP 被动范围同样需要空闲。普通 FTP 的 PASV 和 EPSV 都受支持。FTP 协议代理处理明文控制命令，隧道使用端到端加密。主动 FTP、显式 FTPS 和隐式 FTPS 均在本版支持范围之外。
+
+连接地址已标识对应映射。多个映射可以共用同一个公网 IP。串口和 MQTT/FTP 的业务端口由两端 QCCOM 管理，公网服务器只需开放 TCP 7000 和 UDP 7842。
+
+### 直连与中继
+
+两端先通过服务器交换连接信息并验证授权。QCCOM 优先建立直连，打洞受限时回退到加密中继。界面根据实际选定路径显示「已直连」或「服务器中继」。网络变化后 QUIC 会更新路径，电脑掉线或映射被停止时释放连接。本机监听端口冲突或对端未共享对应映射时，先改正原因再连接。
+
+使用 QCCOM 连接地址时，MQTT 客户端连本机 QCCOM 监听端口，直连成功后业务数据直接传给设备端 QCCOM，再交给 MQTT broker。只有回退到中继时，业务数据才经过 QCCOM 公网服务器。普通 MQTT 客户端或浏览器直接访问某台公网服务器的业务 IP 和端口，数据会到达该地址对应的服务或转发代理。本版本的共享服务支持 MQTT 和被动 FTP，HTTP 端口共享尚未提供。
+
+### UART 烧录
+
+使用端首次需要 Windows 可加载的 com0com 系统驱动。已有虚拟口对可直接使用。「准备虚拟串口」会检查现有端口和驱动，必要时下载校验过的驱动并请求 Windows 管理员确认。设备端直接打开实体口。实体口与虚拟口在同一映射行并排显示，应用端口可以由外部烧录软件或 QCCOM 的普通串口功能独占打开。
+
+如果设备管理器显示代码 52，Windows 拒绝加载当前 com0com 驱动，虚拟 COM 口无法生成。QCCOM 会在「准备虚拟串口」显示这个原因。内置下载指向带旧式交叉签名的 com0com 3.0.0.0 原版安装包。需要在当前 Windows 上成功加载的、支持 com0com 控制线接口的驱动，才能使用虚拟 COM 烧录。[Microsoft 代码 52 说明](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-unsigned-driver)
+
+新映射路径由 Rust 转发串口字节、波特率、数据位、校验、停止位、DTR、RTS 和 Break。设备可用的波特率和线控由 USB 转串口驱动决定。跨网复位脉宽还受电脑调度和网络抖动影响。首次建议执行芯片识别，再烧录带读回校验的镜像。掉线时检查设备并从头开始烧录。支持串口 bootloader，USB DFU、SWD、JTAG 需要各自的接口。
+
+「共享给本机软件」用于同一台电脑上的本地虚拟串口共享，可在已连接的设备行操作。原版串口配对和 frp 可从「高级设置 → 旧版串口映射」进入，新映射只需要本版本的 Rust 程序。[旧版部署说明](LEGACY-FRP.md)
+
+## 从源码构建
+
+Windows 使用稳定版 Rust 构建，将生成的 `target/release/qccom.exe` 改名为 `qccom-portable.exe` 启用便携存储。新映射使用默认 Cargo 功能。
+
+```sh
+cargo build --locked --release
+```
+
+x86_64 Linux 静态单文件需要 musl C 工具链。
 
 ```sh
 rustup target add x86_64-unknown-linux-musl
-cargo build --locked --release -p qccom-tunnel --features server --bin qccom-server --target x86_64-unknown-linux-musl
+CC_x86_64_unknown_linux_musl=musl-gcc CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc cargo build --locked --release -p qccom-tunnel --features server --bin qccom-server --target x86_64-unknown-linux-musl
 ```
 
-在 Linux 上运行网络回归测试（需要本机 TCP 7000、UDP 7842 空闲），验证配对、直连、强制中继、二进制双向传输及端口重新打开：
+网络回归测试使用本机 TCP 7000 和 UDP 7842。MQTT/FTP 场景需要 Mosquitto、mosquitto-clients 和 Python pyftpdlib。
 
 ```sh
+cargo test --locked -p qccom-tunnel --features endpoint,server --lib
 cargo build --locked -p qccom-tunnel --features server,endpoint --bin qccom-server --example tunnel-worker
 python3 tests/remote_com_rust.py target/debug/qccom-server target/debug/examples/tunnel-worker
+python3 tests/remote_mappings.py target/debug/qccom-server target/debug/examples/tunnel-worker
 ```
-
-便携测试版未签名，内置独立的 hub4com 2.1.0.0。运行 `qccom-portable.exe --hub4com-source 空目录` 可以导出对应源码及许可证。常规签名发布继续使用默认 Cargo 功能。[hub4com 来源](../../vendor/hub4com/NOTICE.txt)

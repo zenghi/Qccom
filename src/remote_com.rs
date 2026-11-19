@@ -397,13 +397,17 @@ fn loop_port() -> Result<u16, String> {
     TcpListener::bind(("127.0.0.1", 0)).and_then(|s| s.local_addr()).map(|addr| addr.port()).map_err(|e| e.to_string())
 }
 
-fn create_pair() -> Result<(), String> {
-    let setup = ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+pub(crate) fn setupc() -> Option<PathBuf> {
+    ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
         .iter()
         .filter_map(std::env::var_os)
         .map(|dir| PathBuf::from(dir).join("com0com").join("setupc.exe"))
         .find(|p| p.is_file())
-        .ok_or_else(|| t("请先安装 com0com 驱动").to_owned())?;
+}
+pub(crate) fn create_pair() -> Result<(), String> {
+    crate::vcom::check_com0com_signature()?;
+    let setup = setupc().ok_or_else(|| t("请先安装 com0com 驱动").to_owned())?;
+    let before = crate::vcom::pairs();
     let windows = std::env::var_os("SystemRoot").ok_or_else(|| "SystemRoot".to_owned())?;
     let status = Command::new(PathBuf::from(windows).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
         .creation_flags(0x0800_0000)
@@ -411,9 +415,17 @@ fn create_pair() -> Result<(), String> {
         .args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $p=Start-Process -FilePath $env:QCCOM_PAIR_SETUP -WorkingDirectory (Split-Path $env:QCCOM_PAIR_SETUP) -Verb RunAs -Wait -PassThru -ArgumentList 'install','PortName=COM#,ri=ropen','PortName=COM#,EmuBR=yes'; exit $p.ExitCode"])
         .status().map_err(|e| e.to_string())?;
     if !status.success() {
+        crate::vcom::check_com0com_signature()?;
         return Err(format!("com0com setup: {status}"));
     }
-    Ok(())
+    for _ in 0..20 {
+        if crate::vcom::pairs().iter().any(|p| !before.contains(p)) {
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    crate::vcom::check_com0com_signature()?;
+    Err(t("装好了但没找到虚拟串口").into())
 }
 
 impl Drop for Session {

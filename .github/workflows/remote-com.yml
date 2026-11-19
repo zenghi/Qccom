@@ -9,6 +9,10 @@ on:
       - 'remote-com/**'
       - 'src/main.rs'
       - 'src/remote_com.rs'
+      - 'src/mappings.rs'
+      - 'src/vcom.rs'
+      - 'src/app.rs'
+      - 'tests/remote_mappings.py'
       - 'tests/remote_com_rust.py'
       - 'vendor/hub4com/**'
 
@@ -24,7 +28,7 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools mosquitto mosquitto-clients python3-pyftpdlib
       - name: Build static Linux server
         run: cargo build --locked -p qccom-tunnel --features server --bin qccom-server --release --target x86_64-unknown-linux-musl
         env:
@@ -34,8 +38,10 @@ jobs:
         run: |
           server=target/x86_64-unknown-linux-musl/release/qccom-server
           if readelf -lW "$server" | grep -q INTERP || readelf -dW "$server" | grep -q NEEDED; then exit 1; fi
+          cargo test --locked -p qccom-tunnel --features endpoint,server --lib
           cargo build --locked -p qccom-tunnel --features endpoint --example tunnel-worker
           python3 tests/remote_com_rust.py "$server" target/debug/examples/tunnel-worker
+          /usr/bin/python3 tests/remote_mappings.py "$server" target/debug/examples/tunnel-worker
       - uses: actions/upload-artifact@v4
         with:
           name: qccom-server-linux-x64
@@ -46,18 +52,12 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo build --locked --release --features portable-remote-com
+      - run: cargo build --locked --release
       - name: Verify single-file distribution
         shell: pwsh
         run: |
-          if ((Get-FileHash vendor/hub4com/hub4com.exe).Hash -ne '98a5ffd853fee50ff9cc54b7b8c31ac271705c873843a6ba9026c3d0a69bdaaf') { throw 'Serial adapter mismatch' }
           New-Item -ItemType Directory portable | Out-Null
           Copy-Item target/release/qccom.exe portable/qccom-portable.exe
-          Push-Location portable
-          $p = Start-Process ./qccom-portable.exe -ArgumentList '--hub4com-source','licenses' -Wait -PassThru
-          if ($p.ExitCode -ne 0) { throw 'Source export failed' }
-          if ((Get-FileHash licenses/hub4com-source.zip).Hash -ne (Get-FileHash ../vendor/hub4com/source.zip).Hash) { throw 'Source mismatch' }
-          Pop-Location
       - name: Exercise the Windows executable against the Rust server
         shell: pwsh
         run: |

@@ -7,7 +7,7 @@ The Windows release workflow uses [SignPath.io](https://about.signpath.io/) with
 ## What is signed
 
 - Only `qccom-windows-x64.exe`, built by the public GitHub Actions workflow [`.github/workflows/build.yml`](.github/workflows/build.yml) on GitHub-hosted runners from a `v*` tag of this repository.
-- Every executable that is signed is compiled from the source code in this repository. The signed build uses the default Cargo features and contains no embedded third-party executable. The separate unsigned portable build opts into the embedded hub4com adapter with `portable-remote-com`. The optional com0com virtual-port driver is downloaded from its own distribution only when the user asks for it and is verified by SHA-256 before it runs.
+- Every executable that is signed is compiled from the source code in this repository. The signed build uses the default Cargo features and contains no embedded third-party executable. The Rust port-mapping build also uses the default features. The optional `portable-remote-com` feature embeds hub4com for legacy profiles. The optional com0com virtual-port driver is downloaded from its own distribution only when the user asks for it and is verified by SHA-256 before it runs.
 - Linux binaries are not signed.
 - Builds made on a developer's machine are never submitted for signing.
 
@@ -48,7 +48,7 @@ If you find a signed file that you believe violates this policy, please open an 
 ## 签名范围
 
 - 只签 `qccom-windows-x64.exe`：由本仓库公开的 GitHub Actions 工作流 [`.github/workflows/build.yml`](.github/workflows/build.yml) 在 GitHub 托管的构建机上、从本仓库的 `v*` 标签构建。
-- 被签名的程序全部由本仓库源码编译。签名构建使用默认 Cargo 功能，不内嵌第三方可执行文件。独立分发的未签名便携版通过 `portable-remote-com` 功能内置 hub4com 适配器；可选的 com0com 虚拟串口驱动只在用户要求时从其发布地址下载，并校验 SHA-256 后才运行。
+- 被签名的程序全部由本仓库源码编译。签名构建使用默认 Cargo 功能，不内嵌第三方可执行文件。Rust 端口映射便携版同样使用默认功能。可选的 `portable-remote-com` 功能只为旧版映射内置 hub4com 适配器。可选的 com0com 虚拟串口驱动只在用户要求时从其发布地址下载，并校验 SHA-256 后才运行。
 - Linux 版本不签名。
 - 开发者本机编译的文件不会提交签名。
 

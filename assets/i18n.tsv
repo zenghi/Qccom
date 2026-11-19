@@ -3250,3 +3250,67 @@ QCCOM 或烧录工具打开 {}	Open {} in QCCOM or your flasher	QCCOM 或燒錄�
 安装 com0com 驱动	Install the com0com driver	安裝 com0com 驅動程式							Instalar o driver com0com
 装好驱动后创建串口对，Windows 会请求管理员权限	After installing the driver, create the port pair. Windows will request elevation	安裝驅動程式後建立串列埠對，Windows 會要求系統管理員權限							Após instalar o driver, crie o par com privilégios de administrador
 请先安装 com0com 驱动	Install the com0com driver first	請先安裝 com0com 驅動程式							Instale o driver com0com primeiro
+选择本机部署凭据	Select credentials for this PC	選擇本機部署憑證							Selecionar credenciais deste PC
+凭据文件过大	Credential file is too large	憑證檔案太大							Arquivo de credenciais muito grande
+请先导入本机凭据	Import this PC’s credentials first	請先匯入本機憑證							Importe primeiro as credenciais deste PC
+映射已启动	Mapping is already running	對映已啟動							O mapeamento já está em execução
+连接已结束，请重新连接	Connection closed. Reconnect to start again.	連線已結束，請重新連線							Conexão encerrada. Conecte novamente.
+穿透服务器	Rendezvous server	穿透伺服器							Servidor de intermediação
+导入本机凭据	Import credentials	匯入本機憑證							Importar credenciais
+已直连	Direct	已直連							Direto
+服务器中继	Relayed	伺服器中繼							Retransmitido
+打洞中	Connecting peers	打洞中							Conectando os dispositivos
+连接服务器	Contacting server	連線至伺服器							Conectando ao servidor
+等待对端	Waiting for peer	等待對端							Aguardando o outro dispositivo
+已断开	Disconnected	已斷線							Desconectado
+实体	Physical	實體							Físico
+虚拟	Virtual	虛擬							Virtual
+启动	Start	啟動							Iniciar
+＋ 端口映射	+ Port mapping	＋ 連接埠對映							+ Mapeamento de portas
+收起	Collapse	收合							Recolher
+首次使用，选择服务器生成的本机凭据。	Choose the credentials generated for this PC.	首次使用，請選擇伺服器產生的本機憑證。							Escolha as credenciais geradas para este PC.
+导入凭据	Import credentials	匯入憑證							Importar credenciais
+共享实体串口	Physical port to share	共享實體串列埠							Porta física para compartilhar
+烧录工具使用的虚拟串口	Virtual port for the flasher	燒錄工具使用的虛擬串列埠							Porta virtual para o gravador
+准备虚拟串口	Set up virtual port	準備虛擬串列埠							Configurar porta virtual
+目标服务地址	Service address	目標服務位址							Endereço do serviço
+本机监听端口	Local port	本機監聽連接埠							Porta local
+映射选项	Mapping options	對映選項							Opções de mapeamento
+映射端口	Mapping port	對映連接埠							Porta mapeada
+FTP 服务的被动端口范围	FTP passive ports	FTP 服務的被動連接埠範圍							Portas passivas do FTP
+共享此端口	Share port	共享此連接埠							Compartilhar porta
+连接设备端	Connect to device	連線至裝置端							Conectar ao dispositivo
+该串口正在使用，请先断开本机连接	Disconnect this port before sharing it.	此串列埠正在使用，請先中斷本機連線							Desconecte esta porta antes de compartilhá-la.
+映射此端口	Map this port	對映此連接埠							Mapear esta porta
+共享给本机软件	Share with local apps	共享給本機軟體							Compartilhar com aplicativos locais
+此串口已共享给远端，可在设备行中停止映射	This port is shared. Stop its mapping to use it locally.	此串列埠已共享給遠端，可在裝置列停止對映							Esta porta está compartilhada. Pare o mapeamento para usá-la localmente.
+旧版串口映射	Legacy COM mapping	舊版串列埠對映							Mapeamento COM legado
+该端口已有映射	This port already has a mapping	此連接埠已有對映							Esta porta já está mapeada
+准备中…	Setting up…	準備中…							Configurando…
+正在使用	In use	使用中							Em uso
+映射	Map	對映							Mapear
+烧录工具端口	Flasher port	燒錄工具連接埠							Porta do gravador
+设备端	Device PC	裝置端							PC do dispositivo
+烧录端	Flashing PC	燒錄端							PC de gravação
+此映射端口已有配置，请编辑原映射或选择其他端口	Edit the existing mapping or choose another mapping port.	此對映連接埠已有設定，請編輯原對映或選擇其他連接埠							Edite o mapeamento existente ou selecione outra porta.
+目标服务异常	Service unavailable	目標服務異常							Serviço indisponível
+在烧录工具中选择 {}	Select {} in the flasher	在燒錄工具中選擇 {}							Selecione {} no gravador
+在 {} 客户端中连接 {}	Connect your {} client to {}	在 {} 用戶端中連線至 {}							Conecte o cliente {} a {}
+端口映射已就绪	Port mapping ready	連接埠對映已就緒							Mapeamento de portas pronto
+已与使用端连接，正在共享 {}	Connected to the client, sharing {}	已連線至使用端，正在共享 {}							Conectado ao cliente, compartilhando {}
+没有可用的映射编号	No mapping numbers available	沒有可用的對映編號							Não há números de mapeamento disponíveis
+请输入有效的连接地址	Enter a valid connection address	請輸入有效的連線位址							Insira um endereço de conexão válido
+请选择实体串口	Choose a physical COM port	請選擇實體串列埠							Selecione uma porta COM física
+旧版映射凭据	Legacy mapping credentials	舊版對映憑證							Credenciais de mapeamento legado
+新建旧版映射	New legacy mapping	新增舊版對映							Novo mapeamento legado
+重新共享	Share again	重新共享							Compartilhar novamente
+复制连接地址	Copy connection address	複製連線位址							Copiar endereço de conexão
+仅发给需要连接的人，地址有效期 15 分钟	Send only to the intended recipient. The address is valid for 15 minutes.	只傳給需要連線的人，位址有效期為 15 分鐘							Envie apenas ao destinatário. O endereço é válido por 15 minutos.
+连接地址已过期，停止后可重新共享	The address has expired. Stop sharing to generate a new one.	連線位址已過期，停止後可重新共享							O endereço expirou. Pare de compartilhar para gerar outro.
+连接映射	Join mapping	連線至對映							Conectar ao mapeamento
+共享服务	Share service	共享服務							Compartilhar serviço
+粘贴连接地址	Paste connection address	貼上連線位址							Cole o endereço de conexão
+连接地址无效或已过期	The connection address is invalid or has expired	連線位址無效或已過期							Endereço de conexão inválido ou expirado
+地址已过期	Address expired	位址已過期							Endereço expirado
+Windows 拒绝加载 com0com 驱动（代码 52）。请安装兼容当前 Windows 的已签名 com0com 驱动。	Windows blocked the com0com driver (Code 52). Install a signed com0com driver compatible with this version of Windows.	Windows 拒絕載入 com0com 驅動程式（代碼 52）。請安裝與目前 Windows 相容的已簽署 com0com 驅動程式。	Windows が com0com ドライバーをブロックしました（コード 52）。お使いの Windows に対応する署名済みの com0com ドライバーをインストールしてください。	Windows에서 com0com 드라이버를 차단했습니다(코드 52). 이 Windows 버전과 호환되는 서명된 com0com 드라이버를 설치하세요.	Windows hat den com0com-Treiber blockiert (Code 52). Installieren Sie einen signierten com0com-Treiber für diese Windows-Version.	Windows a bloqué le pilote com0com (code 52). Installez un pilote com0com signé compatible avec cette version de Windows.	Windows bloqueó el controlador com0com (código 52). Instala un controlador com0com firmado compatible con esta versión de Windows.	Windows заблокировала драйвер com0com (код 52). Установите подписанный драйвер com0com, совместимый с этой версией Windows.	O Windows bloqueou o driver com0com (código 52). Instale um driver com0com assinado e compatível com esta versão do Windows.
+com0com 安装未完成（{}）	com0com installation did not finish ({})	com0com 安裝未完成（{}）	com0com のインストールが完了しませんでした（{}）	com0com 설치가 완료되지 않았습니다({})	com0com-Installation nicht abgeschlossen ({})	L’installation de com0com n’a pas abouti ({})	La instalación de com0com no se ha completado ({})	Установка com0com не завершилась ({})	A instalação do com0com não foi concluída ({})

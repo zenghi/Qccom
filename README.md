@@ -22,11 +22,11 @@
 
 ![QCCOM serial monitor connected at 115200 baud, showing color-coded device logs and AT command presets](docs/screenshot.png)
 
-QCCOM is a single portable executable (about 8 MB on Windows) written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
+QCCOM is a single portable executable written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
 
-## Remote COM on Windows
+## Port mappings on Windows
 
-Pair two QCCOM instances through your own rendezvous server and open the mapped COM port in QCCOM or a UART flasher. [Deployment and flashing guide (Chinese)](deploy/remote-com/README.md)
+Click the mapping button beside a physical COM port to create a share address. Paste the address into QCCOM on the other PC to connect without importing credentials. Flash the remote UART device through the virtual COM port shown in the device list, or use a local loopback port for MQTT and passive FTP. QCCOM attempts a direct connection first and uses the Rust relay when needed. Address sharing requires a rendezvous server with a publicly trusted TLS certificate. [Deployment and flashing guide (Chinese)](deploy/remote-com/README.md)
 
 ## Highlights
 

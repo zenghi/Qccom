@@ -20,9 +20,9 @@
   <a href="README.md">English</a> · 简体中文
 </p>
 
-## Windows 远程 COM
+## Windows 端口映射
 
-两台 QCCOM 可通过自建服务器配对，使用本地虚拟 COM 调试或烧录远端 UART 设备。[部署与烧录指南](deploy/remote-com/README.md)
+在实体 COM 行点击端口映射，复制生成的连接地址。另一台电脑把地址粘贴到 QCCOM 即可握手，无需导入凭据。握手完成后，设备列表会显示烧录工具应选的本机虚拟 COM。MQTT 和被动 FTP 也可用地址连接。QCCOM 优先直连，打洞失败时使用 Rust 服务器中继。地址共享要求服务器使用受信任的公网 TLS 证书。[部署与烧录指南](deploy/remote-com/README.md)
 
 ## 图文上手
 

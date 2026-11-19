@@ -146,6 +146,8 @@ pub struct Settings {
     pub bridge_port: u16,
     /// Windows：共享给其他软件时 QCCOM 占用的虚拟串口（com0com 一对里的一头）
     pub vcom_port: String,
+    #[cfg(windows)]
+    pub mapping: crate::mappings::Preferences,
     pub reset: serialx::ResetKind,
     /// 当前配置方案的名字
     pub profile: String,
@@ -239,6 +241,8 @@ impl Default for Settings {
             sniff_port: String::new(),
             bridge_port: 7000,
             vcom_port: String::new(),
+            #[cfg(windows)]
+            mapping: Default::default(),
             reset: serialx::ResetKind::Dtr,
             profile: String::new(),
             triggers: vec![],
@@ -475,6 +479,8 @@ pub struct App {
     serial_ui: serialx::SerialUi,
     #[cfg(windows)]
     remote_com: crate::remote_com::Panel,
+    #[cfg(windows)]
+    mappings: crate::mappings::Panel,
     /// AT 助手提示里选中的一项
     at_sel: usize,
     /// 命令行指定、启动后要打开 / 回放的日志
@@ -673,6 +679,8 @@ impl App {
             serial_ui: Default::default(),
             #[cfg(windows)]
             remote_com: Default::default(),
+            #[cfg(windows)]
+            mappings: Default::default(),
             at_sel: 0,
             open_log,
             sessions: (0..sess::SLOTS).map(|_| None).collect(),
@@ -741,6 +749,13 @@ impl App {
             match net::open(self.conn_gen, self.s.transport, self.s.net.clone(), self.evt_tx.clone(), self.ctx.clone()) {
                 Ok(c) => self.conn = Some(c),
                 Err(e) => self.toast(e, ERR()),
+            }
+            return;
+        }
+        #[cfg(windows)]
+        if self.mappings.owns(&self.s.port, &self.s.mapping) {
+            if !quiet {
+                self.toast(t("此串口已共享给远端，可在设备行中停止映射"), WARN());
             }
             return;
         }
@@ -1654,21 +1669,60 @@ impl App {
                         ui.add_space(16.0);
                     } else {
                         // ---- 设备
-                        let dev_sum = if self.s.port.is_empty() { tf("{} 个", &[&self.ports.len()]) } else { self.s.port.clone() };
-                        let dev_open = self.fold_head(ui, "dev", t("设备"), &tf("{} 个", &[&self.ports.len()]), &dev_sum);
-                        if dev_open && self.ports.is_empty() {
+                        #[cfg(windows)]
+                        let device_count = self.mappings.device_count(&self.ports, &self.s.mapping);
+                        #[cfg(not(windows))]
+                        let device_count = self.ports.len();
+                        let dev_sum = if self.s.port.is_empty() { tf("{} 个", &[&device_count]) } else { self.s.port.clone() };
+                        let dev_open = self.fold_head(ui, "dev", t("设备"), &tf("{} 个", &[&device_count]), &dev_sum);
+                        if dev_open && device_count == 0 {
                             empty_port_card(ui);
                         }
                         for p in self.ports.clone().into_iter().filter(|_| dev_open) {
+                            #[cfg(windows)]
+                            {
+                                if self.mappings.hidden_driver_end(&p.name, &self.s.mapping) {
+                                    continue;
+                                }
+                                if self.mappings.configured(&p.name, &self.s.mapping) {
+                                    if self.mappings.device_row(ui, &p.name, &mut self.s.mapping, self.connected.as_deref()) && !busy {
+                                        self.s.port = p.name.clone();
+                                    }
+                                    continue;
+                                }
+                            }
                             let selected = p.name == self.s.port;
                             let live = self.connected.as_deref() == Some(p.name.as_str());
                             let alias = self.port_alias(&p.name).cloned();
                             let b = !self.s.sniff_port.is_empty() && self.s.sniff_port == p.name;
-                            let r = port_card(ui, &p, alias.as_deref(), b, selected, live, !busy);
+                            let shared = live.then(|| self.vcom.as_ref()?.names.first()).flatten().map(|other| format!("{} ⇄ {}", p.name, other));
+                            let name = shared.as_deref().or(alias.as_deref());
+                            #[cfg(windows)]
+                            let r = ui
+                                .horizontal(|ui| {
+                                    let w = (ui.available_width() - 34.).max(48.);
+                                    let response = ui
+                                        .allocate_ui_with_layout(vec2(w, 46.), Layout::top_down(Align::Min), |ui| port_card(ui, &p, name, b, selected, live, !busy))
+                                        .inner;
+                                    if icon_button(ui, Icon::Relations, t("映射此端口"), false).clicked() {
+                                        self.mappings.share_com_from_row(ui, &p.name, &mut self.s.mapping, live);
+                                    }
+                                    response
+                                })
+                                .inner;
+                            #[cfg(not(windows))]
+                            let r = port_card(ui, &p, name, b, selected, live, !busy);
                             if r.clicked() && !busy {
                                 self.s.port = p.name.clone();
                             }
                             r.context_menu(|ui| self.port_menu(ui, &p));
+                            if live && self.s.transport == Transport::Serial {
+                                self.bridge_ui(ui);
+                            }
+                        }
+                        #[cfg(windows)]
+                        if dev_open {
+                            self.mappings.list(ui, &mut self.s.mapping, &self.ports, &self.s.port, self.connected.as_deref());
                         }
                         ui.add_space(12.0);
 
@@ -1729,9 +1783,6 @@ impl App {
                             );
                         }
                         ui.add_space(10.0);
-
-                        #[cfg(windows)]
-                        self.remote_com.ui(ui, &self.ports);
 
                         // ---- 连接按钮
                         self.connect_button(ui);
@@ -2103,6 +2154,11 @@ impl App {
         state.store(ui.ctx());
         if open {
             self.advanced(ui);
+            #[cfg(windows)]
+            {
+                self.mappings.advanced(ui, &mut self.s.mapping);
+                ui.collapsing(t("旧版串口映射"), |ui| self.remote_com.ui(ui, &self.ports));
+            }
         }
     }
 
@@ -2292,7 +2348,6 @@ impl App {
             });
             if self.s.transport == Transport::Serial && self.conn.is_some() {
                 self.signals_ui(ui);
-                self.bridge_ui(ui);
             }
         });
     }
@@ -3210,6 +3265,14 @@ impl App {
         let (n, open) = self.rows();
 
         if n == 0 {
+            #[cfg(windows)]
+            let mapping_hint = if self.s.transport == Transport::Serial && self.conn.is_none() {
+                self.mappings.hint(&self.s.mapping)
+            } else {
+                None
+            };
+            #[cfg(not(windows))]
+            let mapping_hint: Option<String> = None;
             empty_state(
                 ui,
                 card_rect,
@@ -3217,6 +3280,7 @@ impl App {
                 self.conn.is_some(),
                 self.s.transport != Transport::Serial,
                 self.compact_header,
+                mapping_hint.as_deref(),
                 &self.logo,
             );
         }
@@ -4855,6 +4919,8 @@ impl eframe::App for App {
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(windows)]
+        self.mappings.tick();
         let _watch = crate::diagnostics::ui_frame(ctx.input(|i| i.focused && i.viewport().minimized != Some(true)));
         if crate::diagnostics::recovered_stall() {
             self.toast(t("检测到界面长时间未响应，已尝试保存本地故障诊断。"), WARN());
@@ -5410,7 +5476,7 @@ pub(crate) fn hud_corners(p: &egui::Painter, r: Rect, color: Color32) {
     }
 }
 
-fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, compact: bool, logo: &egui::TextureHandle) {
+fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, compact: bool, mapping_hint: Option<&str>, logo: &egui::TextureHandle) {
     let p = ui.painter();
     // 点阵背景
     let step = 22.0;
@@ -5435,7 +5501,9 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: 
         .as_shape(Rect::from_center_size(c, vec2(40.0, 40.0)), 20.0),
     );
     p.image(logo.id(), Rect::from_center_size(c, vec2(72.0, 72.0)), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), logo_tint());
-    let (title, sub) = if connected {
+    let (title, sub) = if let Some(sub) = mapping_hint {
+        (t("端口映射已就绪"), sub)
+    } else if connected {
         (t("已连接，等待数据"), t("设备有输出时会实时显示在这里"))
     } else if no_ports {
         (t("未发现串口"), t("插入 USB 转串口设备后会自动出现在左侧"))
@@ -5454,6 +5522,9 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: 
         f.layout_job(job)
     });
     p.galley(pos2(c.x, c.y + 68.0), g.clone(), TEXT2());
+    if mapping_hint.is_some() {
+        return;
+    }
     let extra = (g.size().y - 18.0).max(0.0);
     let keys = [("F5", t("连接")), ("Ctrl+F", t("搜索")), ("Ctrl+L", t("清屏")), ("Ctrl+S", t("保存"))];
     let font = FontId::new(11.0, FontFamily::Monospace);

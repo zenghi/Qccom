@@ -4402,8 +4402,10 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "serialport",
  "tempfile",
  "tokio",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

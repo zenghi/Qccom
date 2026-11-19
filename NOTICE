@@ -43,8 +43,9 @@ are distributed under their own licenses (mostly MIT or Apache-2.0).
 com0com (a null-modem virtual serial port driver by Vyacheslav Frolov, GNU
 General Public License v2, https://sourceforge.net/projects/com0com/) is NOT
 bundled. On Windows, when the user asks for a virtual port, QCCOM downloads the
-unmodified com0com 3.0.0.0 signed installer and runs it only if its SHA-256
-matches the value in src/vcom.rs.
+unmodified com0com 3.0.0.0 installer and runs it only if its SHA-256 matches
+the value in src/vcom.rs. Its legacy cross-signature may be rejected by the
+Windows driver signing policy.
 
 The optional unsigned portable-remote-com build embeds hub4com 2.1.0.0
 (Copyright 2006-2012 Vyacheslav Frolov) as a separate executable. Its

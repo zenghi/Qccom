@@ -1,0 +1,23 @@
+[Unit]
+Description=QCCOM peer rendezvous and encrypted relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+StateDirectory=qccom
+StateDirectoryMode=0700
+WorkingDirectory=/var/lib/qccom
+Environment=QCCOM_SERVER=www.zenghi.com
+EnvironmentFile=-/etc/default/qccom-server
+ExecStart=/usr/local/bin/qccom-server run ${QCCOM_SERVER} $QCCOM_ALIASES
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

@@ -5,14 +5,14 @@ use serde::{Deserialize, Serialize};
 
 pub const FORMAT: &str = "qccom-iroh-1";
 
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     Host,
     Client,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Invitation {
     pub format: String,
@@ -36,3 +36,12 @@ impl Invitation {
 mod endpoint;
 #[cfg(feature = "endpoint")]
 pub use endpoint::run_worker;
+
+#[cfg(feature = "endpoint")]
+pub mod mapping;
+
+pub mod sharing;
+
+#[cfg(feature = "server")]
+#[doc(hidden)]
+pub mod share_relay;

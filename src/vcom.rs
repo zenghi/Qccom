@@ -162,7 +162,11 @@ pub fn pairs() -> Vec<Pair> {
         else {
             return vec![];
         };
+        use qccom_tunnel::mapping::valid_com;
         parse_serialcomm(&String::from_utf8_lossy(&o.stdout))
+            .into_iter()
+            .filter(|pair| valid_com(&pair.mine) && valid_com(&pair.other) && pair.mine != pair.other)
+            .collect()
     }
     #[cfg(not(windows))]
     vec![]
@@ -188,7 +192,7 @@ pub fn parse_serialcomm(out: &str) -> Vec<Pair> {
     a.into_iter().filter_map(|(n, mine)| b.get(&n).map(|other| Pair { mine, other: other.clone() })).collect()
 }
 
-/// com0com 3.0.0.0 官方签名安装包（setup_x64.exe，原样未改）。不打包进 exe：QCCOM 只包含自己源码编译出的代码，
+/// com0com 3.0.0.0 的原版安装包（setup_x64.exe，带旧式交叉签名）。不打包进 exe：QCCOM 只包含自己源码编译出的代码，
 /// 用户点「一键安装」时才下载，校验下面的 SHA256 一致才运行。环境变量 QCCOM_COM0COM_URL 可以临时换地址
 pub const COM0COM_URL: &str = "https://www.zenghi.com/com0com/setup_x64.exe";
 pub const COM0COM_SHA256: &str = "26486b28604b49a9008c54feb11b9ece0008a8287ee5caf0bcf2a62f4317128f";
@@ -199,6 +203,51 @@ pub fn com0com_ok(data: &[u8]) -> bool {
     use sha2::{Digest, Sha256};
     let hex: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
     hex == COM0COM_SHA256
+}
+
+#[cfg(windows)]
+pub(crate) fn check_com0com_signature() -> Result<(), String> {
+    use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
+        CM_Get_DevNode_Status, CM_Get_Device_ID_ListW, CM_Get_Device_ID_List_SizeW, CM_Locate_DevNodeW, CM_GETIDLIST_DONOTGENERATE, CM_GETIDLIST_FILTER_PRESENT, CM_GETIDLIST_FILTER_SERVICE,
+        CM_LOCATE_DEVNODE_NORMAL, CM_PROB_UNSIGNED_DRIVER, CR_BUFFER_SMALL, CR_SUCCESS, DN_HAS_PROBLEM,
+    };
+
+    // All three com0com INFs use this service, including the bus node that can
+    // be blocked before Windows enumerates any COM ports.
+    let service = windows_sys::w!("com0com");
+    let filter = CM_GETIDLIST_FILTER_SERVICE | CM_GETIDLIST_FILTER_PRESENT | CM_GETIDLIST_DONOTGENERATE;
+    for _ in 0..3 {
+        let mut size = 0;
+        // SAFETY: the service string is NUL-terminated and the size is writable.
+        if unsafe { CM_Get_Device_ID_List_SizeW(&mut size, service, filter) } != CR_SUCCESS || size <= 1 {
+            return Ok(());
+        }
+        let mut ids = vec![0u16; size as usize];
+        // SAFETY: the mutable UTF-16 buffer holds the requested number of code units.
+        match unsafe { CM_Get_Device_ID_ListW(service, ids.as_mut_ptr(), size, filter) } {
+            CR_SUCCESS => {}
+            CR_BUFFER_SMALL => continue,
+            _ => return Ok(()),
+        }
+        for id in ids.split_inclusive(|&unit| unit == 0).take_while(|id| id.len() > 1) {
+            if id.last() != Some(&0) {
+                break;
+            }
+            let (mut node, mut status, mut problem) = (0, 0, 0);
+            // SAFETY: id is NUL-terminated and the status outputs are writable.
+            let blocked = unsafe {
+                CM_Locate_DevNodeW(&mut node, id.as_ptr(), CM_LOCATE_DEVNODE_NORMAL) == CR_SUCCESS
+                    && CM_Get_DevNode_Status(&mut status, &mut problem, node, 0) == CR_SUCCESS
+                    && status & DN_HAS_PROBLEM != 0
+                    && problem == CM_PROB_UNSIGNED_DRIVER
+            };
+            if blocked {
+                return Err(crate::i18n::t("Windows 拒绝加载 com0com 驱动（代码 52）。请安装兼容当前 Windows 的已签名 com0com 驱动。").into());
+            }
+        }
+        break;
+    }
+    Ok(())
 }
 
 #[cfg(windows)]
@@ -217,53 +266,39 @@ fn fetch_com0com() -> Result<Vec<u8>, String> {
 /// Windows：一键安装 com0com（先下载官方安装包并校验），并建好一对 COM 口。会弹一次管理员确认。阻塞，放线程里跑
 #[cfg(windows)]
 pub fn install_com0com() -> Result<(), String> {
+    use crate::i18n::tf;
     use std::os::windows::process::CommandExt;
-    let setup = fetch_com0com()?;
-    let dir = std::env::temp_dir().join("qccom-com0com");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let exe = dir.join("setup_com0com_x64.exe");
-    std::fs::write(&exe, &setup).map_err(|e| e.to_string())?;
-    let log = dir.join("install.log");
-    let _ = std::fs::remove_file(&log);
-    // 装驱动 → 去掉安装包默认建的 CNCA0/CNCB0 → 建一对用普通 COM 号的口（大多数软件只认 COMx）
-    let script = format!(
-        r#"$ErrorActionPreference = 'Continue'
-$dst = Join-Path $env:ProgramFiles 'com0com'
-Start-Process -FilePath '{exe}' -ArgumentList '/S', "/D=$dst" -Wait
-Start-Sleep -Seconds 2
-Set-Location $dst
-& .\setupc.exe --silent remove 0 *> $null
-& .\setupc.exe --silent install PortName=COM# PortName=COM# *> '{log}'
-"#,
-        exe = exe.display(),
-        log = log.display()
-    );
-    let ps1 = dir.join("install.ps1");
-    // PowerShell 5 读无 BOM 的脚本按本地编码，路径里有中文要带 BOM
-    let mut bytes = vec![0xEF, 0xBB, 0xBF];
-    bytes.extend(script.as_bytes());
-    std::fs::write(&ps1, bytes).map_err(|e| e.to_string())?;
-    let elevate = format!(
-        "try {{ Start-Process powershell -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File','\"{}\"' }} catch {{ exit 2 }}",
-        ps1.display()
-    );
-    let st = std::process::Command::new("powershell")
-        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &elevate])
+    if !pairs().is_empty() {
+        return Ok(());
+    }
+    if crate::remote_com::setupc().is_some() {
+        return crate::remote_com::create_pair();
+    }
+    check_com0com_signature()?;
+    let bytes = fetch_com0com()?;
+    let dir = tempfile::Builder::new().prefix("qccom-driver-").tempdir().map_err(|e| e.to_string())?;
+    let exe = dir.path().join("setup_com0com_x64.exe");
+    std::fs::write(&exe, bytes).map_err(|e| e.to_string())?;
+    // Pass the verified path in the environment so portable paths are not PowerShell source.
+    let status = std::process::Command::new("powershell.exe")
         .creation_flags(0x0800_0000)
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "$ErrorActionPreference='Stop'; $p=Start-Process -FilePath $env:QCCOM_DRIVER_INSTALLER -ArgumentList '/S' -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
+        ])
+        .env("QCCOM_DRIVER_INSTALLER", exe)
         .status()
         .map_err(|e| e.to_string())?;
-    if st.code() == Some(2) {
-        return Err(crate::i18n::t("管理员确认被取消了").to_string());
+    if !status.success() {
+        check_com0com_signature()?;
+        return Err(tf("com0com 安装未完成（{}）", &[&status]));
     }
-    // 驱动加载要一会儿
-    for _ in 0..20 {
-        if !pairs().is_empty() {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(500));
+    if !pairs().is_empty() {
+        return Ok(());
     }
-    let detail = std::fs::read_to_string(&log).unwrap_or_default();
-    Err(format!("{} {}", crate::i18n::t("装好了但没找到虚拟串口"), detail.trim()))
+    crate::remote_com::create_pair()
 }
 
 #[cfg(unix)]

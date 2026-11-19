@@ -467,7 +467,7 @@ impl App {
         ui.horizontal(|ui| {
             let mut on = self.vcom.is_some();
             let tip = t("再给其他软件（烧录工具、别的串口助手）一个虚拟串口：大家同时收发同一个设备，不占用 COM 口，不用来回断开");
-            if toggle_chip(ui, &mut on, t("虚拟串口"), tip) {
+            if toggle_chip(ui, &mut on, t("共享给本机软件"), tip) {
                 self.toggle_vcom();
             }
         });

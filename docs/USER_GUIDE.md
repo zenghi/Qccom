@@ -32,11 +32,36 @@ The thin **activity bar** on the far left switches between the pages:
 
 The **gear** at the bottom of the activity bar holds everything you need less often: the command palette, settings, keyboard shortcuts, theme, language, update check and About. A **download arrow** appears above it only while an update needs your attention.
 
+Drag a tool from the Toolbox list to the activity bar to pin it. Click its icon to open it, or right-click it to unpin it.
+
 ### Command palette
 
 ![Command palette](gif/demo-palette.gif)
 
 Press `Ctrl+Shift+P` (or `F1`) and type a few letters of what you want, for example *theme*, *clear* or *shortcut*. Arrow keys move, Enter runs, Esc closes. Every command, theme, language and settings page is listed, and the ones you used recently come first.
+
+### Getting back
+
+- **Back / forward** (`Alt+←` / `Alt+→`, or the mouse's back / forward buttons) work across pages: after *Compare with…* in the code page, opening a tool from the command palette or jumping from a log line, `Alt+←` returns to the file and line you came from. Inside the code page it first walks the editor's own jump history.
+- When something takes you to another page, a small **← Back to main.c** chip appears at the bottom left; it disappears once you switch pages yourself.
+- **`Ctrl+Tab`** shows the recently used pages, tools, comparisons and files in one list. Keep `Ctrl` held and press `Tab` (`Shift+Tab` goes back) to pick one, release to switch. `Ctrl+PgDn` still cycles the editor tabs.
+- In the toolbox, the tools you opened stay as **tabs** along the top (up to 8; a green dot means running). Click to switch, middle-click or × to close, drag to reorder. Hovering the toolbox icon lists the recent tools, and clicking it returns to the last one.
+
+### Side page
+
+![Side page](gif/demo-side.gif)
+
+Any page can sit next to the current one: Debug, Code, Git, Compare, Community, any toolbox tool and the circuit.
+
+- **Open**: middle-click an activity-bar icon or toolbox tab, or right-click it → *Open on the right* / *Open at the bottom*. You can also drag the icon, a toolbox tab or an editor tab to the right or bottom edge of the window; a preview shows where it will land, and dropping in the middle swaps it with the main page. In the command palette, type *side*.
+- **The side page is compact**: the serial port shows a connection chip instead of the sidebar, the code page hides the explorer on narrow widths, the circuit hides its part library. Double-click its tab to make it the main page.
+- **Title bar buttons**: ⇄ swap with the main page, ⬓ move between right and bottom, ↗ pop out into its own window (closing that window puts it back), × close. Several side pages become tabs; middle-click a tab to close it.
+- **Size**: drag the divider; double-click it to reset; drag it almost closed to close the side page.
+- **Opens by itself when it helps**, only the first time: the serial log after flashing, the simulated port when a circuit is powered, generated circuit code, Compare after *Compare with…* or for a Git conflict. Close one and next time it only shows a hint in the status bar. Nothing pops up while you are typing, and `F11` (focus mode) pauses all of it.
+- **Log hints**: a HardFault / assert or `file.c:123` in the log shows a status-bar hint. `file:line` references are underlined; `Ctrl+click` opens the file beside the log. Selecting a line in the code highlights matching log lines.
+- **View together**: switch between the same two pages 3 times within 2 minutes and a small hint offers to put them side by side. Accept it and that pair opens side by side from then on (listed in *Settings → Side page*, where you can remove it).
+- **Layouts**: the layout icon in the status bar (shown while a side page is open) offers single / side by side / stacked / three areas and the layouts *Firmware debug* (code + serial + terminal), *Simulation* (circuit + serial) and *Review* (compare + code + file tree). Save your own, and star one as the default for the current project. The last arrangement of each project is restored when you open it.
+- `Alt+←` restores the arrangement you came from, and `Ctrl+Tab` lists your pairs and layouts.
 
 ### Settings
 
@@ -48,17 +73,21 @@ The Debug page has three columns:
 - **Center**: the top bar (Log / Terminal switch, search, level filter, pause, clear, copy, save, record), the log or terminal itself, and the command bar.
 - **Right**: the quick-command panel (`Ctrl+J` shows or hides it).
 
-The status bar at the bottom shows the connection, RX / TX activity lights, every other connection that is online (click one to jump to it; its dot flashes when data arrives), the encoding, the line count and the version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
+The status bar at the bottom shows the current connection, RX / TX activity, other active network connections, encoding, line count, and version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
 
 ## Serial connection
 
 ![Auto baud, colored log and search](gif/demo-connect.gif)
 
-1. **Choose a port.** Ports are rescanned every second. Each card shows the chip name and VID:PID, and the connected one is marked **LIVE**. A newly plugged device is selected for you.
+1. **Choose a port** under **Devices**. The list shows each port's name, alias, and connection status. Hover over a port for device details. The **More** menu offers rename, copy, and secondary listening controls.
 2. **Choose a baud rate**, either by typing it or picking it from the list. If you don't know the rate, let the device print something and click **⚡ Auto**. QCCOM tries 18 common rates, scores the received data for readability and connects with the best one.
 3. Click **Connect** or press **F5**. Press F5 again to disconnect.
 
 If the device is unplugged while connected, QCCOM waits and reconnects when it comes back.
+
+Choose and connect a second port to show port tabs above the log. Click a tab to switch logs, drag within the tab bar to reorder, or drag a tab to the right or bottom edge to dock its log in a split pane. Right-click a tab to open it in a separate window or manage its connection and log. **Network sharing** manages share addresses on Windows. **This PC and LAN** contains local virtual ports and LAN TCP forwarding.
+
+While split, use the port picker in the split pane or the device row menu to choose which port appears in each pane. When a COM share is online, **View log** opens its serial session. Both ends show TX for bytes sent to the physical device and RX for bytes read from it. Select the local virtual port under **Devices** to see the same log as its physical port.
 
 **Advanced settings** (bottom of the sidebar) cover data bits, parity, stop bits, flow control, DTR / RTS (many ESP32 and Arduino boards use these for reset), auto-reconnect, auto-select of new ports, the font size, the maximum number of lines kept, and the idle frame gap (for binary protocols, it starts a new line after N ms of silence).
 
@@ -77,13 +106,15 @@ A port that the scanner cannot see, such as a virtual `/dev/pts/3`, can be passe
 - **Scrolling** up stops auto scroll. A **Back to latest** button appears to resume it, with the number of lines that arrived meanwhile.
 - **Moving fast.** `Alt+wheel` scrolls 10× faster, `PgUp / PgDn` and `Ctrl+Home / End` work when the command bar is not focused, and a middle-click starts auto-scrolling (move the mouse away from the anchor to set the speed, click again to stop). Marks next to the scrollbar show where errors, warnings, search hits and bookmarks are; click one to jump there. `Ctrl+G` jumps to a time such as `12:30` or `12:30:05.250`.
 - **Selecting.** Drag to select any text, double-click for a word, triple-click for a whole line. Click the line-number gutter to select whole lines (Shift+click for a range). Dragging past the top or bottom edge scrolls. `Ctrl+C` copies without timestamps by default; turn on *Include timestamps when copying* in Settings → Log, or right-click and pick **Copy with timestamps**.
-- **Save** (`Ctrl+S`) writes the current log to a file. **Record** appends every new line to a file as it arrives, which is ideal for overnight captures; Settings → Log can start a new file every N minutes or N MB. *Copy entire log* is in the **⋯** menu.
+- **Save** (`Ctrl+S`) writes the current log to a file. **Record** writes new log lines to a local file, even when they exceed the display history. Set **Recording file size** (MiB) and **Recording file duration** (minutes) under **Settings → Log**; either limit can start the next file, and `0` disables that limit. The size starts at 64 MiB for new settings. Files are named `capture.log`, `capture_002.log`, and so on without overwriting existing files. Rotation keeps lines intact, so a single line larger than the selected limit gets its own file. Each part can be opened or replayed separately. Recording does not delete old parts, so check available disk space before a long capture. If the log display is paused, resume before stopping the recording so that queued incoming data is captured. *Copy entire log* is in the **⋯** menu.
 - **Time delta** (sidebar → Display) shows the time since the previous line in front of each line; gaps of a second or more turn yellow.
 - **Bookmarks and markers.** `Ctrl+M` inserts a marker line (`Marker 1` with the time), right-click a line to bookmark it (`Ctrl+F2`), and `F2` / `Shift+F2` jump between them.
 - **Merged log.** With more than one connection online (for example serial plus TCP), **⋯ → Merged log (all connections)** shows the recent lines of all of them in one window, ordered by time, each with a colored source tag. *Copy all* copies it.
 - **Clear** with `Ctrl+L`.
 
 ## Sending data
+
+The command bar has two custom send buttons. Click an empty button, enter a name and payload, and save. Click the configured button to send to the active connection. Right-click it to edit. Text uses the current encoding and line ending. HEX sends the specified bytes. The command draft stays in the input field.
 
 Type in the command bar at the bottom (`Ctrl+K` focuses it) and press **Enter**.
 
@@ -202,7 +233,7 @@ Functions: `send(text)`, `sendln(text)`, `send_hex("AA 55")`, `wait(text, ms)`, 
 
 **Checksum calculator** (⋯ menu). Every supported checksum for some HEX bytes or text, with the byte order used on the wire.
 
-**Log files.** *Open log file* loads a saved or recorded log for reading and searching. *Replay log file* plays it back with the original timing at 0.5× to 10× or as fast as possible, so plots, rules and auto-replies can be tested without the device. Logs can also be dragged into the window, or opened with `qccom --open file.log` / `qccom --replay file.log`.
+**Log files.** *Open log file* shows the latest 16 MiB, up to 100,000 rows or your lower display limit, and skips individual rows over 256 KiB. It does not change the file. *Replay log file* streams the entire file from the start at the original timing, from 0.5× to 10× or as fast as possible. Replay stops with an error on a line over 4 MiB. It updates plots and counts rule matches but does not send replies, run scripts, or write replayed rows into an active recording. You can also drag in a log or run `qccom --open file.log` or `qccom --replay file.log`.
 
 **Statistics** (⋯ menu, or click the line count in the status bar). Bytes and lines received and sent, current / peak / average rate, connection time, lines per level and an error histogram for the last minute.
 
@@ -211,6 +242,7 @@ Functions: `send(text)`, `sendln(text)`, `send_hex("AA 55")`, `wait(text, ms)`, 
 - DTR and RTS toggles and the CTS / DSR / RI / CD input lines, updated live.
 - **Reset**: a DTR or RTS pulse, or the ESP32 sequences that reset into the app or into the bootloader. Pick the default with the arrow; right-click for the others.
 - **Break** sends a 250 ms break.
+- **Virtual port** gives other apps (a flasher, another serial monitor) their own port to the same device while QCCOM stays connected; everyone receives the data and can send, and the real COM port isn't locked. The port to open is shown under the switch (copy button next to it). On Linux and macOS QCCOM creates it directly (`ttyQCCOM0` in the QCCOM data folder links to it). On Windows the first use offers a one-click install of the free com0com driver (the official installer, about 250 KB, is downloaded and checked first; one administrator prompt); it creates a COM port pair and QCCOM picks it up automatically.
 - **Share on network** opens a TCP port; every client that connects is bridged to the serial port both ways, so a colleague or another tool can use the device remotely.
 
 Right-click a port card to give it an alias (for example *Main board*) or to set it as **port B**. Port B is opened together with the main port and its data is shown in amber with a `B ›` prefix, which is handy for sniffing both directions of a link with two adapters.
@@ -229,20 +261,28 @@ Right-click a port card to give it an alias (for example *Main board*) or to set
 
 ## Code viewer
 
+The context pane opens by default and previews the symbol under the caret. Pin a definition to keep it visible or close the pane with ×. The editor remembers its visibility and height. Use the context button in the toolbar to reopen it.
+
+Type two identifier characters to see suggestions from nearby code and language keywords. Indexed C/C++ symbols also appear when available. Select with the arrow keys, accept with Tab, or dismiss with Esc. Ctrl-click a function to go to its definition and use Alt+Left to return. Multiple implementations open a picker.
+
+![Code completion and cross-file navigation](gif/demo-editor-navigation.gif)
+
 ![Macro hover and go to definition](gif/demo-code.gif)
 
 Click `</>` in the activity bar, then **Open folder** to open your firmware project (or start QCCOM with a folder: `qccom ~/fw`). QCCOM remembers it, along with your open tabs.
 
 - **Explorer** (`Ctrl+Shift+E`): the file tree with Git status colors (M modified, U untracked), a filter box, refresh and collapse-all. Symbol indexing and search skip folders such as `.git`, `node_modules`, `target` and `dist`.
-- **Explorer actions**: right-click a file or folder to create a file (you can type `drv/spi.c` to create folders on the way), create a folder, rename or delete it. Right-click empty space to create at the root. Right-click the folder button at the top for recent projects.
-- **Tabs**: `Ctrl+Tab` switches tabs and `Ctrl+W` closes one. Middle-click also closes a tab. Drag tabs to reorder them. Right-click a tab to close others, close to the right, close saved tabs, split right, copy the path or reveal it in the file manager.
+- **Explorer actions**: right-click a file or folder to copy, cut, paste, search in the folder, create a file (you can type `drv/spi.c` to create folders on the way), create a folder, rename or delete it. Right-click empty space to paste or create at the root. Right-click the folder button at the top for recent projects.
+- **Copy, paste and move files**: `Ctrl+click` and `Shift+click` select several items; `Ctrl+C` / `Ctrl+X` / `Ctrl+V` copy, cut and paste while the tree has focus. Copied files also go to the system clipboard, so they paste straight into Windows Explorer or your file manager, and files copied there paste into the tree. Drag items onto a folder to move them (hold `Ctrl` to copy). Files dragged in from outside are copied into the folder under the pointer (hold `Shift` to move); a folder dropped on an empty code page opens as the project. A name that already exists gets ` - copy` instead of being overwritten, and moves create a local-history checkpoint first.
+- **Tabs**: `Ctrl+PgDn` switches tabs and `Ctrl+W` closes one. Middle-click also closes a tab. Drag tabs to reorder them. Right-click a tab to close others, close to the right, close saved tabs, split right, copy the path or reveal it in the file manager.
 - **Split editor** (`Ctrl+\`, or the button on the right of the breadcrumb bar): two files side by side; drag the divider to resize.
 - **Highlighting** for C / C++, Rust, Python, JavaScript / TypeScript, Go, Java / Kotlin, shell, JSON, Makefile / CMake, INI / TOML / YAML, Markdown and assembly.
 - **Quick open** (`Ctrl+P`): type part of a file name. You can also prefix the query:
   - `#` searches symbols across the workspace (`Ctrl+T`).
   - `@` lists the symbols in the current file (`Ctrl+Shift+O`).
   - `:` goes to a line (`Ctrl+G`).
-- **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with match case, whole word and regular expression options. Click a result to jump to it. Open the replace row to replace across the project: every result shows a preview, and **Replace all** asks for a second click. Open files are changed in the editor (undoable), the rest are written to disk keeping their encoding.
+- **Search everywhere** (`Ctrl+Shift+F`): full-text search across the project with match case, whole word and regular expression options. It searches as you type, on all CPU cores, with file contents cached in memory, so results start appearing at once even in large vendor trees (unsaved edits in open files are searched too). Click a result to jump to it.
+- **Search scope**: the line under the options shows what is searched (*Whole project · .gitignore applied*); click it for quick toggles (*C/H only*, *No vendor libs*, *No build output*, *.gitignore*, *Open files only*) and *Include* / *Exclude* boxes that take `.gitignore`-style patterns such as `*.c, src/` or `Drivers/, !main.c`. Right-click a file in the results to exclude it, its folder or its file type, or to search only that folder; right-click a folder in the explorer → *Search in this folder*. When the scope is narrowed the line turns blue with a × to reset it. The scope is remembered per project. Open the replace row to replace across the project: every result shows a preview, and **Replace all** asks for a second click. Open files are changed in the editor (undoable), the rest are written to disk keeping their encoding.
 - **Find and replace in file** (`Ctrl+F` / `Ctrl+H`): match case, whole word and regular expressions (`$1` refers to a group). The bar shows the count and a preview of the current replacement. `Enter` replaces the current match and `Ctrl+Enter` replaces all, which `Ctrl+Z` undoes in one step.
 - **C / C++ navigation**: hover an identifier to see its definition. Hovering a macro shows the `#define`, the full expansion and the computed value (for example `BRR_VALUE` → `((72 * 1000 * 1000) / 115200)` → `0x271 (625)`). Hovering an enum constant shows its value. `Ctrl+click` or `F12` goes to the definition, `Shift+F12` finds references, and `Alt+←` / `Alt+→` go back and forward.
 - **clangd (optional)**: if [clangd](https://clangd.llvm.org/) is installed (on PATH, or in the default LLVM folder on Windows) and the project has a `compile_commands.json` in its root or `build/`, Go to Definition uses clangd. It tells apart static functions with the same name, local variables and struct members. The status bar shows `· clangd`. Without it QCCOM falls back to its built-in index; nothing to configure. You can turn it off or set the clangd path in Settings → Code Editor.
@@ -348,7 +388,7 @@ Some files open in a viewer instead of the text editor; the button in the breadc
 
 - **Images** (PNG, JPEG, BMP, GIF, ICO, WebP, TGA): zoom with the wheel, pan by dragging, a pixel grid at high zoom and the color under the cursor in hex and RGB565 (click to copy). GIFs play, with pause and frame stepping. *More* copies the current frame, or all frames of a GIF, as a C array (RGB565, RGB888, ARGB8888 or 1-bit mono), exports a frame as PNG, or compares with another image (or drop a second image on the first): side by side, overlay with a slider, or a difference map with the count of changed pixels.
 - **Raw pixels**: `.rgb565`, `.raw`, `.gray` and HEX dumps (*View as pixels* in the hex viewer) are shown as an image in RGB565 / RGB888 / gray / mono with a width you choose; the width is guessed from common LCD sizes. You can also paste HEX bytes from a log.
-- **Markdown**: a rendered preview with an outline, images (GIFs animate), code highlighting, tables and links to other project files. The button cycles *Preview → Split → Source*; in split view the preview follows the editor as you scroll and type.
+- **Markdown**: a rendered preview with an outline, images (GIFs animate), code highlighting, tables and links to other project files. The button cycles *Preview → Split → Source*; in split view the preview follows the editor as you scroll and type. Drag to select text and press `Ctrl+C`; code blocks show a *Copy* button on hover, and right-click copies all the text or the Markdown source.
 - **JSON / YAML / TOML**: *Tree* shows a collapsible tree with a filter; click a node to jump to its line. Syntax errors are reported with the line number.
 - **CSV / TSV**: a table that stays fast with hundreds of thousands of rows (files up to 64 MB). Click up to four numeric column headers to plot them, with min / max / average.
 
@@ -371,8 +411,35 @@ Toolbox → *Communication* → **SSH / Telnet** logs in to boards, gateways and
 - Several sessions stay open as tabs at the same time. When a session ends, press Enter in it to reconnect.
 - SSH runs the system OpenSSH client (`ssh` on Linux; on Windows 10 and later, add *OpenSSH Client* under Settings → Apps → Optional features). Your keys, `ssh-agent` and `~/.ssh/config` all work. Passwords are typed in the terminal and QCCOM never stores them.
 - **Edit host** sets a name, private key, upload folder, extra `ssh` arguments and commands to run after login (one per line).
-- **File transfer** (SSH with key login): drop files or folders on the terminal, or click the upload button, to copy them to the host's upload folder. *Download…* fetches a remote file or folder. Transfers use `scp` and fall back to the legacy protocol on servers without SFTP (common on BusyBox / Dropbear boards). For password-only hosts, use `rz` / `sz` or `scp` in the terminal.
+- **Remote files** opens the file browser to the left of the SSH terminal. Browse, upload, and download through the host's SFTP subsystem. A password-based host may prompt again when the browser first connects. The browser reuses that connection for subsequent transfers. The **SCP** menu lets you transfer files by path on hosts that offer legacy SCP.
 - Telnet negotiates the terminal type and window size, so full-screen programs fit the window. Telnet cannot transfer files.
+
+## Circuits and wiring
+
+The oscilloscope opens below the canvas. Drag its top edge to resize it. Power on the starter LED circuit to see live probe and series ammeter readings. Select Voltage or Current to change units. Add a voltage probe to a node or insert an ammeter in series with a branch. Press R to rotate while placing or Esc to cancel. New probes take the first free channel from CH1 to CH8.
+
+The legend shows the current value and the range in the displayed interval. Hover over the waveform to inspect channel values at a specific time. Example C5 shows PWM input and filtered output together.
+
+![Voltage probes, current readings and PWM waveforms](gif/demo-circuit-instruments.gif)
+
+Toolbox → *Circuits & wiring*. The left column has the parts and the examples, the canvas is in the middle, and the right column shows properties, an explanation of the selected part and the wiring check.
+
+- **Build**: drag parts onto the canvas (or click one, then click the canvas; `R` rotates, hold `Shift` to place several). Drag from a pin or breadboard hole to draw a wire, click to add bends, number keys change the wire color. The 5 holes in a breadboard column are connected; the long strips are power rails. *Breadboard* / *Schematic* switches the view.
+- **Power on** (`F5`) runs the simulation. Click buttons and switches, scroll on pots and LDRs. Overloaded parts smoke and burn; select one and click *Replace with a new one*. The speed menu slows time down; the output panel lists events such as burned parts and MCU prints.
+- **Instruments**: place a multimeter, an oscilloscope probe or a logic analyzer from *Instruments*. The current meter estimates battery life and ranks the parts by power; *Measure real current* reads an INA219 / INA226 over a serial port.
+- **MCU pins**: select a board and set each pin's mode, then add rules (*If… then…*). Text can use `{count} {temp} {hum} {dist} {t} {adc:A0} {v:A0}`. *Generate code* writes Arduino, STM32 HAL, ESP-IDF or 8051 code with the same behavior.
+- **Modules** (ESP-01, ESP32, HC-05, JDY, HM-10, Air780E, EC800M, ML307, GPS) answer AT commands; their network connections are real. A USB-TTL adapter or a USB-powered board appears as a serial port on the Debug page, so QCCOM can talk to the simulated circuit.
+- **Examples**: 72 examples in 8 groups. Each has *How it works*, *Try it*, *What you learn* and build steps; *Reset to original example* undoes your changes.
+
+### Wiring log
+
+Click *Wiring log* in the circuit toolbar.
+
+- Each row is one wire: from, to, wire color, a note and a tick when it is connected. *From circuit* lists the connections on the canvas; *Device templates* adds the usual pins of a USB-TTL, ST-Link, J-Link, ESP-Prog, CMSIS-DAP, logic analyzer or INA219.
+- **Photos**: click **+** or drop a photo of the board (large photos are resized). Pick a row and click the photo to put its number there; the next unmarked row is selected automatically. Right-click a mark to remove it.
+- **Hardware changes**: note bodge wires, swapped parts and cut traces with the date.
+- *Export Markdown* saves a `.md` file next to the log and copies it to the clipboard.
+- Logs are saved in `.qccom/wiring/` in the project folder (or in QCCOM's data folder when no project is open), several per project.
 
 ## Toolbox
 
@@ -441,6 +508,19 @@ Values accept SI suffixes: `4k7`, `4.7k`, `100n`, `72M`.
 - **QR code**: *Text / URL* or *Wi-Fi* (network name, password, security, hidden). Choose the error-correction level, then *Save PNG…* or *Copy as C array* (one bit per module, row by row) for a display. The Wi-Fi password is kept only while the app is open.
 
 ## Terminal panel
+
+Click **Import environment** next to the build, flash and clean tasks. Choose the toolchain’s **bin directory** or a UTF-8 environment file. You can also paste the path. Give it a name and choose **Save and activate**. QCCOM opens a new terminal in the project directory. Task buttons use the active terminal. Existing sessions keep their environment, and subsequent local terminals use the selected profile.
+
+An environment file can contain the following entries.
+
+```dotenv
+BOARD=DemoBoard
+PATH_PREPEND=toolchain/bin
+```
+
+Use one assignment per line. Blank lines and lines starting with `#` are skipped. `PATH_PREPEND` accepts an absolute directory or one relative to the file and preserves the inherited PATH. QCCOM stores the profile name and path and reads the file when starting a terminal. Select **System environment** to open a session with the original environment.
+
+![Custom send buttons and a build using a named environment](gif/demo-send-environment.gif)
 
 `` Ctrl+Shift+` `` (or `Alt+F12`, or the terminal icon in the activity bar) opens a command line at the bottom of the window, in the project folder. On Windows you can choose PowerShell, cmd, Git Bash or WSL; on Linux your login shell, bash, zsh or fish. The `+` button opens another tab (`Ctrl+Shift+5`) and the arrow next to it picks the shell. `Ctrl+click` a `file:line` in the output, such as a compiler error or grep result, to open it in the editor. When a shell exits, press Enter to start it again. The panel can be maximized and remembers its height.
 
@@ -524,6 +604,8 @@ CSV and TSV files (comma, semicolon, tab or `|` separated, detected automaticall
 If Beyond Compare, WinMerge, Meld or KDiff3 is installed, **⋯ → Open with …** on a comparison tab opens the same two files in it.
 
 ## System right-click menu
+
+On first launch, QCCOM offers to add Open and Compare to the file manager if the entries are missing. The option is checked by default and takes effect when confirmed. Skip dismisses the prompt for subsequent launches. The setting remains available under Settings → General.
 
 Settings → General → **System context menu** adds QCCOM to the file manager. No administrator rights are needed, and turning the switch off removes everything again.
 
@@ -616,8 +698,13 @@ Every shortcut can be changed in Settings → Keyboard Shortcuts (`Ctrl+K Ctrl+S
 | Ctrl+Shift+5 | New terminal |
 | F12 / Ctrl+click | Go to definition |
 | Shift+F12 | Find references |
-| Alt+← / Alt+→ | Back / forward |
-| Ctrl+Tab / Ctrl+W | Next tab / close tab |
+| Alt+← / Alt+→ | Back / forward (across pages too) |
+| Ctrl+Tab | Recently used pages, tools and files |
+| Ctrl+Alt+\\ | Open / close the side page |
+| Ctrl+Alt+Enter | Swap main and side page |
+| Ctrl+Alt+Shift+→ / ↓ | Side page on the right / at the bottom |
+| F11 | Focus mode (no automatic side pages) |
+| Ctrl+PgDn / Ctrl+W | Next tab / close tab |
 | Ctrl+S | Save |
 | Ctrl+= / Ctrl+- | Font size |
 | Ctrl+Shift+Y | Context window |

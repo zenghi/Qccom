@@ -1,0 +1,62 @@
+name: Remote COM portable builds
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/remote-com.yml'
+      - 'Cargo.*'
+      - 'remote-com/**'
+      - 'src/main.rs'
+      - 'src/mappings.rs'
+      - 'src/vcom.rs'
+      - 'src/app.rs'
+
+permissions:
+  contents: read
+
+jobs:
+  server:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - uses: Swatinem/rust-cache@v2
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - name: Build static Linux server
+        run: cargo build --locked -p qccom-tunnel --features server --bin qccom-server --release --target x86_64-unknown-linux-musl
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+          CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
+      - name: Test address sharing and verify static linkage
+        run: |
+          server=target/x86_64-unknown-linux-musl/release/qccom-server
+          if readelf -lW "$server" | grep -q INTERP || readelf -dW "$server" | grep -q NEEDED; then exit 1; fi
+          cargo test --locked -p qccom-tunnel --features endpoint,server --lib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qccom-server-linux-x64
+          path: target/x86_64-unknown-linux-musl/release/qccom-server
+  portable:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --release
+      - name: Verify single-file distribution
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory portable | Out-Null
+          Copy-Item target/release/qccom.exe portable/qccom-portable.exe
+      - name: Test address sharing and Windows virtual port discovery
+        run: |
+          cargo test --locked -p qccom-tunnel --features endpoint,server --lib
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          cargo test --locked vcom::pair_tests
+      - uses: actions/upload-artifact@v4
+        with:
+          name: qccom-portable-windows-x64
+          path: portable/qccom-portable.exe

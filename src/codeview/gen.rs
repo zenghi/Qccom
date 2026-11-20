@@ -45,6 +45,8 @@ pub struct ProjState {
     /// 文件 → (行, 行内字节)
     pub cursors: BTreeMap<String, (usize, usize)>,
     pub bookmarks: BTreeMap<String, Vec<usize>>,
+    /// 全局搜索的包含 / 排除设置
+    pub search: crate::cindex::Scope,
 }
 
 pub(super) enum PromptKind {
@@ -1203,6 +1205,31 @@ impl CodeView {
         item(ui, Act::ToggleComment, t("切换行注释"));
         item(ui, Act::BlockComment, t("切换块注释"));
         item(ui, Act::IfZero, t("用 #if 0 包裹 / 取消"));
+        if let Some(sel) = self.selected_text(ui.ctx()) {
+            if menu_item(ui, t("发到社区求助"), "") {
+                let lang = self.tabs.get(self.active).and_then(|d| d.path.extension()).and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+                self.events.push(CodeEvt::Ask(sel.clone(), lang));
+                ui.close_menu();
+            }
+            // 用工具打开：在旁边打开工具，选中的内容已经填好
+            ui.menu_button(t("用工具打开"), |ui| {
+                ui.set_min_width(220.0);
+                if menu_item(ui, t("数据转换"), "") {
+                    self.events.push(CodeEvt::Tool("convert", sel.clone()));
+                    ui.close_menu();
+                }
+                if menu_item(ui, t("校验计算"), "") {
+                    self.events.push(CodeEvt::Tool("crc", sel.clone()));
+                    ui.close_menu();
+                }
+                if let Some(s) = self.struct_source() {
+                    if menu_item(ui, t("结构体解析"), "") {
+                        self.events.push(CodeEvt::Struct(s));
+                        ui.close_menu();
+                    }
+                }
+            });
+        }
         ui.separator();
         let macros: Vec<(usize, String)> = self.s.macros.iter().enumerate().map(|(i, m)| (i, m.name.clone())).collect();
         let recs: Vec<(usize, String)> = self.s.recordings.iter().enumerate().map(|(i, m)| (i, m.name.clone())).collect();
@@ -1269,6 +1296,7 @@ impl CodeView {
         let Some(root) = self.root.as_ref().map(|r| r.to_string_lossy().to_string()) else { return };
         let mut st = ProjState {
             active: self.active,
+            search: self.scope.clone(),
             ..Default::default()
         };
         for d in self.tabs.iter().filter(|d| !d.virt) {
@@ -1294,6 +1322,7 @@ impl CodeView {
     pub(super) fn restore_project(&mut self, root: &Path) {
         let key = root.to_string_lossy().to_string();
         let Some(st) = self.s.projects.get(&key).cloned() else { return };
+        self.scope = st.search.clone();
         for p in &st.tabs {
             let pb = PathBuf::from(p);
             if !pb.is_file() {

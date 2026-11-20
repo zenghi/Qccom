@@ -51,9 +51,10 @@ impl App {
     }
 
     fn ble_devices(&mut self, ui: &mut egui::Ui, shared: &Arc<Mutex<ble::Shared>>) {
-        let (scanning, err, n) = {
+        let (scanning, err, n, saved_missing) = {
             let s = shared.lock().unwrap();
-            (s.scanning, s.err.clone(), s.devices.len())
+            let id = &self.s.net.ble.id;
+            (s.scanning, s.err.clone(), s.devices.len(), !id.is_empty() && !s.devices.iter().any(|d| &d.id == id))
         };
         ui.horizontal(|ui| {
             ui.label(RichText::new(t("附近设备")).font(FontId::new(11.0, bold())).color(TEXT3()).extra_letter_spacing(1.5));
@@ -93,6 +94,21 @@ impl App {
             });
             ui.add_space(6.0);
         }
+        if saved_missing {
+            let device = &self.s.net.ble;
+            let name = if device.name.is_empty() { &device.id } else { &device.name };
+            let mut reconnect = false;
+            card(ui, |ui| {
+                ui.label(RichText::new(t("已保存设备")).small().color(TEXT3()));
+                ui.label(RichText::new(truncate(name, 26)).color(TEXT())).on_hover_text(&device.id);
+                reconnect = ui.add_enabled(err.is_none(), egui::Button::new(t("重新连接"))).clicked();
+            });
+            if reconnect {
+                self.connect();
+                return;
+            }
+            ui.add_space(6.0);
+        }
         // 过滤
         ui.horizontal(|ui| {
             let w = ui.available_width() - 30.0 - ui.spacing().item_spacing.x;
@@ -112,15 +128,9 @@ impl App {
         let mut connect = false;
         {
             let s = shared.lock().unwrap();
-            let mut list: Vec<&ble::Dev> = s
-                .devices
-                .iter()
-                .filter(|d| !named_only || !d.name.is_empty())
-                .filter(|d| q.is_empty() || d.name.to_lowercase().contains(&q) || d.addr.to_lowercase().contains(&q))
-                .collect();
-            // 按信号格数排，同一格里保持发现顺序（列表不会一直跳）
-            list.sort_by_key(|d| std::cmp::Reverse(ble::bars(d.rssi)));
-            if list.is_empty() {
+            // RSSI、名称更新和设备变旧只更新卡片本身，不改变发现顺序。
+            let mut list = ble::visible_devices(&s.devices, &q, named_only).peekable();
+            if list.peek().is_none() {
                 let msg = if s.err.is_some() {
                     ""
                 } else if !scanning && s.devices.is_empty() {
@@ -134,10 +144,10 @@ impl App {
                     ui.label(RichText::new(msg).small().color(TEXT3()));
                 }
             }
-            for d in list.iter().take(80) {
+            for d in list.take(80) {
                 let selected = d.id == self.s.net.ble.id;
-                let r = ble_card(ui, d, selected);
-                if r.clicked() {
+                let r = ui.push_id(&d.id, |ui| ble_card(ui, d, selected)).inner;
+                if r.clicked() || r.double_clicked() {
                     pick = Some((d.id.clone(), d.name.clone()));
                 }
                 if r.double_clicked() {
@@ -158,6 +168,7 @@ impl App {
     }
 
     fn ble_chars(&mut self, ui: &mut egui::Ui, shared: &Arc<Mutex<ble::Shared>>) {
+        let gen = self.conn_gen;
         let (chars, target, mtu) = {
             let s = shared.lock().unwrap();
             (s.chars.clone(), s.target, s.mtu)
@@ -166,7 +177,7 @@ impl App {
         let mut with_resp = self.s.net.ble.with_resp;
         if switch_row(ui, &mut with_resp, t("写入要求应答"), t("Write Request：设备确认收到才算成功，慢但可靠；关闭时用 Write Command")) {
             self.s.net.ble.with_resp = with_resp;
-            self.ble_hub().send(HubCmd::WithResp(with_resp));
+            self.ble_hub().send(HubCmd::WithResp(gen, with_resp));
         }
         ui.add_space(6.0);
         let mut cmds = Vec::new();
@@ -179,7 +190,7 @@ impl App {
                 ui.label(RichText::new(name).font(FontId::new(11.5, bold())).color(TEXT2())).on_hover_text(c.service.to_string());
                 ui.add_space(2.0);
             }
-            char_row(ui, c, target == Some(c.uuid), &mut cmds);
+            ui.push_id((c.service, c.uuid), |ui| char_row(ui, gen, c, target == Some(c.id()), &mut cmds));
         }
         for c in cmds {
             self.ble_hub().send(c);
@@ -274,9 +285,10 @@ fn ble_card(ui: &mut egui::Ui, d: &ble::Dev, selected: bool) -> egui::Response {
 }
 
 /// 一行特征：名字 / UUID、属性标记，右边是通知开关和读取按钮；点一下设为写入目标
-fn char_row(ui: &mut egui::Ui, c: &Chr, target: bool, cmds: &mut Vec<HubCmd>) {
+fn char_row(ui: &mut egui::Ui, gen: u64, c: &Chr, target: bool, cmds: &mut Vec<HubCmd>) {
     let w = ui.available_width();
-    let h = if c.last.is_some() { 46.0 } else { 32.0 };
+    // 通知到达时不要把下面正在点击的开关挤到别处。
+    let h = if c.can_notify() || c.can_read() { 46.0 } else { 32.0 };
     let (rect, resp) = ui.allocate_exact_size(vec2(w, h), if c.can_write() { Sense::click() } else { Sense::hover() });
     let p = ui.painter();
     let hov = resp.hovered() && c.can_write();
@@ -312,10 +324,14 @@ fn char_row(ui: &mut egui::Ui, c: &Chr, target: bool, cmds: &mut Vec<HubCmd>) {
     let row = rect.top() + 16.0;
     if c.can_notify() {
         let r = Rect::from_min_size(pos2(right - 30.0, row - 8.5), vec2(30.0, 17.0));
-        let mut on = c.on;
-        let sr = ui.put(r, |ui: &mut egui::Ui| switch(ui, &mut on)).on_hover_text(t("订阅通知"));
-        if sr.changed() || on != c.on {
-            cmds.push(HubCmd::Notify(c.uuid, on));
+        if c.notify_pending.is_some() {
+            ui.put(r, egui::Spinner::new().size(14.0).color(ACCENT())).on_hover_text(t("请稍候…"));
+        } else {
+            let mut on = c.on;
+            let tip = if on { t("点击取消订阅") } else { t("订阅通知") };
+            if ui.put(r, |ui: &mut egui::Ui| switch(ui, &mut on)).on_hover_text(tip).changed() {
+                cmds.push(HubCmd::Notify(gen, c.id(), on));
+            }
         }
         right -= 38.0;
     }
@@ -324,7 +340,7 @@ fn char_row(ui: &mut egui::Ui, c: &Chr, target: bool, cmds: &mut Vec<HubCmd>) {
         let r = Rect::from_min_size(pos2(right - bw, row - 10.0), vec2(bw, 20.0));
         let b = ui.put(r, egui::Button::new(RichText::new(t("读")).size(11.5)).wrap_mode(egui::TextWrapMode::Extend).min_size(vec2(bw, 20.0)));
         if b.on_hover_text(t("读取一次，结果显示在日志里")).clicked() {
-            cmds.push(HubCmd::Read(c.uuid));
+            cmds.push(HubCmd::Read(gen, c.id()));
         }
         right -= bw + 8.0;
     }
@@ -340,8 +356,8 @@ fn char_row(ui: &mut egui::Ui, c: &Chr, target: bool, cmds: &mut Vec<HubCmd>) {
         p.rect(r, 3.0, fill, st(1.0, col.gamma_multiply(0.4)), egui::StrokeKind::Inside);
         p.text(r.center(), Align2::CENTER_CENTER, label, font, col);
     }
-    if resp.clicked() && !target {
-        cmds.push(HubCmd::Target(c.uuid));
+    if resp.clicked() && !target && resp.interact_pointer_pos().is_none_or(|pos| pos.x < right) {
+        cmds.push(HubCmd::Target(gen, c.id()));
     }
     if hov {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);

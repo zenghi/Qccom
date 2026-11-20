@@ -22,7 +22,11 @@
 
 ![QCCOM serial monitor connected at 115200 baud, showing color-coded device logs and AT command presets](docs/screenshot.png)
 
-QCCOM is a single portable executable (about 8 MB on Windows) written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
+QCCOM is a single portable executable written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
+
+## Port mappings on Windows
+
+Click the mapping button beside a physical COM port to create a share address. Paste the address into QCCOM on the other PC to connect without importing credentials. Flash the remote UART device through the virtual COM port shown in the device list, or use a local loopback port for MQTT and passive FTP. QCCOM attempts a direct connection first and uses the Rust relay when needed. Address sharing requires a rendezvous server with a publicly trusted TLS certificate. [Deployment and flashing guide (Chinese)](deploy/remote-com/README.md)
 
 ## Highlights
 
@@ -36,7 +40,8 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 - **HTTP API testing.** A Postman-style **API** tab for the REST endpoints on your board: methods, params, headers, JSON / form / text bodies, Bearer / Basic auth, `{{variables}}`, saved requests and history, colored JSON responses, and cURL import / export (paste a "Copy as cURL" straight into the URL bar).
 - **Quick commands.** Groups of one-click commands (text or HEX) with per-command line endings, `Alt+1…9` hotkeys and "send the whole group" sequencing.
 - **Debugging tools.** Live plots of numbers in the log, filter / highlight rules, binary protocol framing with checksum checks, auto-replies, [Rhai](https://rhai.rs) test scripts, a Modbus RTU / TCP master, XMODEM / YMODEM file transfer, CRC on send, an AT command assistant, multi-line sending, log replay with the original timing, statistics, markers and bookmarks.
-- **Serial extras.** DTR / RTS / Break and live CTS / DSR / RI / CD, one-click reset (including the ESP32 bootloader sequence), sharing a port over TCP, a second sniffing port, port aliases, profiles and multiple windows.
+- **Serial extras.** DTR / RTS / Break and live CTS / DSR / RI / CD, one-click reset (including the ESP32 bootloader sequence), sharing a port over TCP or with other apps through a virtual port (a flasher and QCCOM on the same device at once), a second sniffing port, port aliases, profiles and multiple windows.
+- **Two pages side by side.** Put the serial log next to the code, the simulated port next to the circuit, Compare next to the file: middle-click or drag any page or tool to the right or bottom. It opens by itself the first time it helps (after flashing, on power-up, for a HardFault in the log), suggests pairing pages you keep switching between, saves layouts per project and pops out to a second screen.
 - **Code viewer.** Open your firmware folder next to the log: file tree, tabs, syntax highlighting for 12 language families, quick open, workspace-wide search, and for C / C++ go to definition, find references and macro expansion with the computed value.
 - **A real code editor.** Multiple cursors, column selection, folding, bracket matching, sticky scroll, line commands, and Source Insight-style context window, call hierarchy, bookmarks and semantic colors. Uses clangd automatically when it is installed and the project has a `compile_commands.json`.
 - **Code generation.** F8 multi-color highlights, greyed-out `#if 0` / undefined `#ifdef` code, `#ifdef` and `#if 0` wrapping, printf of a variable with the right format, Doxygen and file headers, 16 customizable macro actions, key recording, navigation history and VS Code / Source Insight / Keil key schemes. Code, Git, terminal and file servers share one project folder.
@@ -48,6 +53,8 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 - **Register preview.** The chip's SVD is found from the Keil / IAR / CubeMX / ESP-IDF / PlatformIO project; hover registers and values to see their bit fields, plus a register panel and dump compare.
 - **Git.** Branches, tags and remotes, a commit graph across all branches, commit details and line-numbered diffs; commit, push, stage by file or hunk, pre-commit checks, undo last commit, stash, tags with a suggested version, submodules, firmware size per commit, and the branch in the status bar.
 - **SSH and Telnet.** Log in to boards and gateways with several sessions open at once, using the system OpenSSH (keys, agent and `~/.ssh/config` work); drop files on the terminal to upload them.
+- **Circuit simulation and wiring log.** Build circuits on a breadboard and power them up: a real solver, smoke when wired wrong, a multimeter, oscilloscope and logic analyzer, MCU pins that work without code (and generate Arduino / STM32 HAL / ESP-IDF / 8051 code), AT modules that reach the real network, and 72 guided examples. Keep a wiring table with photos and numbered marks in the project's `.qccom/wiring/`.
+- **Virtual port.** Flashers and other serial monitors can use the device together with QCCOM without locking the COM port (on Windows a bundled driver installs with one click).
 - **Toolbox** (`Ctrl+Shift+B`). All the communication tools (TCP, UDP, MQTT, BLE, WebSocket, SSH / Telnet, HTTP API, Modbus slave) plus TFTP / HTTP file servers, a local MQTT broker, a Syslog receiver, LAN device discovery, ping and port check, a subnet calculator, a data converter, checksums with custom CRC, timestamps, a regex tester, font / image to C arrays, a color converter, an ASCII table, a UART baud-rate calculator, CAN over SLCAN adapters and USB HID. Searchable, with favorites and recently used tools, and every tool is in the command palette; the checksum tool also hashes files (MD5 / SHA1 / SHA256).
 - **Embedded tools.** Firmware convert / merge (HEX, BIN, S-record, ELF), update-package headers with CRC, size diff between two builds (GCC, Keil and LLVM map files), worst-case stack usage, the vector table with unimplemented IRQs, an SVD register browser (also on hover in the editor), Keil / IAR project import to `compile_commands.json`, CubeMX pin tables, resistor / divider / NTC / PWM / I2C pull-up calculators, a C struct parser, CBOR / MessagePack / Protobuf decoding, a VCD waveform viewer and QR codes.
 - **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
@@ -88,6 +95,10 @@ QCCOM is a single portable executable (about 8 MB on Windows) written in Rust wi
 | ![Terminal](docs/gif/demo-terminal.gif) | ![Code](docs/gif/demo-code.gif) |
 | **HTTP API** | **Toolbox** |
 | ![API](docs/gif/demo-api.gif) | ![Toolbox](docs/gif/demo-toolbox.gif) |
+| **Serial log beside the code** | |
+| ![Side page](docs/gif/demo-side.gif) | |
+| **Editor completion and navigation** | **Voltage and current instruments** |
+| ![Editor completion and navigation](docs/gif/demo-editor-navigation.gif) | ![Voltage and current instruments](docs/gif/demo-circuit-instruments.gif) |
 
 More in the [user guide](docs/USER_GUIDE.md).
 
@@ -102,7 +113,7 @@ Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/r
 
 Each release also ships a `SHA256SUMS.txt` so you can verify the download.
 
-> **Windows SmartScreen** may warn that the app is unrecognized because the executable is not code-signed yet. Click **More info → Run anyway**, or right-click the file → **Properties** → tick **Unblock**.
+**Code signing**. The Windows release workflow requires a valid Authenticode signature from SignPath. SmartScreen may still warn about a newly published build while it gains reputation. See [how to verify a Windows download](CODE_SIGNING.md#verify-a-windows-download) and the [privacy policy](https://www.zenghi.com/en/privacy/).
 
 ## Quick start
 
@@ -146,6 +157,8 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/ble.rs`, `src/app/blex.rs` | Bluetooth LE (btleplug): scanning, GATT, notifications; BLE sidebar |
 | `src/api.rs`, `src/app/apiview.rs` | HTTP requests, variables, cURL import / export, JSON formatting; API tab |
 | `src/toolbox/`, `src/app/toolbox.rs`, `src/app/toolbox2.rs` | TFTP / HTTP servers, discovery, converter, baud calculator, SLCAN, HID, CRC, subnet, Syslog, ping, MQTT broker, Modbus slave, bitmap encoding; Toolbox page |
+| `src/circuit/`, `src/circuitview.rs`, `src/circuitview/` | Circuit model, netlist, solver, simulation, AT-module firmware, examples, code generation; circuit page and wiring log |
+| `src/vcom.rs` | Virtual port (pseudo-terminal on Linux / macOS, com0com pair and installer on Windows) |
 | `src/app/sess.rs`, `src/ws.rs` | Simultaneous connections (one session per transport); WebSocket client |
 | `src/logbuf.rs` | Line splitting, decoding, ANSI parsing, log-level detection |
 | `src/term.rs` | VT100 / xterm terminal emulator |
@@ -187,5 +200,7 @@ You may use, modify and redistribute it, including commercially. If you redistri
 - keep existing copyright and attribution notices, and mark files you changed.
 
 Please do not remove the author and repository information shown in the app's About box.
+
+Code signing policy: [CODE_SIGNING.md](CODE_SIGNING.md).
 
 Bundled fonts: Inter and JetBrains Mono, both under the SIL Open Font License 1.1 (see [assets/licenses](assets/licenses)).

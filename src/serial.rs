@@ -78,6 +78,8 @@ pub struct PortEntry {
 
 pub enum Cmd {
     Send(Vec<u8>),
+    /// Send once, then publish the actual write to the shared serial log.
+    SendObserved(Vec<u8>),
     SetDtr(bool),
     SetRts(bool),
     /// MQTT：订阅 / 取消订阅 / 修改发布主题、QoS、保留标志
@@ -92,10 +94,10 @@ pub enum Cmd {
 }
 
 pub enum Evt {
-    Ports(Vec<PortEntry>),
     /// (连接代号, 端口名)
     Opened(u64, String),
     Data(Vec<u8>),
+    Sent(u64, Vec<u8>),
     /// 一整包数据，带来源标签（MQTT 主题、UDP 对方地址）
     Packet(String, Vec<u8>),
     /// 网络连接的状态提示（客户端上线、订阅成功等）
@@ -113,7 +115,7 @@ pub enum Evt {
 }
 
 /// 每秒扫描一次端口，列表有变化才通知 UI（热插拔）。
-pub fn spawn_port_scanner(tx: Sender<Evt>, ctx: egui::Context) {
+pub fn spawn_port_scanner(tx: Sender<Vec<PortEntry>>, ctx: egui::Context) {
     thread::Builder::new()
         .name("port-scan".into())
         .spawn(move || {
@@ -121,7 +123,7 @@ pub fn spawn_port_scanner(tx: Sender<Evt>, ctx: egui::Context) {
             loop {
                 let list = scan_ports();
                 if last.as_ref() != Some(&list) {
-                    if tx.send(Evt::Ports(list.clone())).is_err() {
+                    if tx.send(list.clone()).is_err() {
                         return;
                     }
                     ctx.request_repaint();
@@ -133,7 +135,7 @@ pub fn spawn_port_scanner(tx: Sender<Evt>, ctx: egui::Context) {
         .ok();
 }
 
-fn scan_ports() -> Vec<PortEntry> {
+pub(crate) fn scan_ports() -> Vec<PortEntry> {
     let mut out: Vec<PortEntry> = serialport::available_ports()
         .unwrap_or_default()
         .into_iter()
@@ -157,6 +159,8 @@ fn scan_ports() -> Vec<PortEntry> {
     // COM3 排在 COM10 前面
     out.sort_by(|a, b| natural_key(&a.name).cmp(&natural_key(&b.name)));
     out.dedup_by(|a, b| a.name == b.name);
+    // 电路仿真里的串口排在最后
+    out.extend(crate::circuit::simport::list().into_iter().map(|(name, desc)| PortEntry { name, desc }));
     out
 }
 
@@ -178,6 +182,9 @@ pub fn open(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, tx: Sen
 /// side_b = 双口监听的第二个串口：数据用 DataB 送出
 #[allow(clippy::too_many_arguments)]
 pub fn open_side(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, side_b: bool, tx: Sender<Evt>, ctx: egui::Context) -> Result<Connection, String> {
+    if name.starts_with(crate::circuit::simport::PREFIX) {
+        return open_sim(gen, name, cfg, side_b, tx, ctx);
+    }
     let mut port = cfg
         .builder(name)
         .timeout(Duration::from_millis(20))
@@ -190,6 +197,50 @@ pub fn open_side(gen: u64, name: &str, cfg: PortConfig, dtr: bool, rts: bool, si
     thread::Builder::new()
         .name("serial-io".into())
         .spawn(move || io_loop(gen, port, name, side_b, cmd_rx, tx, ctx))
+        .map_err(|e| e.to_string())?;
+    Ok(Connection { cmd: cmd_tx })
+}
+
+/// 电路仿真里的串口：数据走 simport 的共享缓冲
+fn open_sim(gen: u64, name: &str, cfg: PortConfig, side_b: bool, tx: Sender<Evt>, ctx: egui::Context) -> Result<Connection, String> {
+    use crate::circuit::simport;
+    if !simport::open(name, cfg.baud) {
+        return Err(t("仿真串口不存在：先在「电路仿真」里放 USB 转 TTL 或 USB 供电的开发板").into());
+    }
+    let (cmd_tx, cmd_rx) = mpsc::channel::<Cmd>();
+    let name = name.to_string();
+    thread::Builder::new()
+        .name("sim-serial".into())
+        .spawn(move || {
+            let _ = tx.send(Evt::Opened(gen, name.clone()));
+            ctx.request_repaint();
+            let reason = loop {
+                match simport::read(&name) {
+                    None => break Some(t("仿真串口已移除").to_string()),
+                    Some(d) if !d.is_empty() => {
+                        if tx.send(if side_b { Evt::DataB(d) } else { Evt::Data(d) }).is_err() {
+                            break None;
+                        }
+                        ctx.request_repaint_after(Duration::from_millis(33));
+                    }
+                    _ => {}
+                }
+                match cmd_rx.try_recv() {
+                    Ok(Cmd::Send(d)) => simport::write(&name, &d),
+                    Ok(Cmd::SendObserved(d)) => {
+                        simport::write(&name, &d);
+                        let _ = tx.send(Evt::Sent(gen, d));
+                        ctx.request_repaint();
+                    }
+                    Ok(Cmd::Close) | Err(TryRecvError::Disconnected) => break None,
+                    _ => {}
+                }
+                thread::sleep(Duration::from_millis(5));
+            };
+            simport::close(&name);
+            let _ = tx.send(Evt::Closed(gen, reason));
+            ctx.request_repaint();
+        })
         .map_err(|e| e.to_string())?;
     Ok(Connection { cmd: cmd_tx })
 }
@@ -236,7 +287,12 @@ fn io_loop(gen: u64, mut port: Box<dyn serialport::SerialPort>, name: String, si
         }
         loop {
             match cmd_rx.try_recv() {
-                Ok(Cmd::Send(data)) => {
+                Ok(cmd @ (Cmd::Send(_) | Cmd::SendObserved(_))) => {
+                    let (data, observed) = match cmd {
+                        Cmd::Send(data) => (data, false),
+                        Cmd::SendObserved(data) => (data, true),
+                        _ => unreachable!(),
+                    };
                     if let Err(e) = port.write_all(&data).and_then(|_| port.flush()) {
                         // 写超时不算断开，其他错误算
                         if e.kind() != std::io::ErrorKind::TimedOut {
@@ -244,6 +300,9 @@ fn io_loop(gen: u64, mut port: Box<dyn serialport::SerialPort>, name: String, si
                             ctx.request_repaint();
                             return;
                         }
+                    } else if observed {
+                        let _ = tx.send(Evt::Sent(gen, data));
+                        ctx.request_repaint_after(Duration::from_millis(33));
                     }
                 }
                 Ok(Cmd::SetDtr(v)) => {

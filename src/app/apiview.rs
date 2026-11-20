@@ -667,7 +667,10 @@ impl App {
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 if icon_button(ui, Icon::Save, t("把响应体存成文件"), false).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().set_file_name(if resp.is_json() { "response.json" } else { "response.txt" }).save_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog()
+                        .set_file_name(if resp.is_json() { "response.json" } else { "response.txt" })
+                        .save_file()
+                    {
                         match std::fs::write(&p, &resp.body) {
                             Ok(()) => self.toast(t("已保存"), OK()),
                             Err(e) => self.toast(e.to_string(), ERR()),

@@ -1,11 +1,24 @@
 //! 日志缓冲：按行切分、按编码解码、解析 ANSI 颜色、识别日志级别。
 
 use std::collections::VecDeque;
+use std::fmt::Write as _;
+use std::io;
+use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use chrono::{DateTime, Local};
 use eframe::egui::Color32;
 use serde::{Deserialize, Serialize};
+
+use crate::record::{Limits, Recorder};
+
+#[derive(Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ViewMode {
+    #[default]
+    Text,
+    Hex,
+    Mixed,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Debug)]
 pub enum Encoding {
@@ -88,6 +101,10 @@ pub struct Line {
 }
 
 impl Line {
+    fn retained_bytes(&self) -> usize {
+        std::mem::size_of::<Self>() + self.raw.capacity() + self.plain.capacity() + self.spans.capacity() * std::mem::size_of::<Span>()
+    }
+
     fn new(dir: Dir, raw: Vec<u8>, enc: Encoding) -> Self {
         let mut l = Line {
             ts: Local::now(),
@@ -124,6 +141,32 @@ impl Line {
     }
 }
 
+pub(crate) fn format_line(l: &Line, view: ViewMode) -> String {
+    let tag = match l.dir {
+        Dir::Rx => "RX",
+        Dir::Rx2 => "RB",
+        Dir::Tx => "TX",
+        Dir::Sys => "##",
+    };
+    let mut out = format!("{} {} ", l.ts.format("%Y-%m-%d %H:%M:%S%.3f"), tag);
+    match (view, l.dir) {
+        (_, Dir::Sys) | (ViewMode::Text, _) => out.push_str(&l.plain),
+        (ViewMode::Hex | ViewMode::Mixed, _) => {
+            if view == ViewMode::Mixed {
+                out.push_str(&l.plain);
+                out.push_str(" | ");
+            }
+            for (i, b) in l.raw.iter().enumerate() {
+                if i != 0 {
+                    out.push(' ');
+                }
+                let _ = write!(out, "{b:02X}"); // String writes cannot fail
+            }
+        }
+    }
+    out
+}
+
 pub struct LogBuf {
     pub lines: VecDeque<Line>,
     /// 已经从队头丢弃的行数，用于把“绝对行号”换算成下标
@@ -132,12 +175,22 @@ pub struct LogBuf {
     open: bool,
     last_rx: Option<Instant>,
     pub max_lines: usize,
+    /// Keep a byte ceiling as well: a few very long/colored rows can cost much
+    /// more than thousands of short rows. The one unfinished line is retained.
+    max_bytes: usize,
+    completed_bytes: usize,
     /// 无换行时单行最大字节数，超过就强制换行
     pub max_line_bytes: usize,
     /// 空闲分帧（毫秒，0 = 关闭）：两次数据间隔超过它就另起一行，适合二进制协议
     pub frame_gap_ms: u32,
-    /// 新收完的行（给录制到文件、过滤使用），由调用方取走
-    pub committed: Vec<u64>,
+    /// 新收完的行（给应答规则和波形图使用），由调用方取走
+    pub committed: VecDeque<u64>,
+    /// 在显示缓冲溢出之前直接录制每条完成的日志。
+    recorder: Option<Recorder>,
+    record_limits: Limits,
+    record_view: ViewMode,
+    record_error: Option<io::Error>,
+    record_rotated: bool,
     /// 缓冲区里已收完的 RX 行按级别计数（下标是 Level as usize）
     pub counts: [u64; 6],
     /// 按帧格式切分二进制数据（帧头 + 长度 + 校验），代替按换行分行
@@ -152,18 +205,29 @@ impl LogBuf {
             open: false,
             last_rx: None,
             max_lines,
+            max_bytes: 64 * 1024 * 1024,
+            completed_bytes: 0,
             max_line_bytes: 2048,
             frame_gap_ms: 0,
-            committed: vec![],
+            committed: VecDeque::new(),
+            recorder: None,
+            record_limits: Limits::default(),
+            record_view: ViewMode::default(),
+            record_error: None,
+            record_rotated: false,
             counts: [0; 6],
             framer: None,
         }
     }
 
     pub fn clear(&mut self) {
+        if self.recorder.is_some() {
+            self.close_open();
+        }
         self.dropped += self.lines.len() as u64;
         self.lines.clear();
         self.open = false;
+        self.completed_bytes = 0;
         self.committed.clear();
         self.counts = [0; 6];
     }
@@ -183,10 +247,76 @@ impl LogBuf {
     pub fn close_open(&mut self) {
         if self.open {
             self.open = false;
-            self.committed.push(self.total() - 1);
             if let Some(l) = self.lines.back_mut() {
                 self.counts[l.level as usize] += 1;
                 l.compact();
+                self.completed_bytes += l.retained_bytes();
+            }
+            self.commit_last();
+            self.trim();
+        }
+    }
+
+    pub(crate) fn recording_options(&mut self, view: ViewMode, mib: u32, minutes: u32) {
+        self.record_view = view;
+        self.record_limits = Limits::new(mib, minutes);
+    }
+
+    pub(crate) fn start_recording(&mut self, path: PathBuf, enc: Encoding) -> io::Result<()> {
+        let recorder = Recorder::start(path)?;
+        // A pre-existing unfinished row does not belong to the new recording.
+        self.finish_partial_recording_line(enc);
+        self.recorder = Some(recorder);
+        self.record_rotated = false;
+        Ok(())
+    }
+
+    pub(crate) fn recording_path(&self) -> Option<&Path> {
+        self.recorder.as_ref().map(Recorder::path)
+    }
+
+    pub(crate) fn flush_recording(&mut self) -> io::Result<bool> {
+        if let Some(e) = self.record_error.take() {
+            return Err(e);
+        }
+        if let Some(r) = &mut self.recorder {
+            if let Err(e) = r.flush() {
+                self.recorder = None;
+                self.record_rotated = false;
+                return Err(e);
+            }
+        }
+        Ok(std::mem::take(&mut self.record_rotated))
+    }
+
+    pub(crate) fn stop_recording(&mut self, enc: Encoding) -> io::Result<Option<PathBuf>> {
+        if self.recorder.is_some() {
+            self.finish_partial_recording_line(enc);
+        }
+        self.flush_recording()?;
+        Ok(self.recorder.take().map(|r| r.path().to_owned()))
+    }
+
+    fn finish_partial_recording_line(&mut self, enc: Encoding) {
+        self.close_open();
+        if let Some(frame) = &mut self.framer {
+            if !frame.pending.is_empty() {
+                let raw = std::mem::take(&mut frame.pending);
+                self.push_line(Dir::Rx, raw, enc);
+            }
+        }
+    }
+
+    fn commit_last(&mut self) {
+        self.committed.push_back(self.total() - 1);
+        let Some(recorder) = &mut self.recorder else { return };
+        let Some(line) = self.lines.back() else { return };
+        match recorder.append(&format_line(line, self.record_view), self.record_limits) {
+            Ok(rotated) => self.record_rotated |= rotated,
+            Err(e) => {
+                self.record_error = Some(e);
+                self.recorder = None;
+                self.record_rotated = false;
             }
         }
     }
@@ -254,18 +384,21 @@ impl LogBuf {
             }
             l.compact();
             self.counts[l.level as usize] += 1;
-            self.lines.push_back(l);
-            self.committed.push(self.total() - 1);
+            self.push_completed(l);
+            self.commit_last();
+            self.trim();
         }
-        self.trim();
     }
 
     pub fn push_line(&mut self, dir: Dir, raw: Vec<u8>, enc: Encoding) {
         self.close_open();
         let mut l = Line::new(dir, raw, enc);
         l.compact();
-        self.lines.push_back(l);
-        self.committed.push(self.total() - 1);
+        if dir == Dir::Rx {
+            self.counts[l.level as usize] += 1;
+        }
+        self.push_completed(l);
+        self.commit_last();
         self.trim();
     }
 
@@ -281,7 +414,7 @@ impl LogBuf {
             self.counts[l.level as usize] += 1;
         }
         // 不进 committed：载入的旧日志不触发应答、不重复录制
-        self.lines.push_back(l);
+        self.push_completed(l);
         self.trim();
     }
 
@@ -289,21 +422,35 @@ impl LogBuf {
         self.push_line(Dir::Sys, msg.into().into_bytes(), Encoding::Utf8);
     }
 
+    fn push_completed(&mut self, line: Line) {
+        self.completed_bytes += line.retained_bytes();
+        self.lines.push_back(line);
+    }
+
     fn trim(&mut self) {
-        // 超出 10% 再批量删，避免每行都触发
-        if self.lines.len() > self.max_lines + self.max_lines / 10 {
-            let n = self.lines.len() - self.max_lines;
-            for l in self.lines.drain(..n) {
-                if l.dir == Dir::Rx {
-                    self.counts[l.level as usize] = self.counts[l.level as usize].saturating_sub(1);
-                }
+        // Preserve the existing batched row limit, but enforce the byte
+        // ceiling regardless of the row count.
+        let max_with_slack = self.max_lines.saturating_add(self.max_lines / 10);
+        let line_limit = if self.lines.len() > max_with_slack { self.max_lines } else { max_with_slack };
+        let open = usize::from(self.open);
+        let open_bytes = if self.open { self.lines.back().map_or(0, Line::retained_bytes) } else { 0 };
+        let byte_limit = self.max_bytes.saturating_sub(open_bytes);
+        while self.lines.len() > open && (self.lines.len() > line_limit || self.completed_bytes > byte_limit) {
+            let Some(line) = self.lines.pop_front() else { break };
+            self.completed_bytes -= line.retained_bytes();
+            self.dropped += 1;
+            if line.dir == Dir::Rx {
+                self.counts[line.level as usize] -= 1;
             }
-            self.dropped += n as u64;
+        }
+        while self.committed.front().is_some_and(|&id| id < self.dropped) {
+            self.committed.pop_front();
         }
     }
 
     pub fn rerender(&mut self, enc: Encoding) {
         self.counts = [0; 6];
+        self.completed_bytes = 0;
         let open = self.open;
         let n = self.lines.len();
         for (i, l) in self.lines.iter_mut().enumerate() {
@@ -311,10 +458,14 @@ impl LogBuf {
                 l.render(enc);
                 l.compact();
             }
-            if l.dir == Dir::Rx && !(open && i + 1 == n) {
-                self.counts[l.level as usize] += 1;
+            if !(open && i + 1 == n) {
+                self.completed_bytes += l.retained_bytes();
+                if l.dir == Dir::Rx {
+                    self.counts[l.level as usize] += 1;
+                }
             }
         }
+        self.trim();
     }
 }
 
@@ -747,5 +898,104 @@ mod tests {
         assert!(b.lines.len() <= 11);
         assert_eq!(b.total(), 50);
         assert_eq!(b.get(49).unwrap().plain, "x");
+    }
+
+    #[test]
+    fn byte_budget_limits_styled_history_even_below_row_limit() {
+        let text = "\x1b[31mred\x1b[32mgreen".repeat(20);
+        let row = Line::new(Dir::Rx, text.as_bytes().to_vec(), Encoding::Utf8);
+        assert!(row.retained_bytes() > row.raw.len() + row.plain.len());
+        let mut b = LogBuf::new(100_000);
+        let mut packed = row;
+        packed.compact();
+        b.max_bytes = packed.retained_bytes() * 2;
+        for _ in 0..5 {
+            b.push_loaded(Dir::Rx, text.as_bytes().to_vec(), Encoding::Utf8, None);
+        }
+        assert_eq!(b.total(), 5);
+        assert_eq!(b.dropped, 3);
+        assert_eq!(b.lines.len(), 2);
+        assert_eq!(b.counts[Level::None as usize], 2);
+        assert!(b.completed_bytes <= b.max_bytes);
+    }
+
+    #[test]
+    fn byte_budget_keeps_the_open_line_and_discards_old_commit_ids() {
+        let mut b = LogBuf::new(100);
+        b.max_bytes = std::mem::size_of::<Line>() + 100;
+        b.push_rx(&[b'x'; 40], Encoding::Utf8);
+        b.push_rx(b"\nunfinished", Encoding::Utf8);
+        assert_eq!(b.dropped, 1);
+        assert!(b.committed.is_empty());
+        assert!(b.is_open(1));
+        assert_eq!(b.get(1).unwrap().plain, "unfinished");
+        b.rerender(Encoding::Latin1);
+        assert!(b.is_open(1));
+        b.push_rx(b"\n", Encoding::Utf8);
+        assert_eq!(b.committed, VecDeque::from([1]));
+        assert_eq!(b.completed_bytes, b.get(1).unwrap().retained_bytes());
+        b.clear();
+        assert_eq!(b.completed_bytes, 0);
+    }
+
+    #[test]
+    fn recording_preserves_order_across_rotation_and_display_eviction() {
+        let dir = crate::record::tests::TempDir::new();
+        let path = dir.0.join("burst.log");
+        let mut b = LogBuf::new(10);
+        b.recording_options(ViewMode::Text, 1, 0);
+        b.start_recording(path.clone(), Encoding::Utf8).unwrap();
+        let payload = "值".repeat(350); // 1050 UTF-8 bytes per row
+        let mut burst = String::new();
+        for i in 0..2400 {
+            let _ = writeln!(burst, "{i:04} {payload}");
+        }
+        b.push_rx(burst.as_bytes(), Encoding::Utf8);
+        assert!(b.dropped > 2000);
+        assert!(b.flush_recording().unwrap());
+        assert_eq!(b.stop_recording(Encoding::Utf8).unwrap(), Some(dir.0.join("burst_003.log")));
+        let mut got = Vec::new();
+        for part in [path, dir.0.join("burst_002.log"), dir.0.join("burst_003.log")] {
+            let text = std::fs::read_to_string(part).unwrap();
+            assert!(text.len() <= 1024 * 1024);
+            for line in text.lines() {
+                assert_eq!(&line[23..27], " RX ");
+                got.push(line[27..].to_owned());
+            }
+        }
+        assert_eq!(got.iter().map(String::as_str).collect::<Vec<_>>(), burst.lines().collect::<Vec<_>>());
+        assert!(!dir.0.join("burst_004.log").exists());
+    }
+
+    #[test]
+    fn recording_finalizes_an_unterminated_line_once() {
+        let dir = crate::record::tests::TempDir::new();
+        let path = dir.0.join("capture.log");
+        let mut b = LogBuf::new(100);
+        b.push_rx(b"before recording", Encoding::Utf8);
+        b.start_recording(path.clone(), Encoding::Utf8).unwrap();
+        b.push_rx(b"complete\r\ntrailing", Encoding::Utf8);
+        assert_eq!(b.stop_recording(Encoding::Utf8).unwrap(), Some(path.clone()));
+        b.push_rx(b"after recording\n", Encoding::Utf8);
+        assert_eq!(b.stop_recording(Encoding::Utf8).unwrap(), None);
+        let text = std::fs::read_to_string(path).unwrap();
+        assert_eq!(text.lines().map(|l| &l[23..]).collect::<Vec<_>>(), [" RX complete", " RX trailing"]);
+    }
+
+    #[test]
+    fn recording_finalizes_a_partial_frame_without_reusing_it() {
+        let dir = crate::record::tests::TempDir::new();
+        let path = dir.0.join("frame.log");
+        let mut b = LogBuf::new(100);
+        b.framer = Some(Framer::new(vec![b'A'], LenSpec::Fixed(4), crate::checksum::Check::None, 1000));
+        b.recording_options(ViewMode::Hex, 1, 0);
+        b.start_recording(path.clone(), Encoding::Utf8).unwrap();
+        b.push_rx(b"AB", Encoding::Utf8);
+        assert_eq!(b.stop_recording(Encoding::Utf8).unwrap(), Some(path.clone()));
+        b.push_rx(b"CD", Encoding::Utf8);
+        assert_eq!(b.lines[0].raw, b"AB");
+        assert!(!b.lines.iter().any(|line| line.raw == b"ABCD"));
+        let text = std::fs::read_to_string(path).unwrap();
+        assert_eq!(text.lines().map(|l| &l[23..]).collect::<Vec<_>>(), [" RX 41 42"]);
     }
 }

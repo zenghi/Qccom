@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui;
 
-use crate::net::mqtt::{packet, parse, publish};
+use crate::net::mqtt::{invalid_message, packet, parse, publish};
 
 #[derive(Clone, Default)]
 pub struct Config {
@@ -226,7 +226,12 @@ fn client(key: u64, mut s: TcpStream, addr: SocketAddr, cfg: &Config, st: &Arc<M
             Err(e) if crate::net::is_timeout(&e) => {}
             Err(e) => break Err(e.to_string()),
         }
-        while let Some((first, body, n)) = parse(&buf) {
+        loop {
+            let (first, body, n) = match parse(&buf) {
+                Ok(Some(packet)) => packet,
+                Ok(None) => break,
+                Err(e) => break 'conn Err(invalid_message(e)),
+            };
             let body = body.to_vec();
             buf.drain(..n);
             let kind = first >> 4;
@@ -324,7 +329,6 @@ fn client(key: u64, mut s: TcpStream, addr: SocketAddr, cfg: &Config, st: &Arc<M
                     }
                     let mut ack = pid;
                     ack.extend_from_slice(&granted);
-                    s.write_all(&packet(0x90, &ack)).map_err(|e| e.to_string())?;
                     let mut g = st.lock().unwrap();
                     let retained: Vec<(String, Vec<u8>, u8)> = g
                         .retained
@@ -341,6 +345,7 @@ fn client(key: u64, mut s: TcpStream, addr: SocketAddr, cfg: &Config, st: &Arc<M
                     }
                     g.event(format!("  {id} SUB {}", names.join(", ")));
                     drop(g);
+                    s.write_all(&packet(0x90, &ack)).map_err(|e| e.to_string())?;
                     for (t, d, q) in retained {
                         s.write_all(&publish(1, &t, &d, q.min(1), true)).map_err(|e| e.to_string())?;
                     }

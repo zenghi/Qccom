@@ -188,7 +188,8 @@ mod tests {
         assert!(t.len() > 400);
         for (k, v) in t {
             assert_eq!(v.len(), LANGS.len(), "列数不对：{k}");
-            for x in v {
+            // 空格子 = 这种语言暂时显示英文
+            for x in v.iter().filter(|x| !x.is_empty()) {
                 assert_eq!(x.matches("{}").count(), k.matches("{}").count(), "占位符数量不一致：{k} → {x}");
             }
         }

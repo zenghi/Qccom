@@ -4,8 +4,6 @@
 //! 设计上靠底色深浅和细分隔线分层，青色只留给焦点元素（连接按钮、当前端口、速率曲线）。
 
 use std::collections::VecDeque;
-use std::fs::File;
-use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -17,9 +15,10 @@ use crate::atcmds;
 use crate::cmds::{default_groups, CmdAction, CmdGroup, CmdPanel, QuickCmd};
 use crate::codeview::{CodeEvt, CodeSettings, CodeView};
 use crate::gitview::{GitEvt, GitSettings, GitView};
+use crate::highlight::LogPreset;
 use crate::i18n::{self, t, tf};
 use crate::keymap::{self, Act, Keymap, Overrides, Scope};
-use crate::logbuf::{Dir, Encoding, Level, Line, LogBuf};
+use crate::logbuf::{format_line, Dir, Encoding, Level, Line, LogBuf, ViewMode};
 use crate::net::{self, NetConfig, Transport};
 use crate::serial::{self, Cmd, Connection, Evt, PortConfig, PortEntry, COMMON_BAUDS};
 use crate::shell::{ShellEvt, ShellSettings, Shells};
@@ -27,13 +26,7 @@ use crate::termview::TermView;
 use crate::theme::*;
 use crate::update::{self, Release, UpdEvt};
 use dbgtools::check_combo;
-
-#[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum ViewMode {
-    Text,
-    Hex,
-    Mixed,
-}
+use work::{Pane, SerialTarget};
 
 #[derive(Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum LineEnding {
@@ -74,15 +67,19 @@ pub struct Settings {
     pub show_tx: bool,
     pub ansi: bool,
     pub level_color: bool,
+    pub log_preset: LogPreset,
     pub min_level: Level,
     pub auto_reconnect: bool,
     pub follow_new_port: bool,
     pub line_ending: LineEnding,
     pub hex_send: bool,
+    pub send_buttons: [QuickCmd; 2],
+    pub shell_menu_noticed: bool,
     pub history: Vec<String>,
     pub keywords: String,
     pub max_lines: usize,
     pub font_size: f32,
+    pub fonts: FontSettings,
     pub frame_gap_ms: u32,
     pub dtr: bool,
     pub rts: bool,
@@ -93,10 +90,17 @@ pub struct Settings {
     pub bg: crate::bgimg::BgCfg,
     /// 侧边栏里折叠起来的分组（"dev" / "baud" / "link" / "view"）
     pub folded: Vec<String>,
+    pub serial_link_open: bool,
     /// 设置的版本号，用来迁移旧默认值
     pub rev: u32,
     /// 是否已经按黄金比例摆过窗口（只在第一次启动时做）
     pub window_placed: bool,
+    /// 发送匿名使用统计（设备随机 ID、版本、系统、语言、使用时长、页面打开次数）
+    pub telemetry: bool,
+    /// 已经提示过一次「会发送匿名统计」
+    pub telemetry_noticed: bool,
+    /// 社区里已经看过的最新公告
+    pub seen_notice: i64,
     pub groups: Vec<CmdGroup>,
     pub cur_group: usize,
     pub cmd_panel: bool,
@@ -135,7 +139,7 @@ pub struct Settings {
     pub timing_re: bool,
     pub rules: Vec<logx::Rule>,
     pub frame: logx::FrameCfg,
-    /// 录制分段：超过多少 MB / 多少分钟换一个文件（0 = 不分段）
+    /// 录制分段：单卷大小（MiB）及分钟数（0 = 不限）
     pub rec_split_mb: u32,
     pub rec_split_min: u32,
     /// 端口别名：端口名 → 显示的名字
@@ -144,6 +148,10 @@ pub struct Settings {
     pub sniff_port: String,
     /// 串口转 TCP 的端口
     pub bridge_port: u16,
+    /// Windows：共享给其他软件时 QCCOM 占用的虚拟串口（com0com 一对里的一头）
+    pub vcom_port: String,
+    #[cfg(windows)]
+    pub mapping: crate::mappings::Preferences,
     pub reset: serialx::ResetKind,
     /// 当前配置方案的名字
     pub profile: String,
@@ -166,6 +174,8 @@ pub struct Settings {
     pub multiline: bool,
     pub line_by_line: bool,
     pub line_gap_ms: u32,
+    /// 副页面和工作台
+    pub work: work::WorkCfg,
 }
 
 impl Default for Settings {
@@ -180,15 +190,19 @@ impl Default for Settings {
             show_tx: true,
             ansi: true,
             level_color: true,
+            log_preset: LogPreset::None,
             min_level: Level::None,
             auto_reconnect: true,
             follow_new_port: true,
             line_ending: LineEnding::CrLf,
             hex_send: false,
+            send_buttons: Default::default(),
+            shell_menu_noticed: false,
             history: vec![],
             keywords: String::new(),
             max_lines: 100_000,
             font_size: 13.0,
+            fonts: Default::default(),
             frame_gap_ms: 0,
             dtr: true,
             rts: false,
@@ -196,9 +210,13 @@ impl Default for Settings {
             sidebar: true,
             advanced_open: false,
             folded: vec![],
+            serial_link_open: false,
             bg: Default::default(),
             rev: SETTINGS_REV,
             window_placed: false,
+            telemetry: true,
+            telemetry_noticed: false,
+            seen_notice: 0,
             groups: default_groups(),
             cur_group: 0,
             cmd_panel: true,
@@ -224,11 +242,14 @@ impl Default for Settings {
             timing_re: false,
             rules: vec![],
             frame: Default::default(),
-            rec_split_mb: 0,
+            rec_split_mb: crate::record::DEFAULT_SPLIT_MIB,
             rec_split_min: 0,
             aliases: Default::default(),
             sniff_port: String::new(),
             bridge_port: 7000,
+            vcom_port: String::new(),
+            #[cfg(windows)]
+            mapping: Default::default(),
             reset: serialx::ResetKind::Dtr,
             profile: String::new(),
             triggers: vec![],
@@ -244,6 +265,7 @@ impl Default for Settings {
             multiline: false,
             line_by_line: false,
             line_gap_ms: 100,
+            work: Default::default(),
         }
     }
 }
@@ -253,6 +275,7 @@ fn kw_colors() -> [Color32; 6] {
 }
 
 const RATE_HISTORY: usize = 60;
+const MIN_LOG_PANE_WIDTH: f32 = 240.0;
 
 /// 左侧活动栏切换的页面：调试（串口/网络）、代码查看、Git
 #[derive(Clone, Copy, PartialEq)]
@@ -263,6 +286,14 @@ enum Page {
     Compare,
     Tools,
     Settings,
+    /// 社区：需求投票、求助、分享、公告
+    Community,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum DebugDrawer {
+    Devices,
+    Commands,
 }
 
 /// 自动更新的界面状态
@@ -279,20 +310,25 @@ const SETTINGS_REV: u32 = 2;
 mod apiview;
 mod blex;
 mod dbgtools;
+mod diagnostics;
 mod dock;
 mod logx;
 mod minitools;
+mod nav;
 mod palette;
 mod plot;
 mod prefs;
 mod serialx;
 mod sess;
+mod sshfiles;
 mod sshview;
 mod toolbox;
 mod toolbox2;
 mod toolbox3;
 mod toolbox4;
 mod toolbox5;
+mod work;
+mod workui;
 
 /// 日志里按字选择的范围：(行号, 字符位置)，字符位置按这一行显示出来的文字计（含时间戳等前缀）
 #[derive(Clone, Copy, PartialEq)]
@@ -317,6 +353,7 @@ pub struct App {
     buf: LogBuf,
     ports: Vec<PortEntry>,
     ports_seen: bool,
+    port_updates: Receiver<Vec<PortEntry>>,
     /// 命令行指定的端口（比如 Linux 的 /dev/pts/3 虚拟串口，系统扫描不到）
     extra_port: Option<String>,
     evt_tx: Sender<Evt>,
@@ -345,6 +382,7 @@ pub struct App {
     scroll_to: Option<u64>,
     focus_search: bool,
     focus_send: bool,
+    send_button_edit: Option<(usize, QuickCmd)>,
     /// 选中的行（锚点, 终点），绝对行号
     sel: Option<(u64, u64)>,
     /// 按字选中的文字
@@ -366,7 +404,6 @@ pub struct App {
     rate_t: Instant,
     rate_hist: VecDeque<f32>,
 
-    record: Option<Rec>,
     toast: Option<(String, Color32, Instant)>,
     logo: egui::TextureHandle,
     cmd_ui: CmdPanel,
@@ -402,6 +439,11 @@ pub struct App {
     code: CodeView,
     gitv: GitView,
     cmpv: crate::compareview::CompareView,
+    /// 电路页（第一次打开时才创建）
+    circ: Option<Box<crate::circuitview::CircuitView>>,
+    /// 社区页
+    comm: crate::community::Community,
+    diagnostics: diagnostics::DiagnosticsUi,
     /// 其他进程转来的打开 / 比较请求（系统右键菜单）
     fwd: Option<std::sync::Arc<std::sync::Mutex<Vec<crate::shellint::Req>>>>,
     /// 比较页有未保存修改时第一次关窗口被拦下，再关一次就直接退出
@@ -422,6 +464,9 @@ pub struct App {
     last_project: String,
     /// 打开设置前所在的页面（关闭设置时回去）
     prev_page: Page,
+    nav: nav::Nav,
+    /// 第一次启动：再过几帧最大化
+    maximize_in: u8,
     /// 命令面板选中后、需要下一帧在对应页面执行的命令
     pending_acts: Vec<Act>,
     bitcalc: crate::tools::BitCalc,
@@ -431,6 +476,7 @@ pub struct App {
     rules_rt: Vec<logx::RuleRt>,
     marker_n: u32,
     replay: Option<logx::Replay>,
+    log_load: logx::LogLoader,
     stats: logx::Stats,
     wins: logx::Wins,
     mini: minitools::Mini,
@@ -443,29 +489,35 @@ pub struct App {
     signals: Option<[bool; 4]>,
     sniff: serialx::Sniff,
     bridge: Option<crate::bridge::Bridge>,
+    vcom: Option<crate::vcom::Vcom>,
+    /// 串口暂时让给了终端里的命令（烧录等），命令跑完自动重新打开
+    lent: Option<serialx::Lent>,
     serial_ui: serialx::SerialUi,
+    #[cfg(windows)]
+    mappings: crate::mappings::Panel,
     /// AT 助手提示里选中的一项
     at_sel: usize,
     /// 命令行指定、启动后要打开 / 回放的日志
     open_log: Option<(PathBuf, bool)>,
     /// 停在后台的其它连接（当前连接所在的槽位为 None）
     sessions: Vec<Option<sess::Sess>>,
+    session_slot: usize,
+    session_unread: bool,
+    serial_tabs: Vec<usize>,
+    selected_serial: usize,
+    serial_opened: bool,
     /// 正在处理后台连接（不驱动 Modbus / 文件传输这些只属于当前连接的工具）
     bg: bool,
-}
-
-/// 正在录制：当前文件、已写字节、开始时间、第几段
-struct Rec {
-    w: BufWriter<File>,
-    base: PathBuf,
-    path: PathBuf,
-    bytes: u64,
-    since: Instant,
-    part: u32,
+    /// 调试页画在副页面里：标题栏换成连接下拉、少放几个按钮
+    compact_header: bool,
+    debug_narrow: bool,
+    debug_drawer: Option<DebugDrawer>,
+    /// 副页面和工作台
+    work: work::Work,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, args: Vec<String>, startup: Vec<crate::shellint::Req>) -> Self {
         // 先按系统语言，这样第一次启动生成的默认快捷命令等也是对应语言
         i18n::apply("auto");
         let mut s: Settings = cc.storage.and_then(|st| eframe::get_value(st, eframe::APP_KEY)).unwrap_or_default();
@@ -477,16 +529,18 @@ impl App {
             s.rev = SETTINGS_REV;
         }
         i18n::apply(&s.lang);
+        Self::with_settings(cc, s, args, startup)
+    }
+
+    fn with_settings(cc: &eframe::CreationContext<'_>, mut s: Settings, args: Vec<String>, startup: Vec<crate::shellint::Req>) -> Self {
         update::cleanup();
-        let args: Vec<String> = std::env::args().skip(1).collect();
         let just_updated = args.iter().any(|a| a == "--updated");
         // --open 文件 / --replay 文件：启动后打开或回放日志
         let mut open_log = None;
         let mut extra_port = None;
         // 参数是文件夹：在代码页打开这个工程（qccom ~/fw）
         let mut open_dir = None;
-        // --file / --project / --compare 和已有文件的参数交给 shellint 处理（系统右键菜单）
-        let startup = crate::shellint::parse_args(&args);
+        // --file / --project / --compare 和已有文件的参数由 main 交给 shellint 处理
         let mut it = args.into_iter();
         let mut in_req = false;
         while let Some(a) = it.next() {
@@ -511,8 +565,13 @@ impl App {
         s.api_mode = false;
         let (upd_tx, upd_rx) = mpsc::channel();
         let code = CodeView::new(std::mem::take(&mut s.code));
+        let last_project = code.s.root.clone();
         let gitv = GitView::new(std::mem::take(&mut s.git), cc.egui_ctx.clone());
         let cmpv = crate::compareview::CompareView::new(std::mem::take(&mut s.cmp));
+        crate::hub::set_enabled(s.telemetry);
+        crate::hub::start_telemetry();
+        let mut comm = crate::community::Community::default();
+        comm.seen_notice = s.seen_notice;
         let mut shell_s = std::mem::take(&mut s.shell);
         shell_s.open = false; // 启动时不自动开 shell
         let shells = Shells::new(shell_s);
@@ -521,10 +580,11 @@ impl App {
         if (s.ui_scale - 1.0).abs() > 0.01 {
             cc.egui_ctx.set_zoom_factor(s.ui_scale);
         }
-        load_fonts(&cc.egui_ctx);
+        set_font_preferences(&cc.egui_ctx, &s.fonts);
         apply(&cc.egui_ctx, s.font_size, resolve(&s.theme, &cc.egui_ctx));
         let (evt_tx, evt_rx) = mpsc::channel();
-        serial::spawn_port_scanner(evt_tx.clone(), cc.egui_ctx.clone());
+        let (port_tx, port_updates) = mpsc::channel();
+        serial::spawn_port_scanner(port_tx, cc.egui_ctx.clone());
         let mut buf = LogBuf::new(s.max_lines);
         buf.frame_gap_ms = s.frame_gap_ms;
         let mut app = Self {
@@ -533,6 +593,7 @@ impl App {
             buf,
             ports: vec![],
             ports_seen: false,
+            port_updates,
             extra_port,
             evt_tx,
             evt_rx,
@@ -557,6 +618,7 @@ impl App {
             scroll_to: None,
             focus_search: false,
             focus_send: true,
+            send_button_edit: None,
             sel: None,
             tsel: None,
             drag_scroll: 0.0,
@@ -571,7 +633,6 @@ impl App {
             rate_acc: 0,
             rate_t: Instant::now(),
             rate_hist: VecDeque::from(vec![0.0; RATE_HISTORY]),
-            record: None,
             toast: None,
             logo: cc.egui_ctx.load_texture(
                 "logo",
@@ -592,7 +653,7 @@ impl App {
             bottom_total: None,
             goto_time: None,
             tv: {
-                let mut tv = TermView::new("term-view", 100, 30);
+                let mut tv = TermView::new(("term-view", 0usize), 100, 30);
                 tv.focus_req = true;
                 tv
             },
@@ -603,6 +664,9 @@ impl App {
             code,
             gitv,
             cmpv,
+            circ: None,
+            comm,
+            diagnostics: diagnostics::DiagnosticsUi::new(),
             close_anyway: false,
             fwd: None,
             shells,
@@ -615,14 +679,17 @@ impl App {
             km,
             palette: None,
             prefs: prefs::Prefs::default(),
-            last_project: String::new(),
+            last_project,
             prev_page: Page::Debug,
+            nav: Default::default(),
+            maximize_in: 0,
             pending_acts: Vec::new(),
             bitcalc: Default::default(),
             tb: Default::default(),
             rules_rt: vec![],
             marker_n: 0,
             replay: None,
+            log_load: Default::default(),
             stats: Default::default(),
             wins: Default::default(),
             mini: Default::default(),
@@ -634,18 +701,31 @@ impl App {
             signals: None,
             sniff: Default::default(),
             bridge: None,
+            vcom: None,
+            lent: None,
             serial_ui: Default::default(),
+            #[cfg(windows)]
+            mappings: Default::default(),
             at_sel: 0,
             open_log,
             sessions: (0..sess::SLOTS).map(|_| None).collect(),
+            session_slot: 0,
+            session_unread: false,
+            serial_tabs: vec![0],
+            selected_serial: 0,
+            serial_opened: false,
             bg: false,
+            compact_header: false,
+            debug_narrow: false,
+            debug_drawer: None,
+            work: Default::default(),
         };
         app.parse_keywords();
         app.compile_rules();
         app.compile_triggers();
         app.apply_frame();
         if let Some(d) = open_dir {
-            app.code.open_root(std::fs::canonicalize(&d).unwrap_or(d));
+            app.code.open_root(d);
             app.set_page(Page::Code);
         }
         if let Some(l) = crate::instance_listener() {
@@ -704,8 +784,21 @@ impl App {
             }
             return;
         }
+        #[cfg(windows)]
+        if self.mappings.owns(&self.s.port, &self.s.mapping) {
+            if !quiet {
+                self.toast(t("请先在「网络分享」中停止共享此串口"), WARN());
+            }
+            return;
+        }
         if self.s.port.is_empty() {
             self.toast(t("没有可用的串口"), WARN());
+            return;
+        }
+        if self.conn.is_none() && self.serial_port_busy(&self.s.port) {
+            if !quiet {
+                self.toast(t("该串口正在使用"), WARN());
+            }
             return;
         }
         self.disconnect();
@@ -713,6 +806,7 @@ impl App {
         match serial::open(self.conn_gen, &self.s.port, self.s.cfg, self.s.dtr, self.s.rts, self.evt_tx.clone(), self.ctx.clone()) {
             Ok(c) => {
                 self.conn = Some(c);
+                self.serial_opened = true;
                 self.connected = Some(self.s.port.clone());
                 self.connected_at = Some(Instant::now());
                 self.last_error = None;
@@ -741,28 +835,75 @@ impl App {
         self.connected_at = None;
         self.repeat = false;
         self.signals = None;
-        self.close_sniff();
+        if self.s.transport == Transport::Serial {
+            self.close_sniff();
+        }
     }
 
     /// 收到数据（串口、TCP、回放都走这里）
     fn on_rx(&mut self, d: Vec<u8>) {
-        self.rx_bytes += d.len() as u64;
-        self.last_rx_at = Some(Instant::now());
-        self.rate_acc += d.len() as u64;
+        self.note_rx(d.len());
         let r = self.tv.feed(&d);
         if !r.is_empty() {
             self.send_raw(r);
         }
-        if !self.bg {
-            self.tools_rx(&d);
-        }
+        self.tools_rx(&d);
         if let Some(b) = self.bridge.as_ref().filter(|_| self.s.transport == Transport::Serial) {
             b.forward(&d);
         }
+        if let Some(v) = self.vcom.as_ref().filter(|_| self.s.transport == Transport::Serial) {
+            v.forward(&d);
+        }
+        self.append_rx(d);
+    }
+
+    fn note_rx(&mut self, len: usize) {
+        self.rx_bytes += len as u64;
+        self.last_rx_at = Some(Instant::now());
+        self.rate_acc += len as u64;
+    }
+
+    fn append_rx(&mut self, d: Vec<u8>) {
         if self.paused {
             self.pause_buf.extend_from_slice(&d);
         } else {
             self.buf.push_rx(&d, self.s.encoding);
+        }
+    }
+
+    #[cfg(windows)]
+    fn poll_mapped_serial(&mut self, ctx: &egui::Context) {
+        use qccom_tunnel::mapping::SerialDirection;
+
+        for (port, packets) in self.mappings.poll_serial_traffic(ctx) {
+            let slot = self.serial_tabs.iter().copied().find(|&slot| self.serial_port_for(slot) == port);
+            let slot = slot.unwrap_or_else(|| {
+                if self.serial_port_for(self.selected_serial).is_empty() {
+                    self.selected_serial
+                } else {
+                    self.new_serial_log_slot()
+                }
+            });
+            self.with_session(slot, |app| {
+                app.s.port = port;
+                app.serial_opened = true;
+                app.configure_recording();
+                for packet in packets {
+                    match packet.direction {
+                        SerialDirection::Tx => app.record_tx(packet.bytes),
+                        SerialDirection::Rx => {
+                            app.note_rx(packet.bytes.len());
+                            // Observe the tunnel's bytes without echoing them into the tunnel or a local bridge.
+                            let _ = app.tv.feed(&packet.bytes);
+                            app.append_rx(packet.bytes);
+                        }
+                    }
+                }
+            });
+        }
+        if let Some(port) = self.mappings.take_log_selection() {
+            self.set_page(Page::Debug);
+            self.choose_serial_port(&port, false);
         }
     }
 
@@ -775,7 +916,7 @@ impl App {
     }
 
     fn start_autobaud(&mut self) {
-        if self.s.port.is_empty() || self.autobaud.is_some() {
+        if self.s.port.is_empty() || self.autobaud.is_some() || self.is_mapping_monitor(&self.s.port) || self.local_vcom_owner(&self.s.port).is_some() {
             return;
         }
         self.disconnect();
@@ -785,31 +926,64 @@ impl App {
     }
 
     fn send_bytes(&mut self, data: Vec<u8>) {
-        let Some(c) = &self.conn else {
-            self.toast(t("未连接"), WARN());
-            return;
-        };
-        if data.is_empty() {
-            return;
-        }
-        let _ = c.cmd.send(Cmd::Send(data.clone()));
-        self.tx_bytes += data.len() as u64;
-        self.last_tx_at = Some(Instant::now());
-        self.buf.push_line(Dir::Tx, data, self.s.encoding);
+        self.send_data(data, true);
     }
 
-    /// 终端按键：直接发给设备，不在日志里记一行
+    /// 终端按键正常只记统计，共享时按实际写入记到两端日志。
     fn send_raw(&mut self, data: Vec<u8>) {
-        let Some(c) = &self.conn else {
-            self.toast(t("未连接"), WARN());
-            return;
-        };
+        self.send_data(data, false);
+    }
+
+    fn can_send(&self) -> bool {
+        if self.conn.is_some() {
+            return true;
+        }
+        #[cfg(windows)]
+        if self.s.transport == Transport::Serial {
+            return self.mappings.serial_online(&self.s.port);
+        }
+        false
+    }
+
+    fn send_data(&mut self, data: Vec<u8>, echo: bool) {
         if data.is_empty() {
             return;
         }
-        self.tx_bytes += data.len() as u64;
+        if let Some(conn) = &self.conn {
+            if self.s.transport == Transport::Serial && self.vcom.is_some() {
+                if conn.cmd.send(Cmd::SendObserved(data)).is_err() {
+                    self.toast(t("未连接"), WARN());
+                }
+            } else if echo {
+                if conn.cmd.send(Cmd::Send(data.clone())).is_ok() {
+                    self.record_tx(data);
+                }
+            } else {
+                let len = data.len();
+                if conn.cmd.send(Cmd::Send(data)).is_ok() {
+                    self.note_tx(len);
+                }
+            }
+            return;
+        }
+        #[cfg(windows)]
+        if self.s.transport == Transport::Serial && self.mappings.serial_view_port(&self.s.port).is_some() {
+            if let Err(error) = self.mappings.send_serial(&self.s.port, data) {
+                self.toast(error, WARN());
+            }
+            return;
+        }
+        self.toast(t("未连接"), WARN());
+    }
+
+    fn note_tx(&mut self, len: usize) {
+        self.tx_bytes += len as u64;
         self.last_tx_at = Some(Instant::now());
-        let _ = c.cmd.send(Cmd::Send(data));
+    }
+
+    fn record_tx(&mut self, data: Vec<u8>) {
+        self.note_tx(data.len());
+        self.buf.push_line(Dir::Tx, data, self.s.encoding);
     }
 
     fn send_input(&mut self, from_timer: bool) {
@@ -832,7 +1006,7 @@ impl App {
                 self.remember(text);
             }
             self.hist_pos = None;
-            if self.conn.is_none() {
+            if !self.can_send() {
                 self.toast(t("未连接"), WARN());
                 return;
             }
@@ -924,13 +1098,21 @@ impl App {
     }
 
     fn handle_events(&mut self) {
-        while let Ok(e) = self.evt_rx.try_recv() {
+        self.configure_recording();
+        let started = Instant::now();
+        for _ in 0..128 {
+            if started.elapsed() >= Duration::from_millis(4) {
+                break;
+            }
+            let Ok(e) = self.evt_rx.try_recv() else { return };
             match e {
-                Evt::Ports(list) => self.on_ports(list),
                 Evt::Opened(gen, name) if gen == self.conn_gen => {
                     if self.s.transport == Transport::Serial {
                         let c = self.s.cfg;
                         self.buf.sys(tf("已连接 {}  {} {}", &[&name, &c.baud, &c.short()]));
+                        if name.starts_with(crate::circuit::simport::PREFIX) {
+                            self.work.sim_opened = true;
+                        }
                     } else {
                         self.buf.sys(tf("✓ 已连接 {}", &[&name]));
                         self.connected = Some(name);
@@ -961,6 +1143,8 @@ impl App {
                 }
                 Evt::Opened(..) => {}
                 Evt::Data(d) => self.on_rx(d),
+                Evt::Sent(gen, d) if gen == self.conn_gen => self.record_tx(d),
+                Evt::Sent(..) => {}
                 Evt::DataB(d) => self.on_sniff_data(d),
                 Evt::Signals(gen, sig) => {
                     if gen == self.conn_gen {
@@ -1034,6 +1218,7 @@ impl App {
                 }
             }
         }
+        self.ctx.request_repaint();
     }
 
     fn on_ports(&mut self, mut list: Vec<PortEntry>) {
@@ -1047,6 +1232,7 @@ impl App {
         }
         let new: Vec<String> = list.iter().filter(|p| !self.ports.iter().any(|o| o.name == p.name)).map(|p| p.name.clone()).collect();
         let first_scan = !self.ports_seen;
+        let empty_log = self.buf.total() == 0;
         self.ports_seen = true;
         if !first_scan {
             let old = std::mem::take(&mut self.ports);
@@ -1058,13 +1244,16 @@ impl App {
                 self.buf.sys(tf("检测到串口 {}", &[&n]));
             }
         }
-        if self.conn.is_none() && self.autobaud.is_none() {
-            let has = |n: &str| self.ports.iter().any(|p| p.name == n);
-            if !first_scan && self.s.follow_new_port && !new.is_empty() && self.reconnect.is_none() {
-                self.s.port = new[0].clone();
+        if self.conn.is_none() && self.autobaud.is_none() && self.reconnect.is_none() {
+            if !first_scan && self.serial_tabs.len() == 1 && self.s.follow_new_port && !new.is_empty() && empty_log {
+                if self.serial_opened {
+                    self.choose_serial_port(&new[0], false);
+                } else {
+                    self.s.port = new[0].clone();
+                }
                 self.toast(tf("新设备 {}", &[&new[0]]), ACCENT());
-            } else if !has(&self.s.port) {
-                if let Some(p) = self.ports.first() {
+            } else if !self.serial_opened && (self.s.port.is_empty() || (self.serial_tabs.len() == 1 && empty_log && !self.ports.iter().any(|p| p.name == self.s.port))) {
+                if let Some(p) = self.ports.iter().find(|p| !self.serial_port_busy(&p.name)) {
                     self.s.port = p.name.clone();
                 }
             }
@@ -1079,6 +1268,7 @@ impl App {
         if self.s.transport == Transport::Serial {
             self.tick_sniff();
             self.poll_bridge();
+            self.poll_vcom();
         }
         self.tick_conn();
     }
@@ -1117,11 +1307,11 @@ impl App {
             }
             self.tick_stats_second();
         }
-        if self.conn.is_some() {
+        if self.can_send() {
             self.ctx.request_repaint_after(Duration::from_millis(1000));
         }
         // 定时发送
-        if self.repeat && self.conn.is_some() {
+        if self.repeat && self.can_send() {
             let iv = Duration::from_millis(self.s.repeat_ms.max(10) as u64);
             if self.last_repeat.elapsed() >= iv {
                 self.last_repeat = Instant::now();
@@ -1131,7 +1321,7 @@ impl App {
         }
         // 整组依次发送（gi = usize::MAX 是命令栏多行逐行发送）
         if let Some((gi, mut q, next)) = self.seq.take() {
-            if self.conn.is_some() {
+            if self.can_send() {
                 if Instant::now() >= next {
                     if let Some(d) = q.pop_front() {
                         self.send_bytes(d);
@@ -1164,62 +1354,29 @@ impl App {
                 .map(|l| l.plain.clone())
                 .collect();
             for tx in texts {
-                self.on_line(&tx);
+                self.on_line(&tx, false);
                 self.plot_line(&tx);
             }
         }
-        // 录制
-        if let Some(r) = &mut self.record {
-            let mut err = None;
-            for id in &committed {
-                if let Some(l) = self.buf.get(*id) {
-                    let line = format_line(l, self.s.view);
-                    r.bytes += line.len() as u64 + 1;
-                    if let Err(e) = writeln!(r.w, "{line}") {
-                        err = Some(e);
-                        break;
-                    }
+        match self.buf.flush_recording() {
+            Ok(true) if !self.bg => {
+                if let Some(path) = self.buf.recording_path() {
+                    self.toast(tf("录制换到新文件：{}", &[&path.display()]), ACCENT());
                 }
             }
-            if !committed.is_empty() {
-                let _ = r.w.flush();
-            }
-            if let Some(e) = err {
-                self.record = None;
-                self.toast(tf("录制写入失败：{}", &[&e]), ERR());
-            } else {
-                self.split_record();
-            }
+            Ok(_) => {}
+            Err(e) => self.recording_failed(e),
         }
     }
 
-    /// 录制分段：文件太大或时间太长就换下一个文件（name_002.log …）
-    fn split_record(&mut self) {
-        let Some(r) = &mut self.record else { return };
-        let by_size = self.s.rec_split_mb > 0 && r.bytes >= self.s.rec_split_mb as u64 * 1024 * 1024;
-        let by_time = self.s.rec_split_min > 0 && r.since.elapsed() >= Duration::from_secs(self.s.rec_split_min as u64 * 60);
-        if !(by_size || by_time) {
-            return;
-        }
-        let part = r.part + 1;
-        let stem = r.base.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let ext = r.base.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-        let next = r.base.with_file_name(format!("{stem}_{part:03}{ext}"));
-        match File::create(&next) {
-            Ok(f) => {
-                let _ = r.w.flush();
-                r.w = BufWriter::new(f);
-                r.path = next.clone();
-                r.bytes = 0;
-                r.since = Instant::now();
-                r.part = part;
-                self.buf.sys(tf("录制换到新文件：{}", &[&next.display()]));
-            }
-            Err(e) => {
-                self.record = None;
-                self.toast(tf("录制写入失败：{}", &[&e]), ERR());
-            }
-        }
+    fn configure_recording(&mut self) {
+        self.buf.recording_options(self.s.view, self.s.rec_split_mb, self.s.rec_split_min);
+    }
+
+    fn recording_failed(&mut self, error: std::io::Error) {
+        let message = tf("录制写入失败：{}", &[&error]);
+        self.buf.sys(message.clone());
+        self.toast(message, ERR());
     }
 
     // ------------------------------------------------------------ 过滤
@@ -1270,7 +1427,7 @@ impl App {
             return (self.buf.lines.len(), None);
         }
         let total = self.buf.total();
-        let open = (total > 0 && self.buf.is_open(total - 1) && self.buf.get(total - 1).is_some_and(|l| self.visible(l))).then_some(total - 1);
+        let open = total.checked_sub(1).filter(|&id| self.buf.is_open(id) && self.buf.get(id).is_some_and(|l| self.visible(l)));
         (self.view_ids.len() + open.is_some() as usize, open)
     }
 
@@ -1339,7 +1496,7 @@ impl App {
 
     /// 一行显示出来的文字，以及开头时间戳、方向标记占几个字符
     fn display_text(&self, id: u64, l: &Line) -> (String, usize) {
-        let job = self.line_job(id, l, &FontId::monospace(12.0));
+        let job = self.line_job(id, l, &FontId::monospace(12.0), LogPreset::None);
         let mut pre = if self.s.show_ts { 14 } else { 0 };
         if self.s.show_delta {
             pre += 8;
@@ -1417,7 +1574,7 @@ impl App {
         }
     }
 
-    fn line_job(&self, id: u64, l: &Line, font: &FontId) -> LayoutJob {
+    fn line_job(&self, id: u64, l: &Line, font: &FontId, preset: LogPreset) -> LayoutJob {
         let mut job = LayoutJob::default();
         let bold_font = FontId::new(font.size, mono_bold());
         let fmt = |fg: Color32, bg: Color32| TextFormat {
@@ -1494,7 +1651,7 @@ impl App {
             job.append(&hex(), 0.0, fmt(hex_color, Color32::TRANSPARENT));
             return job;
         }
-        self.text_sections(&mut job, l, font, &bold_font);
+        self.text_sections(&mut job, l, font, &bold_font, preset);
         if l.dir != Dir::Sys && self.s.view == ViewMode::Mixed {
             // 混合视图：先文本，后面跟着暗色的 HEX，长行也一眼能看到文字
             job.append("   ", 0.0, fmt(TEXT3(), Color32::TRANSPARENT));
@@ -1503,7 +1660,7 @@ impl App {
         job
     }
 
-    fn text_sections(&self, job: &mut LayoutJob, l: &Line, font: &FontId, bold_font: &FontId) {
+    fn text_sections(&self, job: &mut LayoutJob, l: &Line, font: &FontId, bold_font: &FontId, preset: LogPreset) {
         let text = &l.plain;
         let n = text.len();
         if n == 0 {
@@ -1513,6 +1670,9 @@ impl App {
         let mut fg = vec![base; n];
         let mut bg = vec![Color32::TRANSPARENT; n];
         let mut strong = vec![false; n];
+        if l.dir != Dir::Sys {
+            preset.for_each_color(text, |range, color| fg[range].fill(color));
+        }
         let ansi_colored = self.s.ansi && l.spans.iter().any(|s| s.fg.is_some());
         if self.s.ansi {
             for s in &l.spans {
@@ -1552,15 +1712,29 @@ impl App {
                 }
             }
         }
+        // 代码页里选中的文字（并排时）：日志里淡紫色底
+        if !self.work.link.is_empty() && l.dir != Dir::Sys {
+            for (a, b) in find_all_ci(text, &self.work.link) {
+                bg[a..b].fill(VIOLET().gamma_multiply(0.22));
+            }
+        }
         if !self.search.is_empty() {
             for (a, b) in find_all_ci(text, &self.search) {
                 fg[a..b].fill(FIND_FG());
                 bg[a..b].fill(FIND_BG());
             }
         }
+        // 源码位置 main.c:42：打开了工程时加下划线，Ctrl+点击跳过去
+        let mut ul = vec![false; n];
+        if l.dir != Dir::Sys && self.code.root().is_some() {
+            if let Some((a, b, _, _)) = work::src_ref(text) {
+                ul[a..b].fill(true);
+                fg[a..b].fill(ACCENT());
+            }
+        }
         let mut start = 0;
         for (i, _) in text.char_indices().skip(1).chain(std::iter::once((n, ' '))) {
-            if i == n || fg[i] != fg[start] || bg[i] != bg[start] || strong[i] != strong[start] {
+            if i == n || fg[i] != fg[start] || bg[i] != bg[start] || strong[i] != strong[start] || ul[i] != ul[start] {
                 let f = if strong[start] { bold_font.clone() } else { font.clone() };
                 job.append(
                     &text[start..i],
@@ -1569,6 +1743,7 @@ impl App {
                         font_id: f,
                         color: fg[start],
                         background: bg[start],
+                        underline: if ul[start] { st(1.0, fg[start].gamma_multiply(0.6)) } else { egui::Stroke::NONE },
                         ..Default::default()
                     },
                 );
@@ -1580,6 +1755,9 @@ impl App {
     // ------------------------------------------------------------ 侧边栏
 
     fn sidebar(&mut self, ui: &mut egui::Ui) {
+        if self.page == Page::Debug && self.s.transport == Transport::Serial {
+            self.work.serial_device_rect = Some(ui.max_rect().intersect(ui.clip_rect()));
+        }
         if self.page == Page::Tools {
             // 工具箱里的网络工具：标题换成工具名，配置方案只属于串口
             let (title, desc) = toolbox::tool_text(self.s.tb.tool);
@@ -1621,171 +1799,361 @@ impl App {
                         }
                         ui.add_space(16.0);
                     } else {
-                        // ---- 设备
-                        let dev_sum = if self.s.port.is_empty() { tf("{} 个", &[&self.ports.len()]) } else { self.s.port.clone() };
-                        let dev_open = self.fold_head(ui, "dev", t("设备"), &tf("{} 个", &[&self.ports.len()]), &dev_sum);
-                        if dev_open && self.ports.is_empty() {
-                            empty_port_card(ui);
-                        }
-                        for p in self.ports.clone().into_iter().filter(|_| dev_open) {
-                            let selected = p.name == self.s.port;
-                            let live = self.connected.as_deref() == Some(p.name.as_str());
-                            let alias = self.port_alias(&p.name).cloned();
-                            let b = !self.s.sniff_port.is_empty() && self.s.sniff_port == p.name;
-                            let r = port_card(ui, &p, alias.as_deref(), b, selected, live, !busy);
-                            if r.clicked() && !busy {
-                                self.s.port = p.name.clone();
-                            }
-                            r.context_menu(|ui| self.port_menu(ui, &p));
-                        }
-                        ui.add_space(12.0);
-
-                        // ---- 波特率
-                        let baud_sum = format!("{} {}", self.s.cfg.baud, self.s.cfg.short());
-                        let baud_open = self.fold_head(ui, "baud", t("波特率"), "", &baud_sum);
-                        ui.add_enabled_ui(!busy, |ui| {
-                            if !baud_open {
-                                return;
-                            }
-                            ui.horizontal(|ui| {
-                                // 右边留给下拉箭头和「自动」按钮，别让这一行把侧边栏撑宽
-                                let w = ui.available_width() - 94.0;
-                                let r = ui.add(
-                                    egui::TextEdit::singleline(&mut self.baud_text)
-                                        .desired_width(w - 34.0)
-                                        .font(FontId::new(14.0, FontFamily::Monospace))
-                                        .margin(vec2(8.0, 5.0)),
-                                );
-                                if r.changed() {
-                                    if let Ok(b) = self.baud_text.trim().parse::<u32>() {
-                                        if b > 0 {
-                                            self.s.cfg.baud = b;
-                                        }
-                                    }
-                                }
-                                if r.lost_focus() {
-                                    self.baud_text = self.s.cfg.baud.to_string();
-                                }
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                egui::ComboBox::from_id_salt("baud").width(22.0).height(400.0).selected_text("").show_ui(ui, |ui| {
-                                    for &b in COMMON_BAUDS {
-                                        if ui.selectable_label(self.s.cfg.baud == b, RichText::new(b.to_string()).monospace()).clicked() {
-                                            self.s.cfg.baud = b;
-                                            self.baud_text = b.to_string();
-                                        }
-                                    }
-                                });
-                                ui.spacing_mut().item_spacing.x = 8.0;
-                                let auto = egui::Button::new(RichText::new(t("⚡ 自动")).color(ACCENT()))
-                                    .fill(ACCENT().gamma_multiply(0.08))
-                                    .stroke(st(1.0, ACCENT().gamma_multiply(0.35)))
-                                    .min_size(vec2(ui.available_width(), 28.0));
-                                if ui
-                                    .add_enabled(!self.s.port.is_empty() && self.autobaud.is_none(), auto)
-                                    .on_hover_text(t("自动识别波特率：依次尝试 18 种常用波特率，选出能解出正常文字的那个。\n需要设备此时在输出日志。"))
-                                    .clicked()
-                                {
-                                    self.start_autobaud();
-                                }
+                        let open_network_shares = self.serial_devices(ui);
+                        let slot = self.serial_sidebar_slot();
+                        self.with_session(slot, |app| {
+                            ui.push_id(("serial-device-controls", slot), |ui| {
+                                app.serial_device_controls(ui, open_network_shares);
+                                app.sidebar_display(ui);
                             });
                         });
-                        if baud_open {
-                            ui.label(
-                                RichText::new(tf("{}  ·  流控 {}", &[&self.s.cfg.short(), &[t("无"), t("软件"), t("硬件")][self.s.cfg.flow.min(2) as usize]]))
-                                    .small()
-                                    .color(TEXT3()),
-                            );
-                        }
-                        ui.add_space(10.0);
-
-                        // ---- 连接按钮
-                        self.connect_button(ui);
-                        ui.add_space(16.0);
-
-                        // ---- 链路
-                        if self.fold_head(ui, "link", t("链路"), &self.uptime(), &self.link_summary()) {
-                            self.link_card(ui);
-                        }
-                        ui.add_space(16.0);
-                    }
-
-                    // ---- 显示
-                    let view_sum = format!("{} · {}", self.s.encoding.name(), [t("文本"), "HEX", t("混合")][self.s.view as usize]);
-                    if !self.fold_head(ui, "view", t("显示"), "", &view_sum) {
-                        ui.add_space(12.0);
-                        self.advanced_fold(ui);
                         return;
                     }
-                    let old = self.s.encoding;
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(t("编码")).color(TEXT2()));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            egui::ComboBox::from_id_salt("enc").width(130.0).selected_text(self.s.encoding.name()).show_ui(ui, |ui| {
-                                for e in Encoding::ALL {
-                                    ui.selectable_value(&mut self.s.encoding, e, e.name());
-                                }
-                            });
-                        });
-                    });
-                    if old != self.s.encoding {
-                        self.buf.rerender(self.s.encoding);
-                        self.view_dirty = true;
-                    }
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(t("视图")).color(TEXT2()));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            segmented(ui, &mut self.s.view, &[(ViewMode::Text, t("文本")), (ViewMode::Hex, "HEX"), (ViewMode::Mixed, t("混合"))]);
-                        });
-                    });
-                    switch_row(ui, &mut self.s.show_ts, t("时间戳"), t("每行前显示接收时间（毫秒）"));
-                    switch_row(ui, &mut self.s.show_ln, t("行号"), t("左侧显示行号"));
-                    if switch_row(ui, &mut self.s.show_tx, t("发送回显"), t("在日志里显示自己发送的数据")) {
-                        self.view_dirty = true;
-                    }
-                    switch_row(ui, &mut self.s.ansi, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"));
-                    switch_row(ui, &mut self.s.level_color, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"));
-                    switch_row(ui, &mut self.auto_scroll, t("自动滚动"), t("新数据到来时自动滚到底部；往上翻时自动停住"));
-                    switch_row(ui, &mut self.s.show_delta, t("时间差"), t("每行前显示和上一行相隔的时间，看时序很方便"));
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(t("协议分帧")).color(TEXT2()));
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            let label = if self.s.frame.on { t("已开启") } else { t("设置…") };
-                            let b = egui::Button::new(RichText::new(label).size(12.0).color(if self.s.frame.on { ACCENT() } else { TEXT2() }))
-                                .fill(BG2())
-                                .stroke(st(1.0, if self.s.frame.on { ACCENT().gamma_multiply(0.4) } else { LINE() }))
-                                .min_size(vec2(0.0, 22.0));
-                            if ui.add(b).on_hover_text(t("按帧头 + 长度 + 校验切分二进制数据，校验错误标红")).clicked() {
-                                self.wins.frame = !self.wins.frame;
-                            }
-                        });
-                    });
-                    ui.add_space(4.0);
-                    let r = ui.add(
-                        egui::TextEdit::singleline(&mut self.s.keywords)
-                            .hint_text(t("高亮关键词，逗号分隔"))
-                            .desired_width(f32::INFINITY)
-                            .margin(vec2(8.0, 5.0)),
-                    );
-                    if r.changed() {
-                        self.parse_keywords();
-                    }
-                    if !self.keywords.is_empty() {
-                        ui.horizontal_wrapped(|ui| {
-                            ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                            for (k, c) in &self.keywords {
-                                pill(ui, k, *c);
-                            }
-                        });
-                    }
-                    ui.add_space(12.0);
-
-                    self.advanced_fold(ui);
-                    ui.add_space(8.0);
+                    self.sidebar_display(ui);
                 });
         });
     }
 
-    // ------------------------------------------------------------ 网络连接表单
+    fn serial_device_controls(&mut self, ui: &mut egui::Ui, open_network_shares: bool) {
+        let busy = self.conn.is_some() || self.autobaud.is_some() || self.is_mapping_monitor(&self.s.port);
+        ui.add_space(12.0);
+
+        // ---- 波特率
+        let baud_sum = format!("{} {}", self.s.cfg.baud, self.s.cfg.short());
+        let baud_open = self.fold_head(ui, "baud", t("波特率"), "", &baud_sum);
+        ui.add_enabled_ui(!busy, |ui| {
+            if !baud_open {
+                return;
+            }
+            ui.horizontal(|ui| {
+                // 右边留给下拉箭头和「自动」按钮，别让这一行把侧边栏撑宽
+                let w = ui.available_width() - 94.0;
+                let r = ui.add(
+                    egui::TextEdit::singleline(&mut self.baud_text)
+                        .desired_width(w - 34.0)
+                        .font(FontId::new(14.0, FontFamily::Monospace))
+                        .margin(vec2(8.0, 5.0)),
+                );
+                if r.changed() {
+                    if let Ok(b) = self.baud_text.trim().parse::<u32>() {
+                        if b > 0 {
+                            self.s.cfg.baud = b;
+                        }
+                    }
+                }
+                if r.lost_focus() {
+                    self.baud_text = self.s.cfg.baud.to_string();
+                }
+                ui.spacing_mut().item_spacing.x = 4.0;
+                egui::ComboBox::from_id_salt("baud").width(22.0).height(400.0).selected_text("").show_ui(ui, |ui| {
+                    for &b in COMMON_BAUDS {
+                        if ui.selectable_label(self.s.cfg.baud == b, RichText::new(b.to_string()).monospace()).clicked() {
+                            self.s.cfg.baud = b;
+                            self.baud_text = b.to_string();
+                        }
+                    }
+                });
+                ui.spacing_mut().item_spacing.x = 8.0;
+                let auto = egui::Button::new(RichText::new(t("⚡ 自动")).color(ACCENT()))
+                    .fill(ACCENT().gamma_multiply(0.08))
+                    .stroke(st(1.0, ACCENT().gamma_multiply(0.35)))
+                    .min_size(vec2(ui.available_width(), 28.0));
+                if ui
+                    .add_enabled(!self.s.port.is_empty() && self.autobaud.is_none(), auto)
+                    .on_hover_text(t("自动识别波特率：依次尝试 18 种常用波特率，选出能解出正常文字的那个。\n需要设备此时在输出日志。"))
+                    .clicked()
+                {
+                    self.start_autobaud();
+                }
+            });
+        });
+        if baud_open {
+            ui.label(
+                RichText::new(tf("{}  ·  流控 {}", &[&self.s.cfg.short(), &[t("无"), t("软件"), t("硬件")][self.s.cfg.flow.min(2) as usize]]))
+                    .small()
+                    .color(TEXT3()),
+            );
+        }
+        ui.add_space(10.0);
+
+        self.connect_button(ui);
+        ui.add_space(12.0);
+        self.serial_sharing(ui, open_network_shares);
+        ui.add_space(12.0);
+
+        // ---- 链路
+        if self.fold_head(ui, "serial-link", t("链路"), &self.uptime(), &self.link_summary()) {
+            self.link_card(ui);
+        }
+        ui.add_space(16.0);
+    }
+
+    fn sidebar_display(&mut self, ui: &mut egui::Ui) {
+        let view_sum = format!("{} · {}", self.s.encoding.name(), [t("文本"), "HEX", t("混合")][self.s.view as usize]);
+        if !self.fold_head(ui, "view", t("显示"), "", &view_sum) {
+            ui.add_space(12.0);
+            self.advanced_fold(ui);
+            return;
+        }
+        let old = self.s.encoding;
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(t("编码")).color(TEXT2()));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                egui::ComboBox::from_id_salt("enc").width(130.0).selected_text(self.s.encoding.name()).show_ui(ui, |ui| {
+                    for e in Encoding::ALL {
+                        ui.selectable_value(&mut self.s.encoding, e, e.name());
+                    }
+                });
+            });
+        });
+        if old != self.s.encoding {
+            self.buf.rerender(self.s.encoding);
+            self.view_dirty = true;
+        }
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(t("视图")).color(TEXT2()));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                segmented(ui, &mut self.s.view, &[(ViewMode::Text, t("文本")), (ViewMode::Hex, "HEX"), (ViewMode::Mixed, t("混合"))]);
+            });
+        });
+        switch_row(ui, &mut self.s.show_ts, t("时间戳"), t("每行前显示接收时间（毫秒）"));
+        switch_row(ui, &mut self.s.show_ln, t("行号"), t("左侧显示行号"));
+        if switch_row(ui, &mut self.s.show_tx, t("发送回显"), t("在日志里显示自己发送的数据")) {
+            self.invalidate_log_views();
+        }
+        switch_row(ui, &mut self.s.ansi, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"));
+        switch_row(ui, &mut self.s.level_color, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"));
+        switch_row(ui, &mut self.auto_scroll, t("自动滚动"), t("新数据到来时自动滚到底部；往上翻时自动停住"));
+        switch_row(ui, &mut self.s.show_delta, t("时间差"), t("每行前显示和上一行相隔的时间，看时序很方便"));
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(t("协议分帧")).color(TEXT2()));
+            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                let label = if self.s.frame.on { t("已开启") } else { t("设置…") };
+                let b = egui::Button::new(RichText::new(label).size(12.0).color(if self.s.frame.on { ACCENT() } else { TEXT2() }))
+                    .fill(BG2())
+                    .stroke(st(1.0, if self.s.frame.on { ACCENT().gamma_multiply(0.4) } else { LINE() }))
+                    .min_size(vec2(0.0, 22.0));
+                if ui.add(b).on_hover_text(t("按帧头 + 长度 + 校验切分二进制数据，校验错误标红")).clicked() {
+                    self.wins.frame = !self.wins.frame;
+                }
+            });
+        });
+        ui.add_space(4.0);
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut self.s.keywords)
+                .hint_text(t("高亮关键词，逗号分隔"))
+                .desired_width(f32::INFINITY)
+                .margin(vec2(8.0, 5.0)),
+        );
+        if r.changed() {
+            self.parse_keywords();
+        }
+        if !self.keywords.is_empty() {
+            ui.horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
+                for (k, c) in &self.keywords {
+                    pill(ui, k, *c);
+                }
+            });
+        }
+        ui.add_space(12.0);
+
+        self.advanced_fold(ui);
+        ui.add_space(8.0);
+    }
+
+    fn serial_device_entries(&self) -> Vec<PortEntry> {
+        let mut ports: Vec<_> = self
+            .ports
+            .iter()
+            .filter(|port| {
+                #[cfg(windows)]
+                if self.mappings.hidden_driver_end(&port.name, &self.s.mapping) {
+                    return false;
+                }
+                let _ = port;
+                true
+            })
+            .cloned()
+            .collect();
+        for (owner, name) in self.local_vcom_ports() {
+            let desc = self.serial_port_for(owner).to_owned();
+            if let Some(port) = ports.iter_mut().find(|port| port.name == name) {
+                port.desc = desc;
+            } else {
+                ports.push(PortEntry { name, desc });
+            }
+        }
+        #[cfg(windows)]
+        for name in self.mappings.serial_view_ports() {
+            if !ports.iter().any(|port| port.name == name) {
+                ports.push(PortEntry {
+                    name: name.to_owned(),
+                    desc: String::new(),
+                });
+            }
+        }
+        ports
+    }
+
+    fn serial_devices(&mut self, ui: &mut egui::Ui) -> bool {
+        let ports = self.serial_device_entries();
+        eyebrow(ui, t("设备"), &tf("{} 个", &[&ports.len()]));
+        if ports.is_empty() {
+            ui.label(RichText::new(t("没有可用的串口")).small().color(TEXT3()));
+            return false;
+        }
+
+        let mut open_network_shares = false;
+        ui.scope(|ui| {
+            ui.spacing_mut().item_spacing.y = 3.0;
+            let split = self.serial_split_active();
+            for port in ports {
+                let slot = self.serial_sidebar_slot();
+                let selected = self.serial_port_for(slot) == port.name;
+                let occupied = self.serial_port_busy(&port.name);
+                let virtual_port = self.local_vcom_owner(&port.name).is_some();
+                let alias = self.port_alias(&port.name).cloned();
+                let shared = self.is_mapping_monitor(&port.name);
+                let live = self.serial_port_connected(&port.name);
+                let status = if virtual_port {
+                    Some((t("虚拟串口"), ACCENT()))
+                } else if live {
+                    Some((t("已连接"), OK()))
+                } else if shared {
+                    Some((t("网络分享"), ACCENT()))
+                } else if occupied {
+                    Some((t("正在使用"), WARN()))
+                } else {
+                    None
+                };
+                let side_b = self.serial_sniff_port_for(slot) == port.name;
+                ui.push_id(&port.name, |ui| {
+                    let row = ui
+                        .horizontal(|ui| {
+                            let show_menu = split || selected;
+                            let width = ui.available_width() - if show_menu { 34.0 } else { 0.0 };
+                            let response = serial_port_row(ui, &port, alias.as_deref(), selected, side_b, status, width.max(72.0));
+                            if show_menu {
+                                ui.menu_button("⋯", |ui| {
+                                    open_network_shares |= self.serial_device_menu(ui, &port, occupied);
+                                })
+                                .response
+                                .on_hover_text(t("更多"));
+                            }
+                            response
+                        })
+                        .inner;
+                    row.context_menu(|ui| {
+                        open_network_shares |= self.serial_device_menu(ui, &port, occupied);
+                    });
+                    if row.clicked() || row.double_clicked() {
+                        self.choose_serial_port(&port.name, row.double_clicked());
+                    }
+                });
+            }
+        });
+        open_network_shares
+    }
+
+    fn serial_device_choice(&mut self, ui: &mut egui::Ui) {
+        let port = &self.s.port;
+        let label = if port.is_empty() {
+            t("选择串口").to_owned()
+        } else {
+            truncate(port.strip_prefix("/dev/").unwrap_or(port), 18)
+        };
+        let mut picked = None;
+        egui::ComboBox::from_id_salt(("split_serial_port", self.session_slot))
+            .width(94.0)
+            .height(260.0)
+            .selected_text(label)
+            .show_ui(ui, |ui| {
+                let ports = self.serial_device_entries();
+                if ports.is_empty() {
+                    ui.label(t("没有可用的串口"));
+                }
+                for entry in ports {
+                    let short = entry.name.strip_prefix("/dev/").unwrap_or(&entry.name);
+                    let label = self.port_alias(&entry.name).map_or_else(|| short.to_owned(), |alias| format!("{short} · {alias}"));
+                    if ui.selectable_label(entry.name == *port, label).on_hover_text(&entry.name).clicked() {
+                        picked = Some(entry.name);
+                        ui.close_menu();
+                    }
+                }
+            })
+            .response
+            .on_hover_text(if port.is_empty() { t("选择串口") } else { port });
+        if let Some(name) = picked {
+            self.choose_serial_port_in(&name, false, SerialTarget::Side);
+        }
+    }
+
+    fn serial_device_menu(&mut self, ui: &mut egui::Ui, port: &PortEntry, occupied: bool) -> bool {
+        if self.serial_split_active() {
+            if menu_item(ui, t("在主区域显示"), "") {
+                self.choose_serial_port_in(&port.name, false, SerialTarget::Main);
+                ui.close_menu();
+                return false;
+            }
+            if menu_item(ui, t("在分屏区域显示"), "") {
+                self.choose_serial_port_in(&port.name, false, SerialTarget::Side);
+                ui.close_menu();
+                return false;
+            }
+            ui.separator();
+        }
+        let monitor = self.local_vcom_owner(&port.name).is_some() || self.is_mapping_monitor(&port.name);
+        let slot = self.serial_sidebar_slot();
+        self.with_session(slot, |app| app.port_menu(ui, port, !monitor));
+        #[cfg(windows)]
+        if qccom_tunnel::mapping::valid_com(&port.name) && (!monitor || self.mappings.has_com_share(&port.name, &self.s.mapping)) {
+            ui.separator();
+            let shared = self.mappings.has_com_share(&port.name, &self.s.mapping);
+            let label = if shared { t("网络分享") } else { t("分享到网络") };
+            if ui
+                .add_enabled(shared || !occupied, egui::Button::new(label))
+                .on_disabled_hover_text(t("该串口正在使用，请先断开本机连接"))
+                .clicked()
+            {
+                if !shared {
+                    self.mappings.share_com_from_row(ui, &port.name, &mut self.s.mapping, occupied);
+                }
+                ui.close_menu();
+                return true;
+            }
+        }
+        let _ = occupied;
+        false
+    }
+
+    fn serial_sharing(&mut self, ui: &mut egui::Ui, open_network_shares: bool) {
+        #[cfg(windows)]
+        {
+            let count = self.mappings.count(&self.s.mapping);
+            let title = if count == 0 { t("网络分享").to_owned() } else { format!("{} · {count}", t("网络分享")) };
+            egui::CollapsingHeader::new(title)
+                .id_salt("serial_network_shares")
+                .open(open_network_shares.then_some(true))
+                .show(ui, |ui| {
+                    let busy_ports: Vec<_> = self
+                        .ports
+                        .iter()
+                        .filter(|port| self.serial_port_busy(&port.name))
+                        .map(|port| port.name.clone())
+                        .chain(self.local_vcom_ports().into_iter().map(|(_, port)| port))
+                        .collect();
+                    self.mappings.network_ui(ui, &mut self.s.mapping, &self.ports, &self.s.port, &busy_ports);
+                });
+        }
+        let _ = open_network_shares;
+        if self.conn.is_some() || self.vcom.is_some() || self.bridge.is_some() || self.serial_ui.vc_installing.is_some() {
+            egui::CollapsingHeader::new(t("本机和局域网"))
+                .id_salt("serial_local_sharing")
+                .open(self.serial_ui.vc_installing.is_some().then_some(true))
+                .show(ui, |ui| self.bridge_ui(ui));
+        }
+    }
 
     fn net_form(&mut self, ui: &mut egui::Ui, busy: bool) {
         let connected = self.connected.is_some();
@@ -1977,23 +2345,71 @@ impl App {
         }
     }
 
-    /// 第一次启动：窗口宽 = 屏幕宽 × 0.618，高 = 宽 × 0.618（黄金矩形），居中
+    /// 第一次启动：直接最大化。先把「还原」尺寸设成屏幕的 80% 居中，取消最大化时不会缩成小窗口。
+    /// 以后由 eframe 记住上次关闭时的大小、位置和是否最大化
     fn place_window(&mut self, ctx: &egui::Context) {
         let Some(screen) = ctx.input(|i| i.viewport().monitor_size) else {
             ctx.request_repaint(); // 屏幕尺寸下一帧才拿得到
             return;
         };
-        let phi = 0.618;
-        let mut w = screen.x * phi;
-        let mut h = w * phi;
-        if h > screen.y * 0.85 {
-            h = screen.y * 0.85;
-            w = h / phi;
-        }
-        let size = vec2(w.max(900.0).min(screen.x), h.max(560.0).min(screen.y));
+        let size = vec2((screen.x * 0.8).max(900.0).min(screen.x), (screen.y * 0.8).max(560.0).min(screen.y));
         ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
         ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos2((screen.x - size.x) / 2.0, (screen.y - size.y) / 2.0)));
+        // 窗口管理器处理完改大小再最大化，否则最大化会被上面的改大小覆盖
+        self.maximize_in = 3;
         self.s.window_placed = true;
+    }
+
+    /// 外部文件拖在窗口上时，提示松手会做什么
+    fn drop_hint(&mut self, ctx: &egui::Context, pos: Option<egui::Pos2>) {
+        let files: Vec<PathBuf> = ctx.input(|i| i.raw.hovered_files.iter().filter_map(|f| f.path.clone()).collect());
+        let n = ctx.input(|i| i.raw.hovered_files.len());
+        if n == 0 {
+            return;
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        let Some(pos) = pos else { return };
+        let what = if files.len() == 1 {
+            files[0].file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+        } else {
+            tf("{} 个文件", &[&n])
+        };
+        let shift = ctx.input(|i| i.modifiers.shift);
+        let msg = if self.shells.s.open && self.shells.rect.is_some_and(|r| r.contains(pos)) {
+            t("插入路径到终端").to_string()
+        } else {
+            match self.page {
+                Page::Code => match self.code.drop_dir_at(pos) {
+                    Some(d) => {
+                        let root = self.code.root().map(|r| r.to_path_buf()).unwrap_or_default();
+                        let rel = d.strip_prefix(&root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_default();
+                        let dir = if rel.is_empty() {
+                            root.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default()
+                        } else {
+                            rel
+                        };
+                        if shift {
+                            tf("移动到 {}/", &[&dir])
+                        } else {
+                            tf("复制到 {}/（按住 Shift 移动）", &[&dir])
+                        }
+                    }
+                    None if files.len() == 1 && files[0].is_dir() => t("作为工程打开").to_string(),
+                    None => t("在编辑器中打开").to_string(),
+                },
+                Page::Compare => t("添加到比较").to_string(),
+                Page::Tools => t("交给当前工具").to_string(),
+                _ => t("作为日志打开").to_string(),
+            }
+        };
+        egui::Area::new(egui::Id::new("drop-hint"))
+            .order(egui::Order::Tooltip)
+            .fixed_pos(pos + vec2(16.0, 14.0))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(format!("{what}  →  {msg}")).size(12.5).color(TEXT())).extend());
+                });
+            });
     }
 
     /// 侧边栏最下面的「高级设置」折叠块
@@ -2020,12 +2436,15 @@ impl App {
         state.store(ui.ctx());
         if open {
             self.advanced(ui);
+            #[cfg(windows)]
+            self.mappings.advanced(ui, &mut self.s.mapping);
         }
     }
 
     /// 侧边栏分组标题：点击折叠 / 展开，折叠后在右边显示一句摘要；右键可以全部折叠或展开。返回是否展开
     fn fold_head(&mut self, ui: &mut egui::Ui, key: &str, title: &str, note: &str, summary: &str) -> bool {
-        let open = !self.s.folded.iter().any(|k| k == key);
+        let serial_link = key == "serial-link";
+        let open = if serial_link { self.s.serial_link_open } else { !self.s.folded.iter().any(|k| k == key) };
         let r = ui
             .horizontal(|ui| {
                 let (rect, _) = ui.allocate_exact_size(vec2(10.0, 12.0), Sense::hover());
@@ -2049,7 +2468,9 @@ impl App {
             .interact(Sense::click())
             .on_hover_cursor(egui::CursorIcon::PointingHand);
         if r.clicked() {
-            if open {
+            if serial_link {
+                self.s.serial_link_open = !open;
+            } else if open {
                 self.s.folded.push(key.to_string());
             } else {
                 self.s.folded.retain(|k| k != key);
@@ -2058,10 +2479,12 @@ impl App {
         r.context_menu(|ui| {
             if ui.button(t("全部折叠")).clicked() {
                 self.s.folded = ["dev", "baud", "link", "view"].iter().map(|s| s.to_string()).collect();
+                self.s.serial_link_open = false;
                 ui.close_menu();
             }
             if ui.button(t("全部展开")).clicked() {
                 self.s.folded.clear();
+                self.s.serial_link_open = true;
                 ui.close_menu();
             }
         });
@@ -2088,8 +2511,17 @@ impl App {
         let w = ui.available_width();
         let (rect, resp) = ui.allocate_exact_size(vec2(w, 40.0), Sense::click());
         let net = self.s.transport != Transport::Serial;
+        #[cfg(windows)]
+        let sharing_port = !net && self.conn.is_none() && self.mappings.owns(&self.s.port, &self.s.mapping);
+        #[cfg(not(windows))]
+        let sharing_port = false;
+        let resp = if sharing_port {
+            resp.on_hover_text(t("请先在「网络分享」中停止共享此串口"))
+        } else {
+            resp
+        };
         let ble_ok = self.s.transport != Transport::Ble || !self.s.net.ble.id.is_empty();
-        let enabled = self.autobaud.is_none() && ble_ok && (net || !self.s.port.is_empty() || self.conn.is_some());
+        let enabled = !sharing_port && self.autobaud.is_none() && ble_ok && (net || !self.s.port.is_empty() || self.conn.is_some());
         let connecting = net && self.conn.is_some() && self.connected.is_none();
         let hov = resp.hovered() && enabled;
         let p = ui.painter();
@@ -2136,7 +2568,13 @@ impl App {
                 st(1.0, if hov { ERR() } else { OK().gamma_multiply(0.6) }),
                 egui::StrokeKind::Inside,
             );
-            let (txt, col) = if hov { (t("断开连接"), ERR()) } else { (t("● 已连接"), OK()) };
+            let (txt, col) = if hov {
+                (t("断开连接"), ERR())
+            } else if net {
+                (t("● 已连接"), OK())
+            } else {
+                (t("断开连接"), TEXT())
+            };
             p.text(rect.center(), Align2::CENTER_CENTER, txt, FontId::new(13.5, bold()), col);
             ui.ctx().request_repaint_after(Duration::from_millis(50));
         } else if self.reconnect.is_some() {
@@ -2209,7 +2647,6 @@ impl App {
             });
             if self.s.transport == Transport::Serial && self.conn.is_some() {
                 self.signals_ui(ui);
-                self.bridge_ui(ui);
             }
         });
     }
@@ -2278,49 +2715,90 @@ impl App {
 
     // ------------------------------------------------------------ 顶部：搜索与筛选
 
-    fn header(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            if icon_button(ui, Icon::Sidebar, t("侧边栏  Ctrl+B"), !self.s.sidebar).clicked() {
-                self.s.sidebar = !self.s.sidebar;
+    fn toggle_debug_panel(&mut self, panel: DebugDrawer, narrow: bool) {
+        if narrow {
+            self.debug_drawer = if self.debug_drawer == Some(panel) { None } else { Some(panel) };
+        } else {
+            let show = match panel {
+                DebugDrawer::Devices => &mut self.s.sidebar,
+                DebugDrawer::Commands => &mut self.s.cmd_panel,
+            };
+            *show = !*show;
+        }
+    }
+
+    fn debug_panel_button(&mut self, ui: &mut egui::Ui, panel: DebugDrawer, narrow: bool) {
+        let (icon, tip, docked) = match panel {
+            DebugDrawer::Devices => (Icon::Sidebar, t("侧边栏  Ctrl+B"), !self.s.sidebar),
+            DebugDrawer::Commands => (Icon::Commands, t("快捷命令面板  Ctrl+J"), self.s.cmd_panel),
+        };
+        let active = if narrow { self.debug_drawer == Some(panel) } else { docked };
+        if icon_button(ui, icon, tip, active).clicked() {
+            self.toggle_debug_panel(panel, narrow);
+        }
+    }
+
+    fn header(&mut self, ui: &mut egui::Ui, narrow: bool, fixed_serial: bool) {
+        let stacked = ui.available_width() < 330.0;
+        let modes = |ui: &mut egui::Ui| {
+            if self.compact_header {
+                // 副页面：没有侧边栏，这里放一个连接下拉和打开 / 关闭按钮
+                if fixed_serial {
+                    self.serial_device_choice(ui);
+                } else {
+                    self.conn_chip(ui);
+                }
+                self.conn_toggle(ui);
+            } else {
+                self.debug_panel_button(ui, DebugDrawer::Devices, narrow);
             }
             let was = self.s.terminal;
             segmented(ui, &mut self.s.terminal, &[(true, t("终端")), (false, t("日志"))]);
             if self.s.terminal != was {
                 self.tv.focus_req = self.s.terminal;
             }
-            ui.add_space(4.0);
-            if self.s.terminal {
-                self.term_header(ui);
-                return;
+            if !stacked {
+                ui.add_space(4.0);
+                self.header_toolbar(ui, narrow);
             }
-            // 先从右往左放按钮，剩下的宽度给搜索框和级别标签
+        };
+        if stacked {
+            ui.horizontal_wrapped(modes);
+            ui.horizontal(|ui| self.header_toolbar(ui, narrow));
+        } else {
+            ui.horizontal(modes);
+        }
+    }
+
+    fn header_toolbar(&mut self, ui: &mut egui::Ui, narrow: bool) {
+        if self.s.terminal {
+            self.term_header(ui, narrow);
+        } else {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                self.header_right(ui);
+                self.header_right(ui, narrow);
                 ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.header_left(ui));
             });
-        });
+        }
     }
 
     fn header_left(&mut self, ui: &mut egui::Ui) {
         // 搜索框
+        let search_id = ui.make_persistent_id("search");
         // 至少留一个级别标签的位置，窄窗口时搜索框让位
         let avail = ui.available_width();
         let all_pills = avail >= 160.0 + 70.0 + 5.0 * 70.0;
-        let search_w = if all_pills {
+        let no_pills = !all_pills && (self.compact_header || avail < 190.0);
+        let search_w = if no_pills {
+            let controls = if self.search.is_empty() { 66.0 } else { 88.0 };
+            (avail - controls).clamp(24.0, 260.0)
+        } else if all_pills {
             (avail - 70.0 - 5.0 * 70.0).min(260.0)
         } else {
             (avail - 70.0 - 140.0).clamp(60.0, 260.0)
         };
         egui::Frame::new()
             .fill(BG2())
-            .stroke(st(
-                1.0,
-                if ui.memory(|m| m.has_focus(egui::Id::new("search"))) {
-                    ACCENT().gamma_multiply(0.6)
-                } else {
-                    LINE()
-                },
-            ))
+            .stroke(st(1.0, if ui.memory(|m| m.has_focus(search_id)) { ACCENT().gamma_multiply(0.6) } else { LINE() }))
             .corner_radius(R_WIDGET)
             .inner_margin(egui::Margin::symmetric(8, 2))
             .show(ui, |ui| {
@@ -2329,9 +2807,9 @@ impl App {
                     draw_icon(ui.painter(), r, Icon::Search, TEXT3());
                     let r = ui.add(
                         egui::TextEdit::singleline(&mut self.search)
-                            .id(egui::Id::new("search"))
+                            .id(search_id)
                             .frame(false)
-                            .hint_text(t("搜索日志   Ctrl+F"))
+                            .hint_text(if no_pills { t("搜索") } else { t("搜索日志   Ctrl+F") })
                             .desired_width(search_w),
                     );
                     if self.focus_search {
@@ -2384,17 +2862,12 @@ impl App {
                 });
             });
         ui.add_space(6.0);
+        if no_pills {
+            return;
+        }
 
         // 级别计数，点一下按级别筛选
-        let c = self.buf.counts;
-        let total: u64 = c.iter().sum();
-        let lv = [
-            (Level::None, t("全部"), total, TEXT2()),
-            (Level::Error, "ERR", c[Level::Error as usize], ERR()),
-            (Level::Warn, "WRN", c[Level::Warn as usize], WARN()),
-            (Level::Info, "INF", c[Level::Info as usize], INFO()),
-            (Level::Debug, "DBG", c[Level::Debug as usize], DEBUG()),
-        ];
+        let lv = self.log_levels();
         ui.spacing_mut().item_spacing.x = 4.0;
         // 窗口窄时从右往左少显示几个级别，给右侧按钮留位置
         let fits = if all_pills { lv.len() } else { 1 };
@@ -2406,7 +2879,7 @@ impl App {
             let c = cr.center() - vec2(4.0, 0.0);
             ui.painter().add(Shape::line(vec![c + vec2(-3.0, -1.5), c + vec2(0.0, 1.5), c + vec2(3.0, -1.5)], st(1.3, TEXT3())));
             let r = r.on_hover_text(t("按级别筛选"));
-            let pop = egui::Id::new("level_pop");
+            let pop = ui.make_persistent_id("level_pop");
             if r.clicked() {
                 ui.memory_mut(|m| m.toggle_popup(pop));
             }
@@ -2415,7 +2888,7 @@ impl App {
                 for (l, name, n, col) in lv {
                     if level_pill(ui, name, n, col, self.s.min_level == l).clicked() {
                         self.s.min_level = l;
-                        self.view_dirty = true;
+                        self.invalidate_log_views();
                     }
                 }
             });
@@ -2429,36 +2902,113 @@ impl App {
                 };
                 if level_pill(ui, name, n, col, on).on_hover_text(tip).clicked() {
                     self.s.min_level = if on && l != Level::None { Level::None } else { l };
-                    self.view_dirty = true;
+                    self.invalidate_log_views();
                 }
             }
         }
         ui.spacing_mut().item_spacing.x = 8.0;
     }
 
-    fn header_right(&mut self, ui: &mut egui::Ui) {
+    fn log_levels(&self) -> [(Level, &'static str, u64, Color32); 5] {
+        let counts = self.buf.counts;
+        [
+            (Level::None, t("全部"), counts.iter().sum(), TEXT2()),
+            (Level::Error, "ERR", counts[Level::Error as usize], ERR()),
+            (Level::Warn, "WRN", counts[Level::Warn as usize], WARN()),
+            (Level::Info, "INF", counts[Level::Info as usize], INFO()),
+            (Level::Debug, "DBG", counts[Level::Debug as usize], DEBUG()),
+        ]
+    }
+
+    fn header_right(&mut self, ui: &mut egui::Ui, narrow: bool) {
         // 右侧：操作按钮（从右往左）
-        if icon_button(ui, Icon::Commands, t("快捷命令面板  Ctrl+J"), self.s.cmd_panel).clicked() {
-            self.s.cmd_panel = !self.s.cmd_panel;
+        let minimal = ui.available_width() < 240.0;
+        if !self.compact_header {
+            self.debug_panel_button(ui, DebugDrawer::Commands, narrow);
+            if !minimal {
+                ui.add_space(2.0);
+                let (r, _) = ui.allocate_exact_size(vec2(1.0, 18.0), Sense::hover());
+                ui.painter().vline(r.center().x, r.y_range(), st(1.0, LINE()));
+                ui.add_space(2.0);
+            }
         }
-        ui.add_space(2.0);
-        let (r, _) = ui.allocate_exact_size(vec2(1.0, 18.0), Sense::hover());
-        ui.painter().vline(r.center().x, r.y_range(), st(1.0, LINE()));
-        ui.add_space(2.0);
         let more = icon_button(ui, Icon::More, t("更多：标记、帧格式、统计、回放、Modbus、发送文件…"), false);
-        let pop = egui::Id::new("log_more");
+        let pop = ui.make_persistent_id("log_more");
         if more.clicked() {
             ui.memory_mut(|m| m.toggle_popup(pop));
         }
-        egui::popup::popup_below_widget(ui, pop, &more, egui::PopupCloseBehavior::CloseOnClick, |ui| self.more_menu(ui));
-        let rules_on = self.s.rules.iter().any(|r| r.on);
+        let condensed = ui.available_width() < 360.0;
+        let levels_in_menu = self.compact_header || ui.available_width() < 266.0;
+        egui::popup::popup_below_widget(ui, pop, &more, egui::PopupCloseBehavior::CloseOnClick, |ui| {
+            if condensed {
+                ui.set_min_width(240.0);
+                if minimal {
+                    if menu_item(ui, t("清屏"), &self.km.label(Act::LogClear)) {
+                        self.clear();
+                    }
+                    let pause = if self.paused { t("继续") } else { t("暂停") };
+                    if menu_item(ui, pause, &self.km.label(Act::LogPause)) {
+                        self.toggle_pause();
+                    }
+                }
+                if menu_item(ui, t("保存日志"), &self.km.label(Act::LogSave)) {
+                    self.save();
+                }
+                let record = if self.buf.recording_path().is_some() { t("停止录制") } else { t("开始录制") };
+                if menu_item(ui, record, "") {
+                    self.toggle_record();
+                }
+                if menu_item(ui, t("波形图"), &self.km.label(Act::TogglePlot)) {
+                    self.s.plot.on = !self.s.plot.on;
+                }
+                if levels_in_menu {
+                    ui.menu_button(t("按级别筛选"), |ui| {
+                        for (level, name, count, color) in self.log_levels() {
+                            if level_pill(ui, name, count, color, self.s.min_level == level).clicked() {
+                                self.s.min_level = level;
+                                self.invalidate_log_views();
+                                ui.close_menu();
+                            }
+                        }
+                    });
+                }
+                ui.separator();
+            }
+            self.more_menu(ui);
+        });
+        let rules_on = self.s.log_preset != LogPreset::None || self.s.rules.iter().any(|r| r.on);
+        if minimal {
+            return;
+        }
+        if condensed {
+            // 窄窗口只留暂停和清屏，其它在 ⋯ 里
+            if icon_button(ui, Icon::Trash, t("清屏  Ctrl+L"), false).clicked() {
+                self.clear();
+            }
+            let paused = self.paused;
+            if icon_button(
+                ui,
+                if paused { Icon::Play } else { Icon::Pause },
+                if paused {
+                    t("继续  Ctrl+P")
+                } else {
+                    t("暂停（后台继续接收，不丢数据）  Ctrl+P")
+                },
+                paused,
+            )
+            .clicked()
+            {
+                self.toggle_pause();
+            }
+            return;
+        }
         if icon_button(ui, Icon::Filter, &format!("{}  {}", t("过滤与高亮规则"), self.km.label(Act::LogRules)), rules_on || self.wins.rules).clicked() {
             self.wins.rules = !self.wins.rules;
         }
         if icon_button(ui, Icon::Chart, &format!("{}  {}", t("波形图：把日志里的数字画成曲线"), self.km.label(Act::TogglePlot)), self.s.plot.on).clicked() {
             self.s.plot.on = !self.s.plot.on;
         }
-        let rec = self.record.is_some();
+        let rec = self.buf.recording_path().is_some();
         if icon_button(ui, Icon::Record, if rec { t("停止录制") } else { t("录制：把之后收到的每一行实时写入文件") }, rec).clicked() {
             self.toggle_record();
         }
@@ -2503,22 +3053,32 @@ impl App {
         self.tx_bytes = 0;
     }
 
-    fn export_text(&self) -> String {
+    fn export_rows(&self) -> impl Iterator<Item = String> + '_ {
         let (n, open) = self.rows();
+        (0..n).filter_map(move |i| self.buf.get(self.row_id(i, open))).map(move |line| format_line(line, self.s.view))
+    }
+
+    fn export_text(&self) -> String {
         let mut out = String::new();
-        for i in 0..n {
-            if let Some(l) = self.buf.get(self.row_id(i, open)) {
-                out.push_str(&format_line(l, self.s.view));
-                out.push('\n');
-            }
+        for line in self.export_rows() {
+            out.push_str(&line);
+            out.push('\n');
         }
         out
     }
 
     fn save(&mut self) {
         let name = chrono::Local::now().format("uart_%Y%m%d_%H%M%S.log").to_string();
-        if let Some(path) = rfd::FileDialog::new().set_file_name(&name).add_filter(t("日志"), &["log", "txt"]).save_file() {
-            match std::fs::write(&path, self.export_text()) {
+        if let Some(path) = crate::diagnostics::file_dialog().set_file_name(&name).add_filter(t("日志"), &["log", "txt"]).save_file() {
+            let result = (|| {
+                use std::io::Write;
+                let mut out = std::io::BufWriter::new(std::fs::File::create(&path)?);
+                for line in self.export_rows() {
+                    writeln!(out, "{line}")?;
+                }
+                out.flush()
+            })();
+            match result {
                 Ok(_) => self.toast(tf("已保存 {}", &[&path.display()]), OK()),
                 Err(e) => self.toast(tf("保存失败：{}", &[&e]), ERR()),
             }
@@ -2526,25 +3086,30 @@ impl App {
     }
 
     fn toggle_record(&mut self) {
-        if let Some(mut r) = self.record.take() {
-            let _ = r.w.flush();
-            self.buf.sys(tf("录制结束：{}", &[&r.path.display()]));
+        self.configure_recording();
+        if self.buf.recording_path().is_some() {
+            if self.s.transport == Transport::Serial {
+                self.flush_sniff();
+            }
+            match self.buf.stop_recording(self.s.encoding) {
+                Ok(Some(path)) => self.buf.sys(tf("录制结束：{}", &[&path.display()])),
+                Ok(None) => {}
+                Err(e) => self.recording_failed(e),
+            }
             return;
         }
         let name = chrono::Local::now().format("uart_rec_%Y%m%d_%H%M%S.log").to_string();
-        if let Some(path) = rfd::FileDialog::new().set_file_name(&name).save_file() {
-            match File::create(&path) {
-                Ok(f) => {
-                    self.buf.sys(tf("开始录制到 {}", &[&path.display()]));
-                    self.record = Some(Rec {
-                        w: BufWriter::new(f),
-                        base: path.clone(),
-                        path,
-                        bytes: 0,
-                        since: Instant::now(),
-                        part: 1,
-                    });
+        if let Some(path) = crate::diagnostics::file_dialog().set_file_name(&name).save_file() {
+            if self.s.transport == Transport::Serial {
+                self.flush_sniff();
+            }
+            match self.buf.start_recording(path, self.s.encoding) {
+                Ok(()) => {
+                    if let Some(path) = self.buf.recording_path() {
+                        self.toast(tf("开始录制到 {}", &[&path.display()]), OK());
+                    }
                 }
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => self.toast(t("文件已存在，请换一个录制文件名"), ERR()),
                 Err(e) => self.toast(tf("无法创建文件：{}", &[&e]), ERR()),
             }
         }
@@ -2553,7 +3118,9 @@ impl App {
     // ------------------------------------------------------------ 命令栏
 
     fn command_bar(&mut self, ui: &mut egui::Ui) {
-        let focused = ui.memory(|m| m.has_focus(egui::Id::new("send")));
+        let send_id = ui.make_persistent_id("send");
+        let focused = ui.memory(|m| m.has_focus(send_id));
+        let can_send = self.can_send();
         egui::Frame::new()
             .fill(BG2())
             .stroke(st(1.0, if focused { VIOLET().gamma_multiply(0.7) } else { LINE() }))
@@ -2565,10 +3132,20 @@ impl App {
                 bottom: 5,
             })
             .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(RichText::new("›").font(FontId::new(18.0, mono_bold())).color(if self.conn.is_some() { VIOLET() } else { TEXT3() }));
-                    let right_w = 360.0;
-                    let w = (ui.available_width() - right_w).max(120.0);
+                let stacked = ui.available_width() < 260.0;
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new("›").font(FontId::new(18.0, mono_bold())).color(if can_send { VIOLET() } else { TEXT3() }));
+                    // 窄窗口只留换行符、HEX 和发送
+                    let available = ui.available_size_before_wrap().x;
+                    let slim = available < 640.0;
+                    let right_w = if stacked {
+                        8.0
+                    } else if slim {
+                        190.0
+                    } else {
+                        360.0
+                    };
+                    let w = (available - right_w).max(48.0);
                     let full = if self.s.hex_send {
                         t("HEX，例如 AA 55 01 0D 0A")
                     } else {
@@ -2584,7 +3161,7 @@ impl App {
                         }
                         hint = cand;
                     }
-                    let id = egui::Id::new("send");
+                    let id = send_id;
                     // AT 指令提示：输入 AT 开头时弹出候选，↑↓ 选择、Tab 补全
                     let at = if focused && !self.s.hex_send && !self.s.multiline {
                         atcmds::matches(&self.send_text, 7)
@@ -2688,14 +3265,17 @@ impl App {
                         self.send_text.clear();
                         r.request_focus();
                     }
+                    if stacked {
+                        ui.end_row();
+                    }
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         let send = egui::Button::new(RichText::new(t("发送")).font(FontId::new(13.0, bold())).color(ON_ACCENT()))
-                            .fill(if self.conn.is_some() { VIOLET() } else { BG3() })
+                            .fill(if can_send { VIOLET() } else { BG3() })
                             .corner_radius(CornerRadius::same(6))
-                            .min_size(vec2(64.0, 28.0));
+                            .min_size(vec2(if stacked { 52.0 } else { 64.0 }, 28.0));
                         let glow = ui.painter().add(Shape::Noop);
-                        let r = ui.add_enabled(self.conn.is_some(), send);
-                        if self.conn.is_some() {
+                        let r = ui.add_enabled(can_send, send);
+                        if can_send {
                             let a = if r.hovered() { 0.45 } else { 0.25 };
                             ui.painter().set(
                                 glow,
@@ -2712,35 +3292,82 @@ impl App {
                             self.send_input(false);
                             self.send_text.clear();
                         }
-                        ui.add(egui::DragValue::new(&mut self.s.repeat_ms).range(10..=3_600_000).suffix(" ms").speed(10));
-                        if toggle_chip(ui, &mut self.repeat, t("定时"), t("按间隔重复发送输入框内容")) {
-                            self.last_repeat = Instant::now() - Duration::from_secs(3600);
-                        }
-                        if self.s.hex_send {
-                            check_combo(ui, &mut self.s.send_check);
+                        if !slim {
+                            ui.add(egui::DragValue::new(&mut self.s.repeat_ms).range(10..=3_600_000).suffix(" ms").speed(10));
+                            if toggle_chip(ui, &mut self.repeat, t("定时"), t("按间隔重复发送输入框内容")) {
+                                self.last_repeat = Instant::now() - Duration::from_secs(3600);
+                            }
+                            if self.s.hex_send {
+                                check_combo(ui, &mut self.s.send_check);
+                            }
                         }
                         toggle_chip(ui, &mut self.s.hex_send, "HEX", t("按十六进制字节发送"));
-                        if toggle_chip(ui, &mut self.s.multiline, "¶", t("多行输入：Enter 换行，Ctrl+Enter 发送")) {
+                        if !slim && toggle_chip(ui, &mut self.s.multiline, "¶", t("多行输入：Enter 换行，Ctrl+Enter 发送")) {
                             self.focus_send = true;
                         }
-                        if self.s.multiline {
+                        if self.s.multiline && !slim {
                             toggle_chip(ui, &mut self.s.line_by_line, t("逐行"), t("每行单独发一包，间隔可在设置里调整"));
                         }
                         ui.add_enabled_ui(!self.s.hex_send, |ui| {
-                            egui::ComboBox::from_id_salt("le").width(64.0).selected_text(self.s.line_ending.name()).show_ui(ui, |ui| {
-                                for le in [LineEnding::None, LineEnding::Lf, LineEnding::Cr, LineEnding::CrLf] {
-                                    ui.selectable_value(&mut self.s.line_ending, le, le.name());
-                                }
-                            });
+                            egui::ComboBox::from_id_salt("le")
+                                .width(if stacked { 54.0 } else { 64.0 })
+                                .selected_text(self.s.line_ending.name())
+                                .show_ui(ui, |ui| {
+                                    for le in [LineEnding::None, LineEnding::Lf, LineEnding::Cr, LineEnding::CrLf] {
+                                        ui.selectable_value(&mut self.s.line_ending, le, le.name());
+                                    }
+                                });
                         });
                     });
+                });
+                ui.horizontal_wrapped(|ui| {
+                    for i in 0..2 {
+                        let cmd = &self.s.send_buttons[i];
+                        let label = if cmd.name.is_empty() { tf("自定义发送 {}", &[&(i + 1)]) } else { cmd.name.clone() };
+                        let r = ui.small_button(truncate(&label, 20)).on_hover_text(format!("{}\n{}", cmd.payload, t("右键编辑")));
+                        if r.secondary_clicked() || (r.clicked() && cmd.payload.is_empty()) {
+                            self.send_button_edit = Some((i, cmd.clone()));
+                        } else if r.clicked() {
+                            self.send_quick(&cmd.clone());
+                        }
+                    }
                 });
             });
     }
 
+    fn send_button_dialog(&mut self, ctx: &egui::Context) {
+        let Some((slot, cmd)) = self.send_button_edit.as_mut() else { return };
+        let mut open = true;
+        let mut save = false;
+        egui::Window::new(t("编辑发送按钮"))
+            .id(egui::Id::new("edit-send-button"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .show(ctx, |ui| {
+                ui.label(t("名称"));
+                ui.text_edit_singleline(&mut cmd.name);
+                ui.label(t("发送内容"));
+                ui.text_edit_multiline(&mut cmd.payload);
+                ui.checkbox(&mut cmd.hex, "HEX");
+                let valid = !cmd.name.trim().is_empty() && !cmd.payload.trim().is_empty();
+                let bytes = cmd.bytes(self.s.encoding, self.s.line_ending);
+                if let Err(e) = &bytes {
+                    ui.colored_label(ERR(), e);
+                }
+                save = ui.add_enabled(valid && bytes.is_ok(), egui::Button::new(t("保存"))).clicked();
+            });
+        if save {
+            self.s.send_buttons[*slot] = cmd.clone();
+        }
+        if save || !open {
+            self.send_button_edit = None;
+        }
+    }
+
     /// 命令栏上方的 AT 指令候选列表
     fn at_popup(&self, ui: &egui::Ui, anchor: Rect, items: &[(&str, &str)]) {
-        egui::Area::new(egui::Id::new("at_popup"))
+        egui::Area::new(ui.make_persistent_id("at_popup"))
             .order(egui::Order::Foreground)
             .pivot(Align2::LEFT_BOTTOM)
             .fixed_pos(anchor.left_top() - vec2(4.0, 10.0))
@@ -2773,8 +3400,53 @@ impl App {
 
     // ------------------------------------------------------------ 状态栏
 
+    /// 首次运行告知一次匿名统计（第一次上报在启动 30 秒后，这条先出现）。点任一按钮或 × 后不再显示
+    fn telemetry_notice(&mut self, ctx: &egui::Context) {
+        if self.s.telemetry_noticed || !self.s.telemetry {
+            return;
+        }
+        egui::TopBottomPanel::bottom("telemetry-notice")
+            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin::symmetric(14, 5)))
+            .show_separator_line(true)
+            .show(ctx, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
+                    draw_icon(ui.painter(), r, Icon::Info, ACCENT());
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(t("QCCOM 会发送匿名使用统计（随机设备 ID、版本、系统、使用时长、打开过哪些页面），不含日志、文件和串口数据。"))
+                                .size(12.0)
+                                .color(TEXT2()),
+                        )
+                        .wrap(),
+                    );
+                    ui.menu_button(t("收集了什么"), |ui| {
+                        ui.set_min_width(300.0);
+                        ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
+                    });
+                    if ui.button(t("知道了")).clicked() {
+                        self.s.telemetry_noticed = true;
+                    }
+                    if ui.button(t("关闭统计")).clicked() {
+                        self.s.telemetry = false;
+                        self.s.telemetry_noticed = true;
+                        crate::hub::set_enabled(false);
+                        self.toast(t("已关闭匿名统计，可以在设置里重新打开"), OK());
+                    }
+                    if icon_button(ui, Icon::Close, t("知道了"), false).clicked() {
+                        self.s.telemetry_noticed = true;
+                    }
+                });
+            });
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal(|ui| {
+            let narrow = ui.available_width() < 620.0;
+            #[cfg(windows)]
+            let mapped_path = (self.s.transport == Transport::Serial).then(|| self.mappings.serial_direct(&self.s.port)).flatten();
+            #[cfg(not(windows))]
+            let mapped_path: Option<bool> = None;
             let (col, text) = if self.autobaud.is_some() {
                 (ACCENT(), t("正在识别波特率").to_string())
             } else if let Some(p) = &self.connected {
@@ -2785,6 +3457,9 @@ impl App {
                 } else {
                     (OK(), p.clone())
                 }
+            } else if let Some(direct) = mapped_path {
+                let (color, mode) = if direct { (OK(), t("已直连")) } else { (WARN(), t("服务器中继")) };
+                (color, format!("{} · {mode}", self.s.port))
             } else if self.conn.is_some() {
                 (ACCENT(), tf("正在连接 {}", &[&self.s.net.label(self.s.transport)]))
             } else if let Some((p, _)) = &self.reconnect {
@@ -2801,8 +3476,9 @@ impl App {
             let (rect, _) = ui.allocate_exact_size(vec2(10.0, 10.0), Sense::hover());
             ui.painter().circle_filled(rect.center(), 5.0, col.gamma_multiply(0.2));
             ui.painter().circle_filled(rect.center(), 2.5, col);
-            ui.label(RichText::new(text).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT2()));
-            if self.conn.is_some() {
+            let shown_text = if narrow { truncate(&text, 25) } else { text.clone() };
+            ui.label(RichText::new(shown_text).font(FontId::new(11.5, FontFamily::Monospace)).color(TEXT2())).on_hover_text(text);
+            if self.conn.is_some() || mapped_path.is_some() {
                 // 收发指示灯：有数据时亮 120 ms，像硬件上的 RX/TX 灯
                 ui.add_space(6.0);
                 for (name, at, c) in [("RX", self.last_rx_at, ACCENT()), ("TX", self.last_tx_at, VIOLET())] {
@@ -2819,19 +3495,38 @@ impl App {
             if self.paused {
                 ui.label(RichText::new(tf("已暂停，缓冲 {}", &[&human_bytes(self.pause_buf.len() as u64)])).small().color(WARN()));
             }
-            if let Some(Rec { path: p, .. }) = &self.record {
+            if let Some(p) = self.buf.recording_path() {
                 let t = ui.input(|i| i.time);
                 let blink = (t * 2.0) as i64 % 2 == 0;
                 ui.ctx().request_repaint_after(Duration::from_millis(500));
                 ui.label(RichText::new("● REC").font(FontId::new(11.0, mono_bold())).color(if blink { ERR() } else { ERR().gamma_multiply(0.4) }))
                     .on_hover_text(p.display().to_string());
             }
-            self.status_extras(ui);
-            self.status_conns(ui);
+            if narrow {
+                let more = icon_button(ui, Icon::More, t("状态"), false);
+                let popup = ui.id().with("status-more");
+                if more.clicked() {
+                    ui.memory_mut(|memory| memory.toggle_popup(popup));
+                }
+                egui::popup::popup_above_or_below_widget(ui, popup, &more, egui::AboveOrBelow::Above, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+                    self.status_extras(ui);
+                    self.status_conns(ui);
+                    self.work_chip(ui);
+                    if menu_item(ui, t("⌨ 快捷键"), "") {
+                        self.open_settings(prefs::Cat::Keys);
+                        ui.close_menu();
+                    }
+                });
+            } else {
+                self.status_extras(ui);
+                self.status_conns(ui);
+                self.work_chip(ui);
+            }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).small().color(TEXT3()));
+                self.work_status(ui);
                 let br = self.code.branch();
-                if !br.is_empty() {
+                if !narrow && !br.is_empty() {
                     let r = ui
                         .add(egui::Label::new(RichText::new(br).small().color(TEXT3())).sense(Sense::click()))
                         .on_hover_text(t("当前 Git 分支，点击打开 Git 页"));
@@ -2841,14 +3536,16 @@ impl App {
                         self.set_page(Page::Git);
                     }
                 }
-                let r = ui
-                    .add(egui::Label::new(RichText::new(t("⌨ 快捷键")).small().color(TEXT3())).sense(Sense::click()))
-                    .on_hover_ui(|ui| shortcuts_help(ui, &self.km));
-                if r.clicked() {
-                    self.open_settings(prefs::Cat::Keys);
-                }
-                if let Some(p) = self.km.pending() {
-                    ui.label(RichText::new(tf("已按下 {}，等待第二个按键…", &[&p])).small().color(ACCENT()));
+                if !narrow {
+                    let r = ui
+                        .add(egui::Label::new(RichText::new(t("⌨ 快捷键")).small().color(TEXT3())).sense(Sense::click()))
+                        .on_hover_ui(|ui| shortcuts_help(ui, &self.km));
+                    if r.clicked() {
+                        self.open_settings(prefs::Cat::Keys);
+                    }
+                    if let Some(p) = self.km.pending() {
+                        ui.label(RichText::new(tf("已按下 {}，等待第二个按键…", &[&p])).small().color(ACCENT()));
+                    }
                 }
                 let r = ui
                     .add(egui::Label::new(RichText::new(tf("{} 行", &[&group_digits(self.buf.lines.len() as u64)])).small().color(TEXT3())).sense(Sense::click()))
@@ -2867,7 +3564,7 @@ impl App {
         let mut go = None;
         for c in self.live_conns() {
             // 当前页面正显示着的连接左边已经有了
-            if c.current && shown {
+            if (c.current && shown) || c.transport == Transport::Serial {
                 continue;
             }
             ui.add_space(6.0);
@@ -2897,7 +3594,7 @@ impl App {
             Some(tool) => self.open_tool(tool),
             None => self.set_page(Page::Debug),
         }
-        self.use_slot(k);
+        self.use_session(k);
     }
 
     /// 状态栏里的回放、脚本、网络共享、监听口指示（点一下就能操作）
@@ -2950,6 +3647,18 @@ impl App {
                 }
             }
         }
+        if self.vcom.is_some() {
+            ui.add_space(6.0);
+            let other = self
+                .vcom
+                .as_ref()
+                .and_then(|v| v.names.first())
+                .map(|n| n.rsplit(['/', '\\']).next().unwrap_or(n).to_string())
+                .unwrap_or_default();
+            if chip(ui, format!("{} {other}", t("虚拟串口")), OK(), t("其他软件正通过虚拟串口同时使用设备：点击关闭")).clicked() {
+                self.toggle_vcom();
+            }
+        }
         if let Some(b) = &self.bridge {
             ui.add_space(6.0);
             let text = format!("TCP :{} · {}", b.port, b.clients);
@@ -2978,12 +3687,22 @@ impl App {
         let (n, open) = self.rows();
 
         if n == 0 {
+            #[cfg(windows)]
+            let mapping_hint = if self.s.transport == Transport::Serial && !self.can_send() && self.s.port.is_empty() {
+                self.mappings.hint(&self.s.mapping)
+            } else {
+                None
+            };
+            #[cfg(not(windows))]
+            let mapping_hint: Option<String> = None;
             empty_state(
                 ui,
                 card_rect,
                 self.ports.is_empty() && self.s.transport == Transport::Serial,
-                self.conn.is_some(),
+                self.can_send(),
                 self.s.transport != Transport::Serial,
+                self.compact_header,
+                mapping_hint.as_deref(),
                 &self.logo,
             );
         }
@@ -3013,9 +3732,11 @@ impl App {
         let mut clicked: Option<u64> = None;
         let mut ctx_copy: Option<String> = None;
         let mut ctx_cmd: Option<u8> = None;
+        let mut ctx_copy_line: Option<String> = None;
         let mut ctx_mark: Option<u64> = None;
         let mut ctx_trigger: Option<String> = None;
         let mut ctx_regs: Option<String> = None;
+        let mut ctx_tool: Option<(&'static str, String)> = None;
         let has_svd = self.code.svd.is_some();
         let sel = self.sel.map(|(a, b)| (a.min(b), a.max(b)));
         let tsel = self.tsel.map(|s| s.ordered());
@@ -3098,12 +3819,13 @@ impl App {
         }
         let now = chrono::Local::now();
         let mut fading = false;
+        let mut src_click: Option<(String, usize)> = None;
         let out = sa.show_rows(&mut child, row_h, n, |ui, range| {
             let min_w = ui.available_width();
             for i in range {
                 let id = self.row_id(i, open);
                 let Some(l) = self.buf.get(id) else { continue };
-                let job = self.line_job(id, l, &font);
+                let job = self.line_job(id, l, &font, self.s.log_preset);
                 let galley = ui.fonts(|f| f.layout_job(job));
                 let w = min_w.max(gutter + galley.size().x + 24.0);
                 let (rect, resp) = ui.allocate_exact_size(vec2(w, row_h), Sense::click_and_drag());
@@ -3145,6 +3867,16 @@ impl App {
                     }
                     if resp.triple_clicked() && in_text {
                         word_at = Some((id, 0, nchars));
+                    }
+                    // Ctrl+点击 main.c:42：在旁边打开代码
+                    let ctrl = ui.input(|i| i.modifiers.command);
+                    if ctrl && resp.hovered() && in_text && self.code.root().is_some() {
+                        if let Some((_, _, f, line)) = work::src_ref(&l.plain) {
+                            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            if resp.clicked() {
+                                src_click = Some((f, line));
+                            }
+                        }
                     }
                 }
                 let p = ui.painter();
@@ -3254,6 +3986,33 @@ impl App {
                         ctx_regs = Some(l.plain.clone());
                         ui.close_menu();
                     }
+                    if let Some((_, _, f, line)) = self.code.root().and_then(|_| work::src_ref(&l.plain)) {
+                        if menu_item(ui, &tf("在旁边打开 {}:{}", &[&f, &line]), "Ctrl+Click") {
+                            src_click = Some((f, line));
+                            ui.close_menu();
+                        }
+                    }
+                    ui.menu_button(t("用工具打开"), |ui| {
+                        ui.set_min_width(200.0);
+                        let line = if self.s.view == ViewMode::Hex && l.dir != Dir::Sys {
+                            l.raw.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ")
+                        } else {
+                            l.plain.clone()
+                        };
+                        if menu_item(ui, t("数据转换"), "") {
+                            ctx_tool = Some(("convert", line.clone()));
+                            ui.close_menu();
+                        }
+                        if menu_item(ui, t("校验计算"), "") {
+                            ctx_tool = Some(("crc", line.clone()));
+                            ui.close_menu();
+                        }
+                    });
+                    if menu_item(ui, t("发到社区求助"), "") {
+                        ctx_cmd = Some(if has_sel { 4 } else { 5 });
+                        ctx_copy_line = Some(l.plain.clone());
+                        ui.close_menu();
+                    }
                     if l.dir != Dir::Sys && !l.plain.trim().is_empty() && menu_item(ui, t("用此行新建应答规则"), "") {
                         ctx_trigger = Some(l.plain.trim().to_string());
                         ui.close_menu();
@@ -3322,6 +4081,19 @@ impl App {
             Some(1) => self.copy_selection(ui.ctx(), false),
             Some(2) => self.copy_selection(ui.ctx(), true),
             Some(3) => self.select_all(),
+            Some(4) | Some(5) => {
+                let sel = if ctx_cmd == Some(5) {
+                    None
+                } else if self.tsel.is_some() {
+                    self.tsel_text(true)
+                } else {
+                    self.selected_text(true)
+                };
+                if let Some(text) = sel.filter(|x| !x.trim().is_empty()).or(ctx_copy_line) {
+                    self.comm.ask_with(&text, "log");
+                    self.set_page(Page::Community);
+                }
+            }
             _ => {}
         }
         if let Some(tv) = ctx_copy {
@@ -3330,6 +4102,13 @@ impl App {
         }
         if let Some(id) = ctx_mark {
             self.toggle_bookmark(id);
+        }
+        if let Some((f, line)) = src_click {
+            self.open_src_ref(&f, line);
+        }
+        if let Some((kind, line)) = ctx_tool {
+            let sel = if self.tsel.is_some() { self.tsel_text(false) } else { self.selected_text(false) };
+            self.code_to_tool(kind, sel.filter(|x| !x.trim().is_empty()).unwrap_or(line));
         }
         if let Some(text) = ctx_regs {
             if !self.code.decode_regs(&text) {
@@ -3564,7 +4343,7 @@ fn parse_hms(s: &str) -> Option<chrono::NaiveTime> {
 impl App {
     fn term_view(&mut self, ui: &mut egui::Ui) {
         let enc = self.s.encoding;
-        let empty = if self.conn.is_none() {
+        let empty = if !self.can_send() {
             let e = (t("终端模式"), t("先在左侧连接串口，然后在这里直接和设备交互"));
             [e, e]
         } else {
@@ -3579,7 +4358,7 @@ impl App {
         }
     }
 
-    fn term_header(&mut self, ui: &mut egui::Ui) {
+    fn term_header(&mut self, ui: &mut egui::Ui, narrow: bool) {
         let s = &self.tv.term.s;
         let mono = FontId::new(11.5, FontFamily::Monospace);
         ui.label(RichText::new(format!("{}×{}", s.cols, s.rows)).font(mono.clone()).color(TEXT3()))
@@ -3590,18 +4369,16 @@ impl App {
         if self.tv.scroll > 0 {
             pill(ui, &tf("回滚 {} 行", &[&self.tv.scroll]), WARN());
         }
-        let hint = if self.conn.is_none() {
+        let hint = if !self.can_send() {
             t("先在左侧连接串口")
         } else if ui.memory(|m| m.has_focus(self.tv.id())) {
             t("键盘直接发给设备  ·  Ctrl+` 回到日志")
         } else {
             t("点击下方终端区域开始输入")
         };
-        ui.label(RichText::new(hint).size(12.0).color(TEXT3()));
-
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            if icon_button(ui, Icon::Commands, t("快捷命令面板"), self.s.cmd_panel).clicked() {
-                self.s.cmd_panel = !self.s.cmd_panel;
+            if !self.compact_header {
+                self.debug_panel_button(ui, DebugDrawer::Commands, narrow);
             }
             ui.add_space(2.0);
             let (r, _) = ui.allocate_exact_size(vec2(1.0, 18.0), Sense::hover());
@@ -3618,22 +4395,44 @@ impl App {
                 self.tv.sel = None;
                 self.tv.focus_req = true;
             }
-            let b = egui::Button::new(RichText::new(t("同步窗口大小")).size(12.0).color(TEXT2()))
-                .fill(BG2())
-                .stroke(st(1.0, LINE()))
-                .corner_radius(R_WIDGET)
-                .min_size(vec2(0.0, 24.0));
             let tip = t("把当前行列数告诉设备（发送 stty rows R cols C），\nvi、top、less 等全屏程序就能铺满窗口。\n只适用于 Linux shell，请在提示符下点击。");
-            if ui.add_enabled(self.conn.is_some(), b).on_hover_text(tip).clicked() {
+            let connected = self.conn.is_some();
+            let sync = if ui.available_width() < 190.0 {
+                ui.add_enabled_ui(connected, |ui| icon_button(ui, Icon::Maximize, t("同步窗口大小"), false)).inner.on_hover_text(tip)
+            } else {
+                let button = egui::Button::new(RichText::new(t("同步窗口大小")).size(12.0).color(TEXT2()))
+                    .fill(BG2())
+                    .stroke(st(1.0, LINE()))
+                    .corner_radius(R_WIDGET)
+                    .min_size(vec2(0.0, 24.0));
+                ui.add_enabled(connected, button).on_hover_text(tip)
+            };
+            if sync.clicked() {
                 let (c, r) = (self.tv.term.s.cols, self.tv.term.s.rows);
                 self.send_raw(format!("stty rows {r} cols {c}\r").into_bytes());
                 self.tv.focus_req = true;
+            }
+            if ui.available_width() >= 100.0 {
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                    ui.add(egui::Label::new(RichText::new(hint).size(12.0).color(TEXT3())).truncate()).on_hover_text(hint);
+                });
             }
         });
     }
 }
 
 impl App {
+    fn detached_serial_shortcuts(&mut self, ctx: &egui::Context, slot: usize) {
+        if self.prefs.recording.is_some() || self.palette.is_some() {
+            return;
+        }
+        self.with_session(slot, |app| {
+            let term_focused = app.s.terminal && ctx.memory(|m| m.has_focus(app.tv.id()));
+            let acts = app.km.poll(ctx, Scope::Debug, term_focused);
+            app.shortcuts(ctx, &acts, term_focused);
+        });
+    }
+
     /// 调试页的命令（按键已经由 Keymap 翻译好）
     fn shortcuts(&mut self, ctx: &egui::Context, acts: &[Act], term_focused: bool) {
         for a in acts {
@@ -3662,8 +4461,8 @@ impl App {
                 Act::LogPause => self.toggle_pause(),
                 Act::LogSelectAll => self.select_all(),
                 Act::FocusCmdBar => self.focus_send = true,
-                Act::ToggleSidebar => self.s.sidebar = !self.s.sidebar,
-                Act::ToggleCmdPanel => self.s.cmd_panel = !self.s.cmd_panel,
+                Act::ToggleSidebar => self.toggle_debug_panel(DebugDrawer::Devices, self.debug_narrow && !self.work.focus_side),
+                Act::ToggleCmdPanel => self.toggle_debug_panel(DebugDrawer::Commands, self.debug_narrow && !self.work.focus_side),
                 Act::LogMarker => self.insert_marker(),
                 Act::LogBookmark => {
                     let id = self.sel.map(|s| s.1).unwrap_or(self.buf.total().saturating_sub(1));
@@ -3712,11 +4511,33 @@ impl App {
                     self.set_page(Page::Code);
                     self.code.pick_project();
                 }
-                Act::PageDebug => self.set_page(Page::Debug),
-                Act::PageCode if self.page != Page::Code => self.set_page(Page::Code),
-                Act::PageGit => self.set_page(Page::Git),
-                Act::PageTools => self.set_page(Page::Tools),
-                Act::PageCompare => self.set_page(Page::Compare),
+                Act::PageDebug | Act::PageCode | Act::PageGit | Act::PageTools | Act::PageCompare => {
+                    self.nav_manual();
+                    match a {
+                        Act::PageDebug => self.set_page(Page::Debug),
+                        Act::PageCode => self.set_page(Page::Code),
+                        Act::PageGit => self.set_page(Page::Git),
+                        Act::PageTools => self.set_page(Page::Tools),
+                        _ => self.set_page(Page::Compare),
+                    }
+                }
+                Act::NavBack => self.nav_go(true),
+                Act::NavFwd => self.nav_go(false),
+                Act::SideToggle => self.toggle_side(),
+                Act::SideRight => self.set_dock_pos(work::DockPos::Right),
+                Act::SideBottom => self.set_dock_pos(work::DockPos::Bottom),
+                Act::SideSwap => self.swap_side(),
+                Act::FocusMode => {
+                    self.work.focus = !self.work.focus;
+                    self.toast(
+                        if self.work.focus {
+                            t("专注模式：暂停自动弹出副页面")
+                        } else {
+                            t("已退出专注模式")
+                        },
+                        ACCENT(),
+                    );
+                }
                 Act::ThemeToggle => {
                     let light = !is_light();
                     self.set_theme(ctx, if light { "light" } else { "dark" });
@@ -3760,17 +4581,21 @@ impl App {
         }
     }
 
-    /// 代码页换了工程：Git 页、HTTP / TFTP 共享目录跟着换（终端新开时也在工程目录）
+    /// 代码页换了工程：Git 页、终端、HTTP / TFTP 共享目录跟着换
     fn project_changed(&mut self, p: &std::path::Path) {
         self.gitv.follow_project(p);
         let home = std::env::var(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).unwrap_or_default();
         let ps = p.to_string_lossy().to_string();
         let prev = std::mem::replace(&mut self.last_project, ps.clone());
+        if prev != ps {
+            self.shells.project_changed();
+        }
         for r in [&mut self.s.tb.tftp_root, &mut self.s.tb.http_root] {
             if r.is_empty() || *r == home || (!prev.is_empty() && *r == prev) {
                 *r = ps.clone();
             }
         }
+        self.work_project_changed(p);
     }
 
     fn open_settings(&mut self, cat: prefs::Cat) {
@@ -3779,17 +4604,47 @@ impl App {
     }
 
     fn debug_page(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("side")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                left: 16,
-                right: 14,
-                top: 14,
-                bottom: 8,
-            }))
-            .exact_width(276.0)
-            .resizable(false)
-            .show_animated(ctx, self.s.sidebar, |ui| self.sidebar(ui));
+        self.use_slot(0);
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.serial_debug_in(ui, false, false));
+    }
+
+    fn serial_debug_in(&mut self, ui: &mut egui::Ui, compact: bool, fixed_serial: bool) {
+        let api_mode = std::mem::take(&mut self.s.api_mode);
+        ui.push_id(("serial-content", self.session_slot), |ui| self.debug_view(ui, compact, fixed_serial));
+        self.s.api_mode = api_mode;
+    }
+
+    /// 调试页画进一块区域；compact = 副页面精简版：不要左侧栏和快捷命令栏
+    pub(super) fn debug_in(&mut self, ui: &mut egui::Ui, compact: bool) {
+        self.debug_view(ui, compact, false);
+    }
+
+    fn debug_view(&mut self, ui: &mut egui::Ui, compact: bool, fixed_serial: bool) {
+        let salt = ui.id();
+        let narrow = !compact && ui.available_width() < 860.0;
+        if !compact {
+            self.debug_narrow = narrow;
+            if !narrow {
+                self.debug_drawer = None;
+            }
+        }
+        if !compact && !narrow {
+            egui::SidePanel::left(salt.with("side"))
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                    left: 16,
+                    right: 14,
+                    top: 14,
+                    bottom: 8,
+                }))
+                .exact_width(276.0)
+                .resizable(false)
+                .show_animated_inside(ui, self.s.sidebar, |ui| self.sidebar(ui));
+        }
         if self.s.api_mode {
+            if narrow {
+                egui::TopBottomPanel::top(salt.with("api-header")).show_inside(ui, |ui| self.debug_panel_button(ui, DebugDrawer::Devices, true));
+                self.show_debug_drawer(ui, salt);
+            }
             egui::CentralPanel::default()
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                     left: 16,
@@ -3797,31 +4652,27 @@ impl App {
                     top: 14,
                     bottom: 10,
                 }))
-                .show(ctx, |ui| self.api_page(ui));
+                .show_inside(ui, |ui| self.api_page(ui));
             return;
         }
-        let act = egui::SidePanel::right("cmds")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                left: 14,
-                right: 14,
-                top: 14,
-                bottom: 8,
-            }))
-            .default_width(272.0)
-            .width_range(220.0..=420.0)
-            .resizable(true)
-            .show_animated(ctx, self.s.cmd_panel, |ui| self.dock_ui(ui))
-            .and_then(|r| r.inner);
-        let acted = act.is_some();
-        match act {
-            Some(CmdAction::Send(c)) => self.send_quick(&c),
-            Some(CmdAction::SendAll(gi)) => self.send_group(gi),
-            None => {}
+        if !compact && !narrow {
+            let commands_max = (ui.available_width() - MIN_LOG_PANE_WIDTH).max(220.0);
+            let action = egui::SidePanel::right(salt.with("cmds"))
+                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                    left: 14,
+                    right: 14,
+                    top: 14,
+                    bottom: 8,
+                }))
+                .default_width(272.0f32.min(commands_max))
+                .width_range(220.0..=commands_max)
+                .resizable(true)
+                .show_animated_inside(ui, self.s.cmd_panel, |ui| self.dock_ui(ui))
+                .and_then(|r| r.inner);
+            self.handle_dock_action(action);
         }
-        if acted && self.s.terminal {
-            self.tv.focus_req = true; // 点完快捷命令，键盘回到终端
-        }
-        egui::TopBottomPanel::top("header")
+        self.compact_header = compact;
+        egui::TopBottomPanel::top(salt.with("header"))
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                 left: 12,
                 right: 14,
@@ -3829,9 +4680,12 @@ impl App {
                 bottom: 8,
             }))
             .show_separator_line(false)
-            .show(ctx, |ui| self.header(ui));
+            .show_inside(ui, |ui| self.header(ui, narrow, fixed_serial));
+        if narrow {
+            self.show_debug_drawer(ui, salt);
+        }
         if !self.s.terminal {
-            egui::TopBottomPanel::bottom("cmd")
+            egui::TopBottomPanel::bottom(salt.with("cmd"))
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                     left: 12,
                     right: 14,
@@ -3839,24 +4693,62 @@ impl App {
                     bottom: 10,
                 }))
                 .show_separator_line(false)
-                .show(ctx, |ui| self.command_bar(ui));
+                .show_inside(ui, |ui| self.command_bar(ui));
         }
         let bottom = if self.s.terminal { 10 } else { 0 };
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 12, right: 14, top: 0, bottom }))
-            .show(ctx, |ui| {
+            .show_inside(ui, |ui| {
                 if self.s.terminal {
                     self.term_view(ui);
                     return;
                 }
-                if self.s.plot.on {
-                    let rest = self.plot_split(ui);
-                    let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rest));
-                    self.log_view(&mut child);
-                } else {
-                    self.log_view(ui);
+                if self.s.transport == Transport::Serial && !fixed_serial {
+                    self.serial_tab_bar(ui);
                 }
+                let rest = if self.s.plot.on { self.plot_split(ui) } else { ui.available_rect_before_wrap() };
+                let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rest).id_salt(("log", self.session_slot)));
+                self.log_view(&mut child);
             });
+    }
+
+    fn show_debug_drawer(&mut self, ui: &egui::Ui, salt: egui::Id) {
+        let Some(drawer) = self.debug_drawer else { return };
+        let ctx = ui.ctx();
+        let screen = ctx.screen_rect();
+        let top = ui.available_rect_before_wrap().top() + 4.0;
+        let size = vec2(320.0, (screen.bottom() - top - 44.0).clamp(180.0, 580.0));
+        let (title, x) = match drawer {
+            DebugDrawer::Devices => (t("设备"), screen.left() + 58.0),
+            DebugDrawer::Commands => (t("快捷命令面板"), screen.right() - size.x - 28.0),
+        };
+        let mut open = true;
+        let mut action = None;
+        egui::Window::new(title)
+            .id(salt.with(("drawer", drawer)))
+            .fixed_pos(pos2(x, top))
+            .fixed_size(size)
+            .collapsible(false)
+            .open(&mut open)
+            .show(ctx, |ui| match drawer {
+                DebugDrawer::Devices => self.sidebar(ui),
+                DebugDrawer::Commands => action = self.dock_ui(ui),
+            });
+        if !open {
+            self.debug_drawer = None;
+        }
+        self.handle_dock_action(action);
+    }
+
+    fn handle_dock_action(&mut self, action: Option<CmdAction>) {
+        match action {
+            Some(CmdAction::Send(cmd)) => self.send_quick(&cmd),
+            Some(CmdAction::SendAll(group)) => self.send_group(group),
+            None => return,
+        }
+        if self.s.terminal {
+            self.tv.focus_req = true;
+        }
     }
 
     /// 日志上方的波形图，和日志之间可以拖动分隔线调整高度
@@ -3866,7 +4758,7 @@ impl App {
         let r = Rect::from_min_size(full.min + vec2(0.0, 2.0), vec2(full.width(), h));
         self.plot_pane(ui, r);
         let split = Rect::from_min_size(pos2(full.left(), r.bottom()), vec2(full.width(), 8.0));
-        let sr = ui.interact(split, egui::Id::new("plot_split"), Sense::drag());
+        let sr = ui.interact(split, ui.make_persistent_id("plot_split"), Sense::drag());
         if sr.hovered() || sr.dragged() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeVertical);
             ui.painter().hline(split.x_range().shrink(full.width() * 0.4), split.center().y, st(2.0, ACCENT().gamma_multiply(0.6)));
@@ -3883,10 +4775,19 @@ impl App {
         if self.page == p {
             return;
         }
-        if p == Page::Settings {
+        if p == Page::Settings || p == Page::Community {
             self.prev_page = self.page;
         }
         self.page = p;
+        crate::hub::count(match p {
+            Page::Debug => "page.debug",
+            Page::Code => "page.code",
+            Page::Git => "page.git",
+            Page::Compare => "page.compare",
+            Page::Tools => "page.tools",
+            Page::Settings => "page.settings",
+            Page::Community => "page.community",
+        });
         match p {
             Page::Code => self.code.activate(),
             Page::Git => {
@@ -3894,7 +4795,7 @@ impl App {
                 self.gitv.activate(root.as_deref());
             }
             Page::Debug => self.tv.focus_req = self.s.terminal,
-            Page::Tools | Page::Settings | Page::Compare => {}
+            Page::Tools | Page::Settings | Page::Compare | Page::Community => {}
         }
     }
 
@@ -3913,8 +4814,12 @@ impl App {
                 }
             }
             Req::Project(p) => {
-                self.code.open_root(std::fs::canonicalize(&p).unwrap_or(p));
-                self.set_page(Page::Code);
+                if p.is_dir() {
+                    self.code.open_root(p);
+                    self.set_page(Page::Code);
+                } else {
+                    self.toast(tf("无法打开文件夹：{}", &[&p.display()]), ERR());
+                }
             }
             Req::Compare(p) => {
                 let first = self.cmpv.pending_left().is_none();
@@ -3932,6 +4837,7 @@ impl App {
         }
         self.compare_events();
         if forwarded {
+            crate::shellint::raise_window();
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
             self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
         }
@@ -3950,7 +4856,7 @@ impl App {
             };
             self.cmpv.open_sides(side(&a, la), side(&b, lb), mode);
         }
-        self.set_page(Page::Compare);
+        self.reveal(Pane::Compare, "compare", work::Strength::Strong);
         self.compare_events();
     }
 
@@ -3959,8 +4865,8 @@ impl App {
             match e {
                 crate::compareview::CmpEvt::Toast(m, c) => self.toast(m, c),
                 crate::compareview::CmpEvt::OpenFile(p, line) => {
-                    self.set_page(Page::Code);
                     self.code.open_file(&p, Some((line, None)));
+                    self.reveal(Pane::Code, "cmp.open", work::Strength::Strong);
                 }
             }
         }
@@ -3978,7 +4884,7 @@ impl App {
     }
 
     fn activity_bar(&mut self, ctx: &egui::Context) {
-        egui::SidePanel::left("activity")
+        let bar = egui::SidePanel::left("activity")
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin { left: 0, right: 0, top: 8, bottom: 8 }))
             .exact_width(48.0)
             .resizable(false)
@@ -3994,9 +4900,41 @@ impl App {
                     (Page::Tools, Icon::Toolbox, t("工具箱：文件服务、设备发现、数据转换、CAN、HID")),
                 ] {
                     let dot = (pg == Page::Debug && live).then_some(OK());
-                    if activity_button(ui, icon, tip, self.page == pg, dot).clicked() {
-                        self.set_page(pg);
+                    let tools_tip;
+                    let tip = if pg == Page::Tools {
+                        tools_tip = self.tools_tip();
+                        tools_tip.as_str()
+                    } else {
+                        tip
+                    };
+                    let r = activity_button(ui, icon, tip, self.page == pg, dot);
+                    let pane = Pane::of(pg, self.s.tb.tool);
+                    // 在副页面里显示着：右边一条细线
+                    if pane.is_some() && self.side_pane() == pane {
+                        ui.painter()
+                            .rect_filled(Rect::from_min_size(pos2(r.rect.right() - 3.0, r.rect.top() + 12.0), vec2(2.0, 18.0)), 1.0, ACCENT().gamma_multiply(0.7));
                     }
+                    if r.clicked() {
+                        self.nav_manual();
+                        if pane.is_some() && self.work.tabs.contains(&pane.unwrap()) {
+                            self.goto_pane(pane.unwrap());
+                        } else {
+                            self.set_page(pg);
+                        }
+                    }
+                    if let Some(p) = pane {
+                        // 中键 = 在副页面打开；拖到右边 / 下方 = 副页面；右键菜单
+                        if r.middle_clicked() && self.main_pane() != Some(p) {
+                            self.open_side(p, None, true);
+                        }
+                        self.drag_source(&r, p, None);
+                        r.context_menu(|ui| self.side_menu(ui, p));
+                    }
+                }
+                let footer_rows = if matches!(self.upd, Upd::Idle) { 3.0 } else { 4.0 };
+                let pin_height = ui.available_height() - footer_rows * (ACTIVITY_ROW_HEIGHT + ui.spacing().item_spacing.y);
+                if !self.s.tb.activity_pins.is_empty() && pin_height > 0.0 {
+                    self.activity_pins(ui, pin_height);
                 }
                 ui.with_layout(Layout::bottom_up(Align::Center), |ui| {
                     // 齿轮：设置、命令面板、主题、语言等不常用入口都收在这里
@@ -4004,6 +4942,11 @@ impl App {
                     let tip = format!("{}  {}", t("终端"), self.km.label(Act::ToggleShell));
                     if activity_button(ui, Icon::Terminal, &tip, self.shells.s.open, None).clicked() {
                         self.pending_acts.push(Act::ToggleShell);
+                    }
+                    let tip = self.community_tip();
+                    let dot = self.comm.has_news().then_some(ACCENT());
+                    if activity_button(ui, Icon::Chat, &tip, self.page == Page::Community, dot).clicked() {
+                        self.toggle_community();
                     }
                     let id = egui::Id::new("gear-menu");
                     if r.clicked() {
@@ -4047,6 +4990,10 @@ impl App {
                             }
                         });
                         ui.separator();
+                        if menu_item(ui, t("社区与反馈"), "") {
+                            self.set_page(Page::Community);
+                            ui.memory_mut(|m| m.close_popup());
+                        }
                         if menu_item(ui, t("检查更新"), "") {
                             pick = Some(Act::CheckUpdate);
                         }
@@ -4079,6 +5026,46 @@ impl App {
                         }
                     }
                 });
+            });
+        if let Some(tool) = toolbox::activity_drop(ctx, bar.response.rect) {
+            self.s.tb.pin_activity(tool);
+            ctx.request_repaint();
+        }
+    }
+
+    fn activity_pins(&mut self, ui: &mut egui::Ui, height: f32) {
+        egui::ScrollArea::vertical()
+            .id_salt("activity-pins")
+            .max_height(height)
+            .auto_shrink([false, true])
+            .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+            .show(ui, |ui| {
+                for tool in self.s.tb.activity_pins.clone() {
+                    ui.push_id(tool as u8, |ui| {
+                        let active = self.page == Page::Tools && self.s.tb.tool == tool;
+                        let dot = match self.tool_state(tool) {
+                            1 => Some(OK()),
+                            2 => Some(ACCENT()),
+                            _ => None,
+                        };
+                        let mark = toolbox::tool_mark(tool);
+                        let tip = toolbox::tool_text(tool).0;
+                        let r = activity_item(ui, tip, active, dot, |p, center, color| {
+                            let size = if mark.len() > 4 { 9.0 } else { 10.5 };
+                            p.text(center, Align2::CENTER_CENTER, mark, FontId::new(size, mono_bold()), color);
+                        });
+                        if r.clicked() {
+                            self.nav_manual();
+                            self.goto_pane(Pane::Tool(tool));
+                        }
+                        r.context_menu(|ui| {
+                            if ui.button(t("从活动栏取消固定")).clicked() {
+                                self.s.tb.activity_pins.retain(|&pin| pin != tool);
+                                ui.close_menu();
+                            }
+                        });
+                    });
+                }
             });
     }
 
@@ -4341,8 +5328,16 @@ impl App {
     }
 }
 
+const ACTIVITY_ROW_HEIGHT: f32 = 42.0;
+
 fn activity_button(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool, dot: Option<Color32>) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(48.0, 42.0), Sense::click());
+    activity_item(ui, tip, active, dot, |p, center, color| {
+        draw_icon(p, Rect::from_center_size(center, vec2(20.0, 20.0)), icon, color);
+    })
+}
+
+fn activity_item(ui: &mut egui::Ui, tip: &str, active: bool, dot: Option<Color32>, draw: impl FnOnce(&egui::Painter, egui::Pos2, Color32)) -> egui::Response {
+    let (rect, resp) = ui.allocate_exact_size(vec2(48.0, ACTIVITY_ROW_HEIGHT), Sense::click_and_drag());
     let p = ui.painter();
     if active {
         p.rect_filled(Rect::from_min_size(rect.min + vec2(0.0, 8.0), vec2(2.0, 26.0)), 1.0, ACCENT());
@@ -4357,7 +5352,7 @@ fn activity_button(ui: &mut egui::Ui, icon: Icon, tip: &str, active: bool, dot: 
     } else {
         TEXT3()
     };
-    draw_icon(p, Rect::from_center_size(rect.center(), vec2(20.0, 20.0)), icon, c);
+    draw(p, rect.center(), c);
     if let Some(d) = dot {
         let at = rect.center() + vec2(9.0, -9.0);
         p.circle(at, 3.5, d, st(2.0, BG0()));
@@ -4408,7 +5403,47 @@ pub(crate) fn open_url(url: &str) {
     }
 }
 
+impl App {
+    /// 活动栏社区图标的提示：有新回复 / 新公告时直接说是什么
+    fn community_tip(&self) -> String {
+        match (&self.comm.notice, self.comm.unread) {
+            (_, n) if n > 0 => tf("社区与反馈：{} 条新提醒", &[&n]),
+            (Some(nt), _) if nt.id > self.comm.seen_notice => tf("社区与反馈 · 新公告：{}", &[&nt.title]),
+            _ => t("社区与反馈：提需求、投票、求助").to_string(),
+        }
+    }
+
+    /// 点社区图标：已经在社区就回到原来的页面；有新提醒 / 新公告时直接打开它
+    fn toggle_community(&mut self) {
+        if self.page == Page::Community {
+            self.set_page(self.prev_page_or_debug());
+            return;
+        }
+        if self.comm.unread > 0 {
+            self.comm.go(crate::community::Nav::Notifs);
+        } else if let Some(nt) = self.comm.notice.clone().filter(|n| n.id > self.comm.seen_notice) {
+            self.comm.seen_notice = nt.id;
+            self.comm.go(crate::community::Nav::Board(crate::community::Board::Notice));
+            self.comm.open_post(nt.id);
+        }
+        self.set_page(Page::Community);
+    }
+
+    fn prev_page_or_debug(&self) -> Page {
+        if self.prev_page == Page::Community || self.prev_page == Page::Settings {
+            Page::Debug
+        } else {
+            self.prev_page
+        }
+    }
+}
+
 impl eframe::App for App {
+    /// Windows 输入法处理过的按键（拼音上屏的回车、组字时的退格……）不交给界面
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw: &mut egui::RawInput) {
+        crate::ime::drop_ime_keys(&mut raw.events);
+    }
+
     /// 面板之间没盖住的缝隙露出的是清屏色，要跟着主题走，否则浅色下会露出黑边
     fn clear_color(&self, _: &egui::Visuals) -> [f32; 4] {
         BG1().to_normalized_gamma_f32()
@@ -4420,29 +5455,57 @@ impl eframe::App for App {
         self.s.git = self.gitv.s.clone();
         self.s.cmp = self.cmpv.s.clone();
         self.s.shell = self.shells.s.clone();
+        let current = self.session_slot;
+        self.quiet_session(self.selected_serial);
         eframe::set_value(storage, eframe::APP_KEY, &self.s);
+        self.quiet_session(current);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        if let Some(mut r) = self.record.take() {
-            let _ = r.w.flush();
-        }
+        crate::hub::final_beat();
         self.disconnect();
+        if let Err(e) = self.buf.stop_recording(self.s.encoding) {
+            eprintln!("Recording write failed on exit: {e}");
+        }
         self.close_all_sessions();
     }
 
     fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
+        #[cfg(windows)]
+        {
+            self.mappings.tick();
+            self.poll_mapped_serial(ctx);
+        }
+        let _watch = crate::diagnostics::ui_frame(ctx.input(|i| i.focused && i.viewport().minimized != Some(true)));
+        if crate::diagnostics::recovered_stall() {
+            self.toast(t("检测到界面长时间未响应，已尝试保存本地故障诊断。"), WARN());
+        }
+        if let Some((message, is_error)) = self.diagnostics.tick(ctx) {
+            self.toast(message, if is_error { ERR() } else { OK() });
+        }
         crate::titlebar::apply(frame, !crate::theme::is_light(), BG0(), TEXT(), LINE());
         crate::bgimg::set(&self.s.bg);
         if !self.s.window_placed {
             self.place_window(ctx);
         }
-        // 调试页显示串口；工具箱里选了网络工具就显示那个连接。其余页面保持不变
+        if self.maximize_in > 0 {
+            self.maximize_in -= 1;
+            if self.maximize_in == 0 {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(50));
+            }
+        }
+        self.nav_tick(ctx);
+        self.work_tick(ctx);
+        // 调试页显示串口；工具箱里选了网络工具就显示那个连接；主页面不用连接时看副页面
+        let side = self.side_pane();
         let want = match self.page {
             Page::Debug => Some(0),
             Page::Tools => toolbox::comm_slot(self.s.tb.tool),
             _ => None,
-        };
+        }
+        .or_else(|| side.and_then(|p| p.slot()));
         if let Some(k) = want {
             self.use_slot(k);
         }
@@ -4459,19 +5522,29 @@ impl eframe::App for App {
         for r in reqs {
             self.handle_req(r, true);
         }
+        let port_updates = self.port_updates.try_iter().last();
+        if let Some(ports) = port_updates {
+            self.with_slot(0, |app| app.on_ports(ports));
+        }
         self.tick_background();
         self.handle_events();
         self.tick();
+        self.scan_log_tick();
+        self.link_tick();
 
         self.poll_update(ctx);
         self.follow_system_theme(ctx);
-        let scope = match self.page {
-            Page::Debug | Page::Tools | Page::Settings => Scope::Debug,
-            Page::Code => Scope::Code,
-            Page::Git => Scope::Git,
-            Page::Compare => Scope::Global,
+        // 键盘归哪一边：在哪边点过就是哪边
+        let focus_side = self.work.focus_side && side.is_some() && !self.work.detached;
+        let focus_pane = if focus_side { side } else { self.main_pane() };
+        let scope = match focus_pane {
+            Some(Pane::Code | Pane::Files) => Scope::Code,
+            Some(Pane::Git) => Scope::Git,
+            Some(Pane::Compare) => Scope::Global,
+            _ => Scope::Debug,
         };
-        let term_focused = (self.page == Page::Debug && self.s.terminal && ctx.memory(|m| m.has_focus(self.tv.id()))) || self.shells.focused(ctx);
+        let serial_focus = focus_pane.and_then(|pane| pane.serial_slot(self.selected_serial));
+        let term_focused = serial_focus.is_some_and(|slot| self.with_session(slot, |app| app.s.terminal && ctx.memory(|m| m.has_focus(app.tv.id())))) || self.shells.focused(ctx);
         let acts = if self.prefs.recording.is_some() || self.palette.is_some() {
             vec![]
         } else {
@@ -4480,15 +5553,20 @@ impl eframe::App for App {
         let mut acts = acts;
         acts.extend(self.pending_acts.drain(..));
         let acts = self.run_global(ctx, acts);
-        if self.page == Page::Debug {
-            self.shortcuts(ctx, &acts, term_focused);
+        if let Some(slot) = serial_focus {
+            self.with_session(slot, |app| app.shortcuts(ctx, &acts, term_focused));
         }
+        let (acts, side_acts) = if focus_side { (vec![], acts) } else { (acts, vec![]) };
         self.update_view();
 
         egui::TopBottomPanel::bottom("status")
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin::symmetric(14, 4)))
             .show_separator_line(true)
             .show(ctx, |ui| self.status_bar(ui));
+        self.shell_menu_notice(ctx);
+        self.send_button_dialog(ctx);
+        self.telemetry_notice(ctx);
+        self.diagnostics.banner(ctx);
         self.activity_bar(ctx);
         self.shells.poll(ctx.input(|i| i.focused));
         self.ssh_poll();
@@ -4504,12 +5582,14 @@ impl eframe::App for App {
                     }
                 }
                 ShellEvt::Open(p, line) => {
-                    self.set_page(Page::Code);
                     self.code.open_file(&p, Some((line, None)));
+                    self.reveal(Pane::Code, "shell.open", work::Strength::Strong);
                 }
                 ShellEvt::Task(name, cmd) => self.flash_checkpoint(&name, &cmd),
+                ShellEvt::Command(id, line, row) => self.lend_port(id, &line, row),
             }
         }
+        self.tick_lent();
         // 换了工程：不管在哪一页都要同步（命令行打开文件夹时代码页还没显示）
         let mut projs = vec![];
         self.code.events.retain(|e| match e {
@@ -4525,66 +5605,50 @@ impl eframe::App for App {
         // 设置里记着 SVD 路径时，启动后代码页的寄存器悬停不用先打开工具也能用（路径没变就只是比较一下字符串）
         self.svd_sync();
         self.code.reg_window(ctx);
+        // 电路仿真在后台照常运行（切到调试页看仿真串口时也要跑）
+        if let Some(cv) = &mut self.circ {
+            cv.tick(ctx);
+        }
+        // 社区：收后台结果、定时拉提醒；提示语走统一的 toast
+        self.comm.tick(ctx, self.page == Page::Community);
+        for (m, err) in std::mem::take(&mut self.comm.toasts) {
+            self.toast(m, if err { ERR() } else { OK() });
+        }
+        self.s.seen_notice = self.comm.seen_notice;
+        // 副页面先占位置，主页面填剩下的
+        self.work.serial_tab_rect = None;
+        self.work.serial_device_rect = None;
+        self.dock_panel(ctx, &side_acts);
+        self.work.main_rect = Some(ctx.available_rect());
         match self.page {
-            Page::Code => {
-                self.code.ui(ctx, &acts, &self.km);
-                for e in std::mem::take(&mut self.code.events) {
-                    match e {
-                        CodeEvt::Toast(m, c) => self.toast(m, c),
-                        CodeEvt::Project(p) => self.project_changed(&p),
-                        CodeEvt::OpenSettings => {
-                            self.prefs.cat = prefs::Cat::Editor;
-                            self.set_page(Page::Settings);
-                        }
-                        CodeEvt::BitCalc(lit, v) => self.bitcalc.show(&lit, v),
-                        CodeEvt::Struct(src) => self.open_struct(src),
-                        CodeEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
-                        CodeEvt::Merge(base, mine, out) => {
-                            use crate::compareview::Side;
-                            let disk = crate::compareview::temp_file("disk", &std::fs::read(&out).unwrap_or_default());
-                            self.cmpv.open_merge(
-                                Side::labeled(&base, &t("上次保存")),
-                                Side::labeled(&mine, &t("我的修改")),
-                                Side::labeled(&disk, &t("外部修改")),
-                                &out,
-                                None,
-                            );
-                            self.set_page(Page::Compare);
-                            self.compare_events();
-                        }
-                    }
-                }
-            }
+            Page::Code => self.code.ui(ctx, &acts, &self.km),
             Page::Git => {
                 self.gitv.unsaved = self.code.dirty_paths();
                 self.gitv.sensitive.clone_from(&self.code.s.sensitive);
                 self.gitv.ui(ctx, &acts);
-                for e in std::mem::take(&mut self.gitv.events) {
-                    match e {
-                        GitEvt::Toast(m, c) => self.toast(m, c),
-                        GitEvt::Project(p) => {
-                            self.code.open_root(p);
-                        }
-                        GitEvt::OpenFile(p, line) => {
-                            self.set_page(Page::Code);
-                            self.code.open_file(&p, Some((line, None)));
-                        }
-                        GitEvt::Compare(a, la, b, lb) => self.compare_sides(a, la, b, lb),
-                        GitEvt::Conflict(root, rel) => {
-                            self.cmpv.open_conflict(&root, &rel);
-                            self.set_page(Page::Compare);
-                            self.compare_events();
-                        }
-                    }
-                }
             }
             Page::Debug => self.debug_page(ctx),
             Page::Tools => self.toolbox_page(ctx),
             Page::Compare => {
+                self.compare_tree(ctx);
                 self.cmpv.ui(ctx);
-                self.compare_events();
             }
             Page::Settings => self.settings_page(ctx),
+            Page::Community => self.comm.ui(ctx),
+        }
+        self.code_events();
+        self.git_events();
+        self.compare_events();
+        self.circuit_events();
+        self.sim_opened_tick();
+        if let Some((f, h)) = self.code.tab_out.take() {
+            self.work.drag = Some(work::DragPane {
+                pane: Pane::Code,
+                from: h,
+                live: false,
+                file: Some(f),
+                own: false,
+            });
         }
         if let Some((p, replay)) = self.open_log.take() {
             self.load_log_path(&p, replay);
@@ -4599,25 +5663,67 @@ impl eframe::App for App {
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(300));
         }
+        // 拖放位置：Windows 拖动过程中收不到鼠标移动，直接问系统光标位置
+        let drop_pos = drop_pointer(ctx);
         // 拖到底部终端面板上：把路径插进命令行
         if !dropped.is_empty() && self.shells.s.open {
-            let hover = ctx.input(|i| i.pointer.hover_pos());
-            if hover.is_some_and(|h| self.shells.rect.is_some_and(|r| r.contains(h))) {
+            if drop_pos.is_some_and(|h| self.shells.rect.is_some_and(|r| r.contains(h))) {
                 self.shells.insert_paths(&std::mem::take(&mut dropped));
             }
         }
+        // 拖到代码页的资源管理器上：复制进指针下面的文件夹（按住 Shift 移动）
+        if !dropped.is_empty() && self.page == Page::Code {
+            if let Some(dir) = drop_pos.and_then(|p| self.code.drop_dir_at(p)) {
+                let mv = ctx.input(|i| i.modifiers.shift);
+                let v = std::mem::take(&mut dropped);
+                // 拖进一个文件夹（而工程还没打开）当工程打开
+                self.code.drop_into(&v, &dir, mv);
+            }
+        }
+        if !dropped.is_empty() && self.page == Page::Code && self.code.root().is_none() && dropped.len() == 1 && dropped[0].is_dir() {
+            let d = dropped.remove(0);
+            self.code.open_root(d);
+        }
+        // 拖到副页面上：按副页面处理
+        let on_side = drop_pos.is_some_and(|h| self.work.rect.is_some_and(|r| r.contains(h)));
+        let drop_pane = if on_side { self.side_pane() } else { self.main_pane() };
+        let drop_serial = drop_pane.and_then(|pane| pane.serial_slot(self.selected_serial));
+        let drop_page = match (on_side, drop_pane) {
+            (true, Some(Pane::Tool(tool))) => {
+                for p in std::mem::take(&mut dropped) {
+                    let keep = self.s.tb.tool;
+                    self.s.tb.tool = tool;
+                    self.tool_drop(p);
+                    self.s.tb.tool = keep;
+                }
+                self.page
+            }
+            (true, Some(Pane::Code | Pane::Files)) => Page::Code,
+            (true, Some(Pane::Compare)) => Page::Compare,
+            (true, Some(Pane::Debug | Pane::Serial(_))) => Page::Debug,
+            _ => self.page,
+        };
         for p in dropped {
-            match self.page {
+            match drop_page {
                 Page::Code => {
-                    if !self.code.drop_on_viewer(&p) {
+                    if p.is_dir() {
+                        self.code.open_root(p.clone());
+                    } else if !self.code.drop_on_viewer(&p) {
                         self.code.open_file(&p, None)
                     }
                 }
                 Page::Compare => self.cmpv.drop_files(vec![p]),
                 Page::Tools => self.tool_drop(p),
-                _ => self.load_log_path(&p, false),
+                _ => {
+                    if let Some(slot) = drop_serial {
+                        self.with_session(slot, |app| app.load_log_path(&p, false));
+                    } else {
+                        self.load_log_path(&p, false);
+                    }
+                }
             }
         }
+        self.drop_hint(ctx, drop_pos);
         let code = &self.code;
         self.bitcalc.ui(ctx, &|s| code.eval_expr(s));
         self.log_windows(ctx);
@@ -4626,6 +5732,11 @@ impl eframe::App for App {
         self.alias_window(ctx);
         self.api_windows(ctx);
         self.palette_ui(ctx);
+        self.back_chip(ctx);
+        self.switcher_ui(ctx);
+        self.pair_toast(ctx);
+        self.drag_overlay(ctx);
+        self.diagnostics.window(ctx);
 
         // 提示气泡
         self.update_card(ctx);
@@ -4762,104 +5873,58 @@ pub(crate) fn card<R>(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui) -> R) -
         .inner
 }
 
-fn port_card(ui: &mut egui::Ui, p: &PortEntry, alias: Option<&str>, side_b: bool, selected: bool, live: bool, enabled: bool) -> egui::Response {
-    let w = ui.available_width();
-    // 断开时才能点选，但右键菜单（重命名、监听口）始终可用
-    let (rect, resp) = ui.allocate_exact_size(vec2(w, 46.0), if enabled { Sense::click() } else { Sense::hover() | Sense::click() });
-    let painter = ui.painter();
-    let hov = resp.hovered() && enabled;
+fn serial_port_row(ui: &mut egui::Ui, port: &PortEntry, alias: Option<&str>, selected: bool, side_b: bool, status: Option<(&str, Color32)>, width: f32) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, selected, &port.name));
     let fill = if selected {
         BG3()
-    } else if hov {
+    } else if response.hovered() {
         BG2()
     } else {
         BG1()
     };
-    let stroke = if live {
-        OK().gamma_multiply(0.5)
-    } else if selected {
-        LINE_HI()
-    } else if hov {
-        LINE()
-    } else {
-        Color32::TRANSPARENT
-    };
-    painter.rect(rect, CornerRadius::same(7), fill, st(1.0, stroke), egui::StrokeKind::Inside);
-    if selected {
-        painter.rect_filled(
-            Rect::from_min_size(rect.min + vec2(0.0, 10.0), vec2(2.5, rect.height() - 20.0)),
-            1.5,
-            if live { OK() } else { ACCENT() },
-        );
-    }
-    let dot = pos2(rect.left() + 16.0, rect.center().y);
-    let dc = if live {
-        OK()
-    } else if selected {
-        ACCENT()
-    } else {
-        TEXT3()
-    };
-    if live || selected {
-        painter.circle_filled(dot, 6.0, dc.gamma_multiply(0.18));
-    }
-    painter.circle_filled(dot, 3.0, dc);
-    let x = rect.left() + 30.0;
-    let short = p.name.rsplit(['/', '\\']).next().unwrap_or(&p.name);
-    painter.text(
-        pos2(x, rect.top() + 14.0),
-        Align2::LEFT_CENTER,
-        alias.unwrap_or(short),
-        FontId::new(13.5, mono_bold()),
-        if selected { TEXT() } else { TEXT2() },
-    );
-    let desc = match alias {
-        Some(_) if p.desc.is_empty() => short.to_string(),
-        Some(_) => format!("{short} · {}", p.desc),
-        None if p.desc.is_empty() => p.name.clone(),
-        None => p.desc.clone(),
-    };
-    if side_b {
-        let r = Rect::from_center_size(rect.right_center() - vec2(if live { 50.0 } else { 18.0 }, 0.0), vec2(16.0, 16.0));
-        painter.rect(r, 4.0, WARN().gamma_multiply(0.15), st(1.0, WARN().gamma_multiply(0.5)), egui::StrokeKind::Inside);
-        painter.text(r.center(), Align2::CENTER_CENTER, "B", FontId::new(10.0, mono_bold()), WARN());
-    }
-    painter.text(
-        pos2(x, rect.top() + 32.0),
-        Align2::LEFT_CENTER,
-        truncate(&desc, 30),
-        FontId::new(11.0, FontFamily::Proportional),
-        TEXT3(),
-    );
-    if live {
-        painter.text(rect.right_center() - vec2(12.0, 0.0), Align2::RIGHT_CENTER, "LIVE", FontId::new(10.0, mono_bold()), OK());
-    }
-    if hov {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-    }
-    ui.add_space(2.0);
-    resp.on_hover_text(&p.name)
-}
+    let edge = if selected { LINE_HI() } else { Color32::TRANSPARENT };
+    let painter = ui.painter_at(rect);
+    painter.rect(rect, R_WIDGET, fill, st(1.0, edge), egui::StrokeKind::Inside);
+    let dot = pos2(rect.left() + 12.0, rect.center().y);
+    let color = status.map_or(if selected { ACCENT() } else { TEXT3() }, |(_, color)| color);
+    painter.circle_filled(dot, 3.0, color);
 
-fn empty_port_card(ui: &mut egui::Ui) {
-    let w = ui.available_width();
-    let (rect, _) = ui.allocate_exact_size(vec2(w, 46.0), Sense::hover());
-    let p = ui.painter();
-    // 虚线框
-    let pts = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom(), rect.left_top()];
-    for seg in pts.windows(2) {
-        p.extend(Shape::dashed_line(seg, st(1.0, LINE_HI()), 4.0, 4.0));
+    let suffix_font = FontId::new(10.5, FontFamily::Proportional);
+    let mut right = rect.right() - 9.0;
+    if side_b {
+        painter.text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, "B", suffix_font.clone(), WARN());
+        right -= 15.0;
     }
-    let t = ui.input(|i| i.time);
-    let dots = ".".repeat(((t * 2.0) as usize % 3) + 1);
-    p.text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        tf("等待设备插入{}", &[&dots]),
-        FontId::new(12.0, FontFamily::Proportional),
-        TEXT3(),
-    );
-    ui.ctx().request_repaint_after(Duration::from_millis(500));
+    if let Some((label, color)) = status {
+        let clipped = Rect::from_min_max(pos2(rect.center().x, rect.top()), pos2(right, rect.bottom()));
+        let bounds = painter.with_clip_rect(clipped).text(pos2(right, rect.center().y), Align2::RIGHT_CENTER, label, suffix_font, color);
+        right -= bounds.width().min(rect.width() * 0.42) + 8.0;
+    }
+    let short = port.name.rsplit(['/', '\\']).next().unwrap_or(&port.name);
+    let short = port.name.strip_prefix("/dev/").unwrap_or(short);
+    let name = match alias {
+        Some(alias) => format!("{short} · {alias}"),
+        None if !port.desc.is_empty() => format!("{short} · {}", port.desc),
+        None => short.to_owned(),
+    };
+    let x = rect.left() + 23.0;
+    let mut label = egui::text::LayoutJob::simple(name, FontId::new(12.0, if selected { mono_bold() } else { FontFamily::Proportional }), TEXT(), (right - x).max(8.0));
+    label.wrap.max_rows = 1;
+    label.wrap.break_anywhere = true;
+    let text = ui.fonts(|fonts| fonts.layout_job(label));
+    painter.galley(pos2(x, rect.center().y - text.size().y * 0.5), text, TEXT());
+
+    let mut details = port.name.clone();
+    for detail in alias.into_iter().chain(std::iter::once(port.desc.as_str())).filter(|detail| !detail.is_empty()) {
+        details.push('\n');
+        details.push_str(detail);
+    }
+    if let Some((status, _)) = status {
+        details.push('\n');
+        details.push_str(status);
+    }
+    response.on_hover_cursor(egui::CursorIcon::PointingHand).on_hover_text(details)
 }
 
 fn stat(ui: &mut egui::Ui, w: f32, k: &str, v: &str, c: Color32) {
@@ -4933,7 +5998,7 @@ pub(crate) fn hud_corners(p: &egui::Painter, r: Rect, color: Color32) {
     }
 }
 
-fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, logo: &egui::TextureHandle) {
+fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: bool, compact: bool, mapping_hint: Option<&str>, logo: &egui::TextureHandle) {
     let p = ui.painter();
     // 点阵背景
     let step = 22.0;
@@ -4958,17 +6023,31 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: 
         .as_shape(Rect::from_center_size(c, vec2(40.0, 40.0)), 20.0),
     );
     p.image(logo.id(), Rect::from_center_size(c, vec2(72.0, 72.0)), Rect::from_min_max(pos2(0.0, 0.0), pos2(1.0, 1.0)), logo_tint());
-    let (title, sub) = if connected {
+    let (title, sub) = if let Some(sub) = mapping_hint {
+        (t("网络分享已就绪"), sub)
+    } else if connected {
         (t("已连接，等待数据"), t("设备有输出时会实时显示在这里"))
     } else if no_ports {
         (t("未发现串口"), t("插入 USB 转串口设备后会自动出现在左侧"))
+    } else if compact {
+        (t("准备就绪"), t("在上方选好连接，点「连接」"))
     } else if net {
         (t("准备就绪"), t("左侧填好地址，点「连接」"))
     } else {
         (t("准备就绪"), t("左侧选好端口，点「连接」；不知道波特率就点「⚡ 自动」"))
     };
     p.text(c + vec2(0.0, 52.0), Align2::CENTER_CENTER, title, FontId::new(17.0, bold()), TEXT());
-    p.text(c + vec2(0.0, 76.0), Align2::CENTER_CENTER, sub, FontId::new(13.0, FontFamily::Proportional), TEXT2());
+    let wrap = (rect.width() - 40.0).max(120.0);
+    let g = ui.fonts(|f| {
+        let mut job = egui::text::LayoutJob::simple(sub.to_string(), FontId::new(13.0, FontFamily::Proportional), TEXT2(), wrap);
+        job.halign = Align::Center;
+        f.layout_job(job)
+    });
+    p.galley(pos2(c.x, c.y + 68.0), g.clone(), TEXT2());
+    if mapping_hint.is_some() {
+        return;
+    }
+    let extra = (g.size().y - 18.0).max(0.0);
     let keys = [("F5", t("连接")), ("Ctrl+F", t("搜索")), ("Ctrl+L", t("清屏")), ("Ctrl+S", t("保存"))];
     let font = FontId::new(11.0, FontFamily::Monospace);
     let widths: Vec<f32> = keys
@@ -4976,8 +6055,11 @@ fn empty_state(ui: &egui::Ui, rect: Rect, no_ports: bool, connected: bool, net: 
         .map(|(k, v)| ui.fonts(|f| f.layout_no_wrap(format!("{k}  {v}"), font.clone(), TEXT()).size().x) + 20.0)
         .collect();
     let total: f32 = widths.iter().sum::<f32>() + 8.0 * (keys.len() - 1) as f32;
+    if total > rect.width() - 24.0 {
+        return;
+    }
     let mut x = c.x - total / 2.0;
-    let y = c.y + 112.0;
+    let y = c.y + 112.0 + extra;
     for ((k, v), w) in keys.iter().zip(widths) {
         let r = Rect::from_min_size(pos2(x, y - 12.0), vec2(w, 24.0));
         p.rect(r, CornerRadius::same(5), BG2(), st(1.0, LINE()), egui::StrokeKind::Inside);
@@ -5072,6 +6154,11 @@ pub(crate) enum Icon {
     Compare,
     Swap,
     History,
+    Chat,
+    /// 副页面在右边 / 下方、弹出成独立窗口
+    DockRight,
+    DockBottom,
+    PopOut,
 }
 
 /// 统一线宽的矢量小图标，不依赖字体里有没有这个符号
@@ -5154,6 +6241,7 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
             p.line_segment([pt(-6.0, 3.5), pt(6.0, 3.5)], s);
             p.add(Shape::line(vec![pt(-3.0, 0.5), pt(-6.0, 3.5), pt(-3.0, 6.5)], s));
         }
+        Icon::Chat => crate::community::chat_icon(p, Rect::from_center_size(c0, vec2(15.0 * u, 15.0 * u)), c),
         Icon::History => {
             // 钟面 + 逆时针箭头
             let mut pts = vec![];
@@ -5330,6 +6418,21 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
         Icon::Maximize => {
             p.add(Shape::line(vec![pt(-5.0, 2.0), pt(0.0, -3.0), pt(5.0, 2.0)], s));
         }
+        Icon::DockRight | Icon::DockBottom => {
+            let b = Rect::from_center_size(c0, vec2(14.0 * u, 12.0 * u));
+            p.rect_stroke(b, 2.0, s, egui::StrokeKind::Middle);
+            let fill = if icon == Icon::DockRight {
+                Rect::from_min_max(pt(1.5, -6.0), b.max)
+            } else {
+                Rect::from_min_max(pt(-7.0, 1.0), b.max)
+            };
+            p.rect_filled(fill.shrink(1.5 * u), 1.0, c.gamma_multiply(0.55));
+        }
+        Icon::PopOut => {
+            p.add(Shape::line(vec![pt(-1.0, -6.0), pt(-6.0, -6.0), pt(-6.0, 6.0), pt(6.0, 6.0), pt(6.0, 1.0)], s));
+            p.line_segment([pt(-0.5, 0.5), pt(6.5, -6.5)], s);
+            p.add(Shape::line(vec![pt(2.0, -6.5), pt(6.5, -6.5), pt(6.5, -2.0)], s));
+        }
         Icon::Restore => {
             p.add(Shape::line(vec![pt(-5.0, -2.0), pt(0.0, 3.0), pt(5.0, -2.0)], s));
         }
@@ -5338,6 +6441,31 @@ pub(crate) fn draw_icon(p: &egui::Painter, r: Rect, icon: Icon, c: Color32) {
 
 /// 无边框图标按钮，悬停时出底色；active 时青色（录制时红色）
 /// 右键菜单的一项：左边文字，右边淡色快捷键
+/// 拖放时的指针位置（逻辑坐标）。Windows 在系统拖放过程中不发鼠标移动，egui 的位置是旧的，改问系统
+fn drop_pointer(ctx: &egui::Context) -> Option<egui::Pos2> {
+    #[cfg(windows)]
+    {
+        #[repr(C)]
+        struct Point {
+            x: i32,
+            y: i32,
+        }
+        #[link(name = "user32")]
+        extern "system" {
+            fn GetCursorPos(p: *mut Point) -> i32;
+        }
+        let mut p = Point { x: 0, y: 0 };
+        // SAFETY: 只写入本地结构体
+        if unsafe { GetCursorPos(&mut p) } != 0 {
+            let (inner, ppp) = ctx.input(|i| (i.viewport().inner_rect, i.pixels_per_point));
+            if let Some(r) = inner {
+                return Some(pos2(p.x as f32 / ppp, p.y as f32 / ppp) - r.min.to_vec2());
+            }
+        }
+    }
+    ctx.input(|i| i.pointer.hover_pos().or(i.pointer.latest_pos()))
+}
+
 pub(crate) fn menu_item(ui: &mut egui::Ui, text: &str, keys: &str) -> bool {
     let w = ui.available_width().max(200.0);
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 26.0), Sense::click());
@@ -5659,22 +6787,6 @@ fn group_digits(n: u64) -> String {
         out.push(c);
     }
     out
-}
-
-fn format_line(l: &Line, view: ViewMode) -> String {
-    let tag = match l.dir {
-        Dir::Rx => "RX",
-        Dir::Rx2 => "RB",
-        Dir::Tx => "TX",
-        Dir::Sys => "##",
-    };
-    let hex = || l.raw.iter().map(|b| format!("{b:02X}")).collect::<Vec<_>>().join(" ");
-    let body = match (view, l.dir) {
-        (_, Dir::Sys) | (ViewMode::Text, _) => l.plain.clone(),
-        (ViewMode::Hex, _) => hex(),
-        (ViewMode::Mixed, _) => format!("{} | {}", l.plain, hex()),
-    };
-    format!("{} {} {}", l.ts.format("%Y-%m-%d %H:%M:%S%.3f"), tag, body)
 }
 
 /// ASCII 大小写不敏感查找（不分配内存，返回的位置总在字符边界上）

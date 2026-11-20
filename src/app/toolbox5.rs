@@ -82,6 +82,7 @@ pub(super) fn tool_text5(tool: Tool) -> (&'static str, &'static str) {
         Tool::Decode => (t("CBOR / MsgPack / Protobuf"), t("把二进制数据解码成树；Protobuf 不需要 .proto 文件")),
         Tool::Vcd => (t("VCD 波形"), t("打开逻辑分析仪或仿真导出的 VCD 文件，看数字波形、量时间")),
         Tool::Qr => (t("二维码"), t("文字、网址或 Wi-Fi 配网信息生成二维码，可以存成图片或 C 数组")),
+        Tool::Circuit => (t("电路仿真"), t("在面包板上搭电路、通电看结果，接错会冒烟；单片机引脚不写代码也能动起来")),
         _ => ("", ""),
     }
 }
@@ -121,7 +122,7 @@ impl App {
     pub(super) fn open_struct(&mut self, src: String) {
         self.s.tb.z.y.st_src = src;
         self.s.tb.z.y.st_pick.clear();
-        self.open_tool(Tool::Struct);
+        self.reveal(super::work::Pane::Tool(Tool::Struct), "code.struct", super::work::Strength::Strong);
     }
 
     // ------------------------------------------------------------ 结构体
@@ -685,7 +686,7 @@ impl App {
                 stat(ui, t("内容"), &tf("{} 字节", &[&payload.len()]), None);
                 ui.add_space(10.0);
                 if ui.button(t("保存 PNG…")).clicked() {
-                    if let Some(path) = rfd::FileDialog::new().set_file_name("qrcode.png").save_file() {
+                    if let Some(path) = crate::diagnostics::file_dialog().set_file_name("qrcode.png").save_file() {
                         let q = 4;
                         let n = (w + 2 * q) as u32;
                         let scale = 10u32;
@@ -795,5 +796,15 @@ fn draw_signal(p: &egui::Painter, s: &vcd::Signal, row: Rect, wave: Rect, t0: f6
     }
     if line.len() > 1 {
         p.add(Shape::line(line, st(1.4, col)));
+    }
+}
+
+impl App {
+    /// 「电路和接线」页
+    pub(super) fn circuit_page(&mut self, ui: &mut egui::Ui, compact: bool) {
+        let root = self.code.root().map(|r| r.to_path_buf());
+        let cv = self.circ.get_or_insert_with(|| Box::new(crate::circuitview::CircuitView::new()));
+        cv.project = root;
+        cv.ui_in(ui, compact);
     }
 }

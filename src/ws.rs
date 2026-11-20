@@ -7,7 +7,7 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 
 use crate::i18n::{t, tf};
-use crate::net::{connect_tcp, is_timeout, tls, Io, Next, Stream};
+use crate::net::{connect_tcp, is_timeout, tls, Io, Next, Stream, MAX_RECEIVE_PAYLOAD};
 use crate::serial::Cmd;
 
 #[derive(Clone, Serialize, Deserialize, PartialEq)]
@@ -90,38 +90,55 @@ pub fn frame(op: u8, payload: &[u8], mask: [u8; 4]) -> Vec<u8> {
     f
 }
 
-/// 解析一帧：(FIN, 操作码, 内容, 占用字节数)。数据不够返回 None
-pub fn parse_frame(b: &[u8]) -> Option<(bool, u8, Vec<u8>, usize)> {
+type Frame = (bool, u8, Vec<u8>, usize);
+
+/// 解析一帧：(FIN, 操作码, 内容, 占用字节数)。数据不够返回 None；长度不合法返回 Err。
+fn parse_frame(b: &[u8]) -> Result<Option<Frame>, ()> {
     if b.len() < 2 {
-        return None;
+        return Ok(None);
     }
     let fin = b[0] & 0x80 != 0;
     let op = b[0] & 0x0f;
     let masked = b[1] & 0x80 != 0;
-    let mut n = (b[1] & 0x7f) as usize;
-    let mut p = 2;
+    let mut n = (b[1] & 0x7f) as u64;
+    let mut p = 2usize;
     if n == 126 {
-        n = u16::from_be_bytes([*b.get(2)?, *b.get(3)?]) as usize;
+        let Some(len) = b.get(2..4) else { return Ok(None) };
+        n = u16::from_be_bytes([len[0], len[1]]) as u64;
         p = 4;
     } else if n == 127 {
-        let mut a = [0u8; 8];
-        a.copy_from_slice(b.get(2..10)?);
-        n = u64::from_be_bytes(a) as usize;
+        let Some(len) = b.get(2..10) else { return Ok(None) };
+        let mut bytes = [0; 8];
+        bytes.copy_from_slice(len);
+        n = u64::from_be_bytes(bytes);
         p = 10;
     }
+    if n > MAX_RECEIVE_PAYLOAD as u64 || (op >= 8 && (n > 125 || !fin)) {
+        return Err(());
+    }
     let mask = if masked {
-        let m = [*b.get(p)?, *b.get(p + 1)?, *b.get(p + 2)?, *b.get(p + 3)?];
+        let Some(mask) = b.get(p..p + 4) else { return Ok(None) };
+        let m = [mask[0], mask[1], mask[2], mask[3]];
         p += 4;
         Some(m)
     } else {
         None
     };
-    let body = b.get(p..p + n)?;
+    let end = p + n as usize;
+    let Some(body) = b.get(p..end) else { return Ok(None) };
     let data = match mask {
         Some(m) => body.iter().enumerate().map(|(i, x)| x ^ m[i % 4]).collect(),
         None => body.to_vec(),
     };
-    Some((fin, op, data, p + n))
+    Ok(Some((fin, op, data, end)))
+}
+
+fn append_fragment(acc: &mut Vec<u8>, data: &[u8]) -> Result<(), ()> {
+    if data.len() > MAX_RECEIVE_PAYLOAD.saturating_sub(acc.len()) {
+        return Err(());
+    }
+    acc.extend_from_slice(data);
+    Ok(())
 }
 
 pub fn accept_key(key: &str) -> String {
@@ -280,12 +297,13 @@ pub fn run(io: &Io, c: &WsConfig, label: &str) -> Result<(), String> {
             Err(e) if is_timeout(&e) => {}
             Err(e) => return Err(e.to_string()),
         }
-        while let Some((fin, op, data, n)) = parse_frame(&buf) {
+        let invalid = |_| tf("{} 收到无效或过大的消息", &[&"WebSocket"]);
+        while let Some((fin, op, data, n)) = parse_frame(&buf).map_err(invalid)? {
             buf.drain(..n);
             match op {
                 0x0 => {
                     if let Some((_, acc)) = frag.as_mut() {
-                        acc.extend_from_slice(&data);
+                        append_fragment(acc, &data).map_err(invalid)?;
                     }
                     if fin {
                         if let Some((o, acc)) = frag.take() {
@@ -345,13 +363,31 @@ mod tests {
     #[test]
     fn frames_roundtrip() {
         let f = frame(1, b"hello", [1, 2, 3, 4]);
-        let (fin, op, d, n) = parse_frame(&f).unwrap();
+        let (fin, op, d, n) = parse_frame(&f).unwrap().unwrap();
         assert!(fin);
         assert_eq!((op, d.as_slice(), n), (1, &b"hello"[..], f.len()));
         let big = vec![7u8; 70000];
         let f = frame(2, &big, [9, 9, 9, 9]);
-        assert_eq!(parse_frame(&f).unwrap().2, big);
-        assert!(parse_frame(&f[..f.len() - 1]).is_none());
+        assert_eq!(parse_frame(&f).unwrap().unwrap().2, big);
+        assert!(parse_frame(&f[..f.len() - 1]).unwrap().is_none());
+    }
+
+    #[test]
+    fn receive_length_is_validated_before_waiting_for_payload() {
+        let mut header = vec![0x82, 127];
+        header.extend_from_slice(&(MAX_RECEIVE_PAYLOAD as u64).to_be_bytes());
+        assert!(parse_frame(&header).unwrap().is_none());
+        header[9] = 1; // one byte over the receive limit
+        assert!(parse_frame(&header).is_err());
+        assert!(parse_frame(&header[..9]).unwrap().is_none());
+    }
+
+    #[test]
+    fn fragmented_messages_share_one_receive_budget() {
+        let mut assembled = vec![0; MAX_RECEIVE_PAYLOAD - 1];
+        assert!(append_fragment(&mut assembled, b"x").is_ok());
+        assert!(append_fragment(&mut assembled, b"y").is_err());
+        assert_eq!(assembled.len(), MAX_RECEIVE_PAYLOAD);
     }
 
     #[test]

@@ -3,6 +3,9 @@
 
 use crate::i18n::t;
 use eframe::egui::{text::LayoutJob, Color32, FontId, TextFormat};
+use regex_lite::Regex;
+use serde::{Deserialize, Serialize};
+use std::{ops::Range, sync::OnceLock};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Lang {
@@ -74,6 +77,11 @@ impl Lang {
             Lang::Ld => t("链接脚本"),
             Lang::Plain => t("纯文本"),
         }
+    }
+
+    pub fn completion_words(self) -> impl Iterator<Item = &'static str> {
+        let spec = self.spec();
+        spec.kw.iter().chain(spec.ty).chain(spec.consts).copied()
     }
 
     fn spec(self) -> Spec {
@@ -706,6 +714,110 @@ pub fn color(t: Tok) -> Color32 {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LogPreset {
+    #[default]
+    None,
+    DeviceLog,
+    Json,
+    At,
+    C,
+}
+
+impl LogPreset {
+    pub const ALL: [Self; 5] = [Self::None, Self::DeviceLog, Self::Json, Self::At, Self::C];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::None => t("无"),
+            Self::DeviceLog => t("设备日志"),
+            Self::Json => Lang::Json.name(),
+            Self::At => t("AT 指令"),
+            Self::C => Lang::C.name(),
+        }
+    }
+
+    /// Presets style the visible payload only. Bound work for long unbroken lines.
+    pub fn for_each_color(self, text: &str, mut paint: impl FnMut(Range<usize>, Color32)) {
+        const MAX_HIGHLIGHT_BYTES: usize = 16 * 1024;
+        let text = &text[..text.floor_char_boundary(MAX_HIGHLIGHT_BYTES)];
+        let lang = match self {
+            Self::None => return,
+            Self::Json => Lang::Json,
+            Self::C => Lang::C,
+            Self::DeviceLog | Self::At => {
+                let offset = if self == Self::At { at_prefix(text, &mut paint) } else { 0 };
+                log_fields(&text[offset..], offset, paint);
+                return;
+            }
+        };
+        for (start, end, token) in tokenize(text, lang) {
+            if token == Tok::Text {
+                continue;
+            }
+            let fg = if lang == Lang::Json && token == Tok::Str && text[end..].trim_start().starts_with(':') {
+                pal::VAR()
+            } else {
+                color(token)
+            };
+            paint(start..end, fg);
+        }
+    }
+}
+
+fn at_prefix(text: &str, paint: &mut impl FnMut(Range<usize>, Color32)) -> usize {
+    static PREFIX: OnceLock<Regex> = OnceLock::new();
+    let rx = PREFIX.get_or_init(|| {
+        Regex::new(concat!(
+            r"(?i)^[ \t]*(?:(\+(?:CME|CMS) ERROR|ERROR|NO CARRIER|NO ANSWER|BUSY)\b",
+            r"|(OK|CONNECT|RING)\b",
+            r"|(AT(?:[+^#%&][A-Z0-9_]+|[A-Z][A-Z0-9]*)?\??|\+[A-Z][A-Z0-9_]*))"
+        ))
+        .expect("valid AT command pattern")
+    });
+    let Some(captures) = rx.captures(text) else { return 0 };
+    let (prefix, color) = if let Some(failure) = captures.get(1) {
+        (failure, crate::theme::ERR())
+    } else if let Some(status) = captures.get(2) {
+        (status, crate::theme::OK())
+    } else {
+        (captures.get(3).expect("matched AT command"), pal::KW())
+    };
+    paint(prefix.range(), color);
+    prefix.end()
+}
+
+fn log_fields(text: &str, offset: usize, mut paint: impl FnMut(Range<usize>, Color32)) {
+    static FIELDS: OnceLock<Regex> = OnceLock::new();
+    let rx = FIELDS.get_or_init(|| {
+        Regex::new(concat!(
+            r#""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'"#,
+            r"|\b[A-Za-z_][A-Za-z0-9_.-]*[ \t]*=",
+            r"|\b[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\.[0-9]+)?\b",
+            r"|\b(?:true|false|null)\b",
+            r"|\b0[xX][0-9A-Fa-f]+\b|[+-]?\b[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?\b"
+        ))
+        .expect("valid device log field pattern")
+    });
+    for field in rx.find_iter(text) {
+        let value = field.as_str();
+        let start = offset + field.start();
+        let mut end = offset + field.end();
+        let color = if let Some(key) = value.strip_suffix('=') {
+            end = start + key.trim_end().len();
+            pal::VAR()
+        } else {
+            match value.as_bytes()[0] {
+                b'"' | b'\'' => pal::STR(),
+                b't' | b'f' | b'n' => pal::CONST(),
+                _ if value.contains(':') => pal::COMMENT(),
+                _ => pal::NUM(),
+            }
+        };
+        paint(start..end, color);
+    }
+}
+
 pub fn is_ident_start(c: char) -> bool {
     c == '_' || c.is_alphabetic() || c == '$'
 }
@@ -966,6 +1078,48 @@ pub fn layout(text: &str, lang: Lang, font: FontId) -> LayoutJob {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn preset_spans(preset: LogPreset, text: &str) -> Vec<(&str, Color32)> {
+        let mut spans = Vec::new();
+        preset.for_each_color(text, |range, color| spans.push((&text[range], color)));
+        spans
+    }
+
+    #[test]
+    fn log_presets_keep_utf8_ranges_and_distinguish_fields() {
+        let text = r#"12:34:56.123 [INFO] 温度 temp=-2.5 enabled=true name="主板" addr=0xFF"#;
+        assert!(preset_spans(LogPreset::None, text).is_empty());
+        assert_eq!(
+            preset_spans(LogPreset::DeviceLog, text),
+            [
+                ("12:34:56.123", pal::COMMENT()),
+                ("temp", pal::VAR()),
+                ("-2.5", pal::NUM()),
+                ("enabled", pal::VAR()),
+                ("true", pal::CONST()),
+                ("name", pal::VAR()),
+                (r#""主板""#, pal::STR()),
+                ("addr", pal::VAR()),
+                ("0xFF", pal::NUM()),
+            ]
+        );
+        let text = r#"{"状态": "正常", "count": 42}"#;
+        let json = preset_spans(LogPreset::Json, text);
+        assert!(json.contains(&(r#""状态""#, pal::VAR())));
+        assert!(json.contains(&(r#""正常""#, pal::STR())));
+        assert!(json.contains(&("42", pal::NUM())));
+        assert!(preset_spans(LogPreset::C, "int x = 0xAB;").contains(&("int", pal::TY())));
+    }
+
+    #[test]
+    fn at_preset_distinguishes_command_reply_and_error() {
+        assert_eq!(
+            preset_spans(LogPreset::At, r#"  AT+NAME="主板",1"#),
+            [("AT+NAME", pal::KW()), (r#""主板""#, pal::STR()), ("1", pal::NUM())]
+        );
+        assert_eq!(preset_spans(LogPreset::At, "OK"), [("OK", crate::theme::OK())]);
+        assert_eq!(preset_spans(LogPreset::At, "+CME ERROR: 3"), [("+CME ERROR", crate::theme::ERR()), ("3", pal::NUM())]);
+    }
 
     fn kinds(src: &str, lang: Lang) -> Vec<(String, Tok)> {
         tokenize(src, lang)

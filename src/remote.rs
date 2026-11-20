@@ -1,10 +1,10 @@
 //! SSH / Telnet 远程终端（工具箱「通信调试」里的 SSH / Telnet 工具）。
 //! SSH 直接调用系统的 ssh 命令（Windows 10 起自带 OpenSSH），跑在伪终端里：密钥、ssh-agent、
-//! ~/.ssh/config、跳板机都和命令行里一样；上传下载走 scp。Telnet 自己实现（协商回显、窗口大小）。
+//! ~/.ssh/config、跳板机都和命令行里一样；文件支持 SFTP 浏览和独立 SCP 传输。
 
 use std::io::{Read, Write};
 use std::net::{TcpStream, ToSocketAddrs};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::Arc;
@@ -132,39 +132,33 @@ impl Host {
         })
     }
 
-    fn ssh_args(&self) -> Vec<String> {
+    pub(crate) fn ssh_args(&self) -> Vec<String> {
+        let mut args = self.ssh_options("-p");
+        args.push(self.target(false));
+        args
+    }
+
+    pub(crate) fn ssh_options(&self, port_flag: &str) -> Vec<String> {
         let mut a: Vec<String> = vec!["-o".into(), "ServerAliveInterval=30".into()];
         if self.port != 22 {
-            a.extend(["-p".into(), self.port.to_string()]);
+            a.extend([port_flag.into(), self.port.to_string()]);
         }
         if !self.key.trim().is_empty() {
             a.extend(["-i".into(), self.key.trim().into()]);
         }
         a.extend(split_args(&self.args));
-        a.push(self.target());
         a
     }
 
-    fn target(&self) -> String {
-        let h = if self.host.contains(':') { format!("[{}]", self.host) } else { self.host.clone() };
+    pub(crate) fn target(&self, bracket_ipv6: bool) -> String {
+        let host = self.host.trim();
+        let host = host.strip_prefix('[').and_then(|host| host.strip_suffix(']')).unwrap_or(host);
+        let h = if bracket_ipv6 && host.contains(':') { format!("[{host}]") } else { host.to_owned() };
         if self.user.is_empty() {
             h
         } else {
             format!("{}@{h}", self.user)
         }
-    }
-
-    /// scp 的公共参数（BatchMode：要密码时直接失败，不会卡住）
-    fn scp_args(&self) -> Vec<String> {
-        let mut a: Vec<String> = vec!["-o".into(), "BatchMode=yes".into(), "-r".into()];
-        if self.port != 22 {
-            a.extend(["-P".into(), self.port.to_string()]);
-        }
-        if !self.key.trim().is_empty() {
-            a.extend(["-i".into(), self.key.trim().into()]);
-        }
-        a.extend(split_args(&self.args));
-        a
     }
 }
 
@@ -203,15 +197,6 @@ pub fn ssh_program() -> Option<String> {
         }
     }
     None
-}
-
-fn scp_program() -> String {
-    ssh_program()
-        .map(|s| {
-            let p = Path::new(&s);
-            p.with_file_name(if cfg!(windows) { "scp.exe" } else { "scp" }).to_string_lossy().into_owned()
-        })
-        .unwrap_or_else(|| "scp".into())
 }
 
 // ---------------------------------------------------------------- Telnet
@@ -548,73 +533,6 @@ impl Session {
     }
 }
 
-// ---------------------------------------------------------------- scp
-
-pub struct Xfer {
-    pub what: String,
-    pub rx: Receiver<Result<(), String>>,
-}
-
-/// 上传本地文件 / 文件夹到 host 的 dir
-pub fn upload(ctx: &egui::Context, host: &Host, files: &[PathBuf], dir: &str) -> Xfer {
-    let mut args = host.scp_args();
-    args.extend(files.iter().map(|f| f.to_string_lossy().into_owned()));
-    let dir = if dir.trim().is_empty() { "~" } else { dir.trim() };
-    args.push(format!("{}:{}", host.target(), dir));
-    let names: Vec<String> = files.iter().filter_map(|f| f.file_name().map(|n| n.to_string_lossy().into_owned())).collect();
-    run_scp(ctx, args, format!("{} → {}:{dir}", names.join(", "), host.title()))
-}
-
-/// 下载远程文件到本地文件夹
-pub fn download(ctx: &egui::Context, host: &Host, remote: &str, local: &Path) -> Xfer {
-    let mut args = host.scp_args();
-    args.push(format!("{}:{}", host.target(), remote.trim()));
-    args.push(local.to_string_lossy().into_owned());
-    run_scp(ctx, args, format!("{}:{} → {}", host.title(), remote.trim(), local.display()))
-}
-
-fn run_scp(ctx: &egui::Context, args: Vec<String>, what: String) -> Xfer {
-    let (tx, rx) = mpsc::channel();
-    let ctx = ctx.clone();
-    std::thread::spawn(move || {
-        let run = |legacy: bool| {
-            let mut cmd = std::process::Command::new(scp_program());
-            if legacy {
-                cmd.arg("-O");
-            }
-            cmd.args(&args).stdin(std::process::Stdio::null());
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                cmd.creation_flags(0x0800_0000); // CREATE_NO_WINDOW
-            }
-            cmd.output()
-        };
-        let mut out = run(false);
-        // 新版 scp 走 SFTP；开发板上的 dropbear 等没有 sftp-server，退回老的 scp 协议再试
-        if matches!(&out, Ok(o) if !o.status.success() && String::from_utf8_lossy(&o.stderr).contains("subsystem request failed")) {
-            out = run(true);
-        }
-        let r = match out {
-            Ok(o) if o.status.success() => Ok(()),
-            Ok(o) => {
-                let e = String::from_utf8_lossy(&o.stderr).trim().to_string();
-                Err(if e.contains("Permission denied") || e.contains("publickey") {
-                    t("scp 需要密钥登录（密码登录的主机请在终端里用 rz/sz 或手动 scp）").to_string()
-                } else if e.is_empty() {
-                    format!("exit {}", o.status.code().unwrap_or(-1))
-                } else {
-                    e.lines().last().unwrap_or("").to_string()
-                })
-            }
-            Err(e) => Err(e.to_string()),
-        };
-        let _ = tx.send(r);
-        ctx.request_repaint();
-    });
-    Xfer { what, rx }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -627,7 +545,8 @@ mod tests {
         assert_eq!((h.proto, h.host.as_str(), h.port), (Proto::Telnet, "10.0.0.1", 23));
         let h = Host::parse("ssh root@[fe80::1]:22").unwrap();
         assert_eq!((h.host.as_str(), h.port), ("fe80::1", 22));
-        assert_eq!(h.target(), "root@[fe80::1]");
+        assert_eq!(h.target(false), "root@fe80::1");
+        assert_eq!(h.target(true), "root@[fe80::1]");
         assert!(Host::parse("  ").is_none());
         assert_eq!(split_args(r#"-J jump -o "A=b c""#), vec!["-J", "jump", "-o", "A=b c"]);
     }

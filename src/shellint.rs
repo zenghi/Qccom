@@ -50,10 +50,16 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
     let mut out = vec![];
     let mut mode = "";
     let mut cmp = vec![];
-    for a in args {
+    let mut args = args.iter();
+    while let Some(a) = args.next() {
         match a.as_str() {
             "--file" | "--project" | "--compare" => {
-                mode = a.as_str();
+                mode = a;
+                continue;
+            }
+            "--open" | "--replay" => {
+                args.next(); // This value belongs to the log viewer, not the editor.
+                mode = "";
                 continue;
             }
             _ if a.starts_with("--") => {
@@ -62,7 +68,7 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
             }
             _ => {}
         }
-        let p = absolute(Path::new(a));
+        let p = absolute(&shell_path(a));
         match mode {
             "--file" if p.is_dir() => out.push(Req::Project(p)),
             "--file" => out.push(Req::Open(p)),
@@ -78,6 +84,20 @@ pub fn parse_args(args: &[String]) -> Vec<Req> {
         _ => out.extend(cmp.into_iter().map(Req::Compare)),
     }
     out
+}
+
+fn shell_path(arg: &str) -> PathBuf {
+    #[cfg(windows)]
+    if let Some(p) = arg.strip_suffix('"') {
+        // Older Explorer registrations wrapped a drive root as "D:\". Windows
+        // consumes the backslash as an escape and delivers D:" instead.
+        return PathBuf::from(format!("{p}\\"));
+    }
+    PathBuf::from(arg)
+}
+
+pub fn should_forward(args: &[String], reqs: &[Req]) -> bool {
+    !reqs.is_empty() && !args.iter().any(|a| matches!(a.as_str(), "--new-window" | "--open" | "--replay")) && !reqs.iter().any(|r| matches!(r, Req::Project(_)))
 }
 
 fn absolute(p: &Path) -> PathBuf {
@@ -101,6 +121,8 @@ pub fn forward(reqs: &[Req]) -> bool {
                 msg.push_str(&r.line());
                 msg.push('\n');
             }
+            // 这个进程是资源管理器刚启动的，有权把窗口切到前台：把这个权利让给已经开着的窗口
+            allow_foreground();
             return s.write_all(msg.as_bytes()).is_ok();
         }
         // 没人在听：自己占住端口当第 1 个窗口
@@ -129,11 +151,48 @@ pub fn listen(l: &TcpListener, ctx: eframe::egui::Context) -> Arc<Mutex<Vec<Req>
             let reqs: Vec<Req> = lines.map_while(|l| l.ok()).filter_map(|l| Req::parse(&l)).collect();
             if !reqs.is_empty() {
                 q2.lock().unwrap().extend(reqs);
+                // 窗口最小化时界面不刷新，请求会一直排队：在这个线程里直接把窗口还原、提到前台
+                raise_window();
                 ctx.request_repaint();
             }
         }
     });
     q
+}
+
+#[cfg(windows)]
+#[link(name = "user32")]
+extern "system" {
+    fn AllowSetForegroundWindow(pid: u32) -> i32;
+    fn IsIconic(hwnd: isize) -> i32;
+    fn ShowWindowAsync(hwnd: isize, cmd: i32) -> i32;
+    fn SetForegroundWindow(hwnd: isize) -> i32;
+    fn BringWindowToTop(hwnd: isize) -> i32;
+}
+
+fn allow_foreground() {
+    #[cfg(windows)]
+    unsafe {
+        // ASFW_ANY
+        AllowSetForegroundWindow(u32::MAX);
+    }
+}
+
+/// 把主窗口从最小化还原并切到前台（Windows）；其他系统由界面线程发 Focus 命令
+pub fn raise_window() {
+    #[cfg(windows)]
+    {
+        let hwnd = crate::titlebar::HWND.load(std::sync::atomic::Ordering::Relaxed);
+        if hwnd == 0 {
+            return;
+        }
+        unsafe {
+            // SW_RESTORE = 9，SW_SHOW = 5
+            ShowWindowAsync(hwnd, if IsIconic(hwnd) != 0 { 9 } else { 5 });
+            BringWindowToTop(hwnd);
+            SetForegroundWindow(hwnd);
+        }
+    }
 }
 
 // ------------------------------------------------------------------ 右键菜单
@@ -174,9 +233,9 @@ mod sys {
         let items = [
             (KEYS[0], t("用 QCCOM 打开"), "--file", "%1"),
             (KEYS[1], t("用 QCCOM 比较"), "--compare", "%1"),
-            (KEYS[2], t("用 QCCOM 打开"), "--project", "%1"),
+            (KEYS[2], t("用 QCCOM 打开"), "--project", r"%1\."),
             (KEYS[3], t("用 QCCOM 比较"), "--compare", "%1"),
-            (KEYS[4], t("用 QCCOM 打开"), "--project", "%V"),
+            (KEYS[4], t("用 QCCOM 打开"), "--project", r"%V\."),
         ];
         for (key, label, flag, arg) in items {
             reg(&["add", key, "/ve", "/d", label, "/f"])?;
@@ -285,7 +344,36 @@ mod tests {
         for r in [Req::Open("/a b/c.txt".into()), Req::Pair("/x".into(), "/y".into()), Req::Compare("C:\\fw\\a.c".into())] {
             assert_eq!(Req::parse(&r.line()), Some(r));
         }
-        let args: Vec<String> = ["--compare", "/tmp", "/"].iter().map(|s| s.to_string()).collect();
-        assert_eq!(parse_args(&args), vec![Req::Pair("/tmp".into(), "/".into())]);
+        let a = std::env::temp_dir();
+        let b = std::env::current_dir().unwrap();
+        let args = vec!["--compare".into(), a.to_string_lossy().into_owned(), b.to_string_lossy().into_owned()];
+        let reqs = parse_args(&args);
+        assert_eq!(reqs, vec![Req::Pair(a, b)]);
+        assert!(should_forward(&args, &reqs));
+    }
+
+    #[test]
+    fn explorer_folder_opens_in_a_new_window() {
+        let folder = std::env::temp_dir();
+        for flag in ["--project", "--file"] {
+            let args = vec![flag.into(), folder.to_string_lossy().into_owned()];
+            let reqs = parse_args(&args);
+            assert_eq!(reqs, vec![Req::Project(folder.clone())]);
+            assert!(!should_forward(&args, &reqs));
+        }
+        let file = folder.join("file with spaces.c");
+        let mut args = vec!["--file".into(), file.to_string_lossy().into_owned()];
+        let reqs = parse_args(&args);
+        assert_eq!(reqs, vec![Req::Open(file)]);
+        assert!(should_forward(&args, &reqs));
+        args.push("--new-window".into());
+        assert!(!should_forward(&args, &reqs));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn legacy_explorer_drive_root_stays_absolute() {
+        let args = vec!["--project".into(), "D:\"".into()];
+        assert_eq!(parse_args(&args), vec![Req::Project(PathBuf::from("D:\\"))]);
     }
 }

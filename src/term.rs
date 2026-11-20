@@ -6,6 +6,7 @@
 use std::collections::VecDeque;
 
 use eframe::egui::Color32;
+use unicode_width::UnicodeWidthChar;
 use vte::{Params, Parser, Perform};
 
 use crate::logbuf::ANSI16;
@@ -29,12 +30,14 @@ impl Style {
     };
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 pub struct Cell {
     pub ch: char,
     pub style: Style,
     /// 宽字符（中文）占两格，第二格是占位
     pub wide_tail: bool,
+    /// 组合标记跟随前一个字符，不占额外的列。
+    pub combining: Option<Box<String>>,
 }
 
 impl Cell {
@@ -42,18 +45,27 @@ impl Cell {
         ch: ' ',
         style: Style::DEFAULT,
         wide_tail: false,
+        combining: None,
     };
+
+    pub fn chars(&self) -> impl Iterator<Item = char> + '_ {
+        std::iter::once(self.ch).chain(self.combining.as_deref().into_iter().flat_map(|s| s.chars()))
+    }
 }
 
 pub type Row = Vec<Cell>;
 
 /// 中日韩文字、全角符号、emoji 按两格算
 pub fn is_wide(c: char) -> bool {
-    let u = c as u32;
-    matches!(u,
-        0x1100..=0x115F | 0x2E80..=0x303E | 0x3041..=0x33FF | 0x3400..=0x4DBF | 0x4E00..=0x9FFF |
-        0xA000..=0xA4CF | 0xAC00..=0xD7A3 | 0xF900..=0xFAFF | 0xFE30..=0xFE4F | 0xFF00..=0xFF60 |
-        0xFFE0..=0xFFE6 | 0x1F300..=0x1F64F | 0x1F900..=0x1F9FF | 0x20000..=0x3FFFD)
+    c.width() == Some(2)
+}
+
+/// 把被重绘 / 移位的半个宽字符一起清掉，避免留下不可见的占位格。
+fn clear_split_wide(row: &mut Row, boundary: usize, blank: &Cell) {
+    if boundary > 0 && row.get(boundary).is_some_and(|c| c.wide_tail) {
+        row[boundary - 1] = blank.clone();
+        row[boundary] = blank.clone();
+    }
 }
 
 struct Saved {
@@ -156,6 +168,7 @@ impl Screen {
             return;
         }
         for r in self.grid.iter_mut() {
+            clear_split_wide(r, cols, &Cell::BLANK);
             r.resize(cols, Cell::BLANK);
         }
         // 行数变少时把顶部的行推进回滚区，保证光标所在行还看得见
@@ -206,6 +219,7 @@ impl Screen {
             ch: ' ',
             style: Style { bg: self.pen.bg, ..Style::DEFAULT },
             wide_tail: false,
+            combining: None,
         }
     }
 
@@ -235,7 +249,22 @@ impl Screen {
     }
 
     fn put_char(&mut self, c: char) {
-        let w = if is_wide(c) { 2 } else { 1 };
+        let Some(w) = c.width() else { return };
+        if w == 0 {
+            let previous = if self.wrap_pending { Some(self.x) } else { self.x.checked_sub(1) };
+            if let Some(mut col) = previous {
+                let row = &mut self.grid[self.y];
+                if row[col].wide_tail {
+                    col = col.saturating_sub(1);
+                }
+                let suffix = row[col].combining.get_or_insert_with(Default::default);
+                // 串口或远端持续发送零宽字符时，也不能让一个格子无限增长。
+                if suffix.len() < 128 {
+                    suffix.push(c);
+                }
+            }
+            return;
+        }
         if self.wrap_pending || self.x + w > self.cols {
             if self.autowrap {
                 self.x = 0;
@@ -246,10 +275,23 @@ impl Screen {
             self.wrap_pending = false;
         }
         let pen = self.pen;
+        let blank = self.blank();
         let row = &mut self.grid[self.y];
-        row[self.x] = Cell { ch: c, style: pen, wide_tail: false };
-        if w == 2 && self.x + 1 < self.cols {
-            row[self.x + 1] = Cell { ch: ' ', style: pen, wide_tail: true };
+        clear_split_wide(row, self.x, &blank);
+        clear_split_wide(row, self.x + w, &blank);
+        row[self.x] = Cell {
+            ch: c,
+            style: pen,
+            wide_tail: false,
+            combining: None,
+        };
+        if w == 2 {
+            row[self.x + 1] = Cell {
+                ch: ' ',
+                style: pen,
+                wide_tail: true,
+                combining: None,
+            };
         }
         if self.x + w >= self.cols {
             self.x = self.cols - 1;
@@ -262,9 +304,10 @@ impl Screen {
     fn erase(&mut self, y: usize, from: usize, to: usize) {
         let b = self.blank();
         let row = &mut self.grid[y];
-        for c in row.iter_mut().take(to.min(self.cols)).skip(from) {
-            *c = b;
-        }
+        let to = to.min(self.cols);
+        clear_split_wide(row, from, &b);
+        clear_split_wide(row, to, &b);
+        row[from..to].fill(b);
     }
 
     fn sgr(&mut self, params: &Params) {
@@ -318,9 +361,13 @@ impl Screen {
         for &p in ps {
             match (private, p) {
                 (true, 1) => self.app_cursor = on,
-                (true, 7) => self.autowrap = on,
+                (true, 7) => {
+                    self.autowrap = on;
+                    self.wrap_pending = false;
+                }
                 (true, 25) => self.cursor_visible = on,
                 (true, 47 | 1047 | 1049) => {
+                    self.wrap_pending = false;
                     if on && self.alt.is_none() {
                         let main = std::mem::replace(&mut self.grid, vec![vec![Cell::BLANK; self.cols]; self.rows]);
                         self.alt = Some((main, self.x, self.y));
@@ -380,6 +427,7 @@ impl Perform for Screen {
             }
             b'\t' => {
                 self.x = ((self.x / 8 + 1) * 8).min(self.cols - 1);
+                self.wrap_pending = false;
             }
             0x0e => self.gl = 1,
             0x0f => self.gl = 0,
@@ -391,7 +439,13 @@ impl Perform for Screen {
         let ps: Vec<u16> = params.iter().map(|p| p.first().copied().unwrap_or(0)).collect();
         let p = |i: usize, d: usize| ps.get(i).map(|&v| if v == 0 { d } else { v as usize }).unwrap_or(d);
         let private = inter.first() == Some(&b'?');
-        self.wrap_pending = false;
+        // SGR、光标显示开关等不移动光标；不能吃掉下一字符的自动换行。
+        if matches!(
+            action,
+            'A' | 'B' | 'e' | 'C' | 'a' | 'D' | 'E' | 'F' | 'G' | '`' | 'd' | 'H' | 'f' | 'J' | 'K' | 'L' | 'M' | 'P' | '@' | 'X' | 'S' | 'T' | 'r' | 'u'
+        ) {
+            self.wrap_pending = false;
+        }
         let (cols, rows) = (self.cols, self.rows);
         match action {
             'A' => self.y = self.y.saturating_sub(p(0, 1)).max(if self.y >= self.top { self.top } else { 0 }),
@@ -457,6 +511,8 @@ impl Perform for Screen {
                 let n = p(0, 1).min(cols - self.x);
                 let b = self.blank();
                 let row = &mut self.grid[self.y];
+                clear_split_wide(row, self.x, &b);
+                clear_split_wide(row, self.x + n, &b);
                 row.drain(self.x..self.x + n);
                 row.extend(std::iter::repeat_n(b, n));
             }
@@ -464,10 +520,10 @@ impl Perform for Screen {
                 let n = p(0, 1).min(cols - self.x);
                 let b = self.blank();
                 let row = &mut self.grid[self.y];
-                for _ in 0..n {
-                    row.insert(self.x, b);
-                }
-                row.truncate(cols);
+                clear_split_wide(row, self.x, &b);
+                clear_split_wide(row, cols - n, &b);
+                row[self.x..].rotate_right(n);
+                row[self.x..self.x + n].fill(b);
             }
             'X' => {
                 let n = p(0, 1);
@@ -567,7 +623,7 @@ pub(crate) fn dec_graphics(c: char) -> char {
 
 /// 把一行转成文本（去掉宽字符占位和行尾空白）
 pub fn row_text(row: &[Cell], from: usize, to: usize) -> String {
-    let s: String = row.iter().take(to).skip(from).filter(|c| !c.wide_tail).map(|c| c.ch).collect();
+    let s: String = row.iter().take(to).skip(from).filter(|c| !c.wide_tail).flat_map(Cell::chars).collect();
     s.trim_end().to_string()
 }
 
@@ -629,7 +685,7 @@ mod tests {
     use super::*;
 
     fn text(t: &Term, y: usize) -> String {
-        t.s.grid[y].iter().filter(|c| !c.wide_tail).map(|c| c.ch).collect::<String>().trim_end().to_string()
+        row_text(&t.s.grid[y], 0, t.s.cols)
     }
 
     #[test]
@@ -665,6 +721,46 @@ mod tests {
         t.feed(b"# lsx\x08 \x08");
         assert_eq!(text(&t, 0), "# ls");
         assert_eq!(t.s.x, 4);
+    }
+
+    #[test]
+    fn readline_history_edit_keeps_combining_marks_in_their_cells() {
+        let mut t = Term::new(20, 3);
+        // Bash 回显：↑ 调出历史，左移两次，退格删掉 ä，再在原位置插入 X。
+        t.feed("$ echo a\u{0308}bc".as_bytes());
+        assert_eq!(text(&t, 0), "$ echo a\u{0308}bc");
+        assert_eq!(t.s.x, 10);
+        t.feed(b"\x08\x08");
+        assert_eq!(t.s.x, 8);
+        assert_eq!(t.s.grid[0][t.s.x].ch, 'b');
+        t.feed(b"\x08\x1b[1Pbc\x08\x08");
+        assert_eq!(text(&t, 0), "$ echo bc");
+        assert_eq!(t.s.x, 7);
+        t.feed(b"Xbc\x08\x08");
+        assert_eq!(text(&t, 0), "$ echo Xbc");
+        assert_eq!(t.s.x, 8);
+    }
+
+    #[test]
+    fn redraw_and_edit_do_not_leave_half_wide_cells() {
+        let mut t = Term::new(20, 3);
+        t.feed("a中bc\x1b[2GX".as_bytes());
+        assert_eq!(text(&t, 0), "aX bc");
+        assert!(!t.s.grid[0][2].wide_tail);
+        t.feed("\rA中文bc\x1b[3G\x1b[1P".as_bytes());
+        assert_eq!(text(&t, 0), "A 文bc");
+        t.feed(b"\x1b[4G\x1b[@Y");
+        assert_eq!(text(&t, 0), "A  Y bc");
+        assert_eq!(t.s.x, 4);
+    }
+
+    #[test]
+    fn styling_does_not_cancel_wrap_during_command_redraw() {
+        let mut t = Term::new(10, 3);
+        t.feed(b"$ echo abc\x1b[0m\x1b[?25hd");
+        assert_eq!(text(&t, 0), "$ echo abc");
+        assert_eq!(text(&t, 1), "d");
+        assert_eq!((t.s.x, t.s.y), (1, 1));
     }
 
     #[test]

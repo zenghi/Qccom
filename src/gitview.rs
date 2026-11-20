@@ -76,6 +76,7 @@ enum Msg {
     Info(String, Result<CommitInfo, String>),
     Diff(u64, Result<String, String>),
     Status(Result<Status, String>),
+    Checkout(String, Result<String, String>),
     Op(String, Result<String, String>),
     Ops(ops::OpMsg),
 }
@@ -119,8 +120,9 @@ pub struct GitView {
     ctx: egui::Context,
     root: Option<PathBuf>,
     err: Option<String>,
-    tx: Sender<Msg>,
-    rx: Receiver<Msg>,
+    tx: Sender<(u64, Msg)>,
+    rx: Receiver<(u64, Msg)>,
+    repo_gen: u64,
     branches: Vec<Branch>,
     status: Option<Status>,
     commits: Vec<Commit>,
@@ -129,7 +131,7 @@ pub struct GitView {
     log_gen: u64,
     loading_log: bool,
     limit: usize,
-    scope: Option<String>,
+    scope: Option<Branch>,
     query: String,
     query_sent: String,
     query_at: Option<Instant>,
@@ -164,6 +166,7 @@ impl GitView {
             err: None,
             tx,
             rx,
+            repo_gen: 0,
             branches: vec![],
             status: None,
             commits: vec![],
@@ -220,19 +223,7 @@ impl GitView {
     pub fn open_root(&mut self, p: &Path) {
         match git::find_root(p) {
             Ok(r) => {
-                self.s.root = r.to_string_lossy().into();
-                self.root = Some(r);
-                self.err = None;
-                self.scope = None;
-                self.query.clear();
-                self.query_sent.clear();
-                self.sel = Sel::None;
-                self.info = None;
-                self.diff = None;
-                self.commits.clear();
-                self.rows.clear();
-                self.limit = PAGE;
-                self.refresh();
+                self.set_repo(Some(r));
             }
             Err(e) => {
                 self.err = Some(if e.contains("not a git repository") {
@@ -244,8 +235,34 @@ impl GitView {
         }
     }
 
+    fn set_repo(&mut self, root: Option<PathBuf>) {
+        self.repo_gen += 1;
+        self.s.root = root.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
+        self.root = root;
+        self.err = None;
+        self.branches.clear();
+        self.status = None;
+        self.scope = None;
+        self.query.clear();
+        self.query_sent.clear();
+        self.query_at = None;
+        self.sel = Sel::None;
+        self.info = None;
+        self.diff = None;
+        self.file_sel = None;
+        self.commits.clear();
+        self.rows.clear();
+        self.limit = PAGE;
+        self.confirm = None;
+        self.busy = None;
+        self.ops = Default::default();
+        if self.root.is_some() {
+            self.refresh();
+        }
+    }
+
     fn pick_folder(&mut self) {
-        if let Some(p) = rfd::FileDialog::new().set_title(t("打开 Git 仓库")).pick_folder() {
+        if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开 Git 仓库")).pick_folder() {
             self.open_root(&p);
             if self.root.is_some() {
                 self.events.push(GitEvt::Project(p));
@@ -261,10 +278,9 @@ impl GitView {
         }
         match git::find_root(p) {
             Ok(r) if self.root.as_ref() == Some(&r) => {}
-            Ok(_) => self.open_root(p),
+            Ok(r) => self.set_repo(Some(r)),
             Err(_) => {
-                self.root = None;
-                self.s.root.clear();
+                self.set_repo(None);
                 self.err = Some(tf("当前工程「{}」不是 Git 仓库", &[&p.display()]));
             }
         }
@@ -273,10 +289,11 @@ impl GitView {
     fn spawn(&self, f: impl FnOnce(PathBuf) -> Msg + Send + 'static) {
         let Some(root) = self.root.clone() else { return };
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
+        let repo_gen = self.repo_gen;
         std::thread::Builder::new()
             .name("git".into())
             .spawn(move || {
-                let _ = tx.send(f(root));
+                let _ = tx.send((repo_gen, f(root)));
                 ctx.request_repaint();
             })
             .ok();
@@ -303,7 +320,7 @@ impl GitView {
     fn load_log(&mut self) {
         self.log_gen += 1;
         self.loading_log = true;
-        let (g, scope, limit, q) = (self.log_gen, self.scope.clone(), self.limit, self.query_sent.clone());
+        let (g, scope, limit, q) = (self.log_gen, self.scope.as_ref().map(|b| b.refname.clone()), self.limit, self.query_sent.clone());
         self.spawn(move |r| Msg::Log(g, git::log(&r, scope.as_deref(), limit, &q)));
     }
 
@@ -348,7 +365,12 @@ impl GitView {
         self.busy = Some(label.clone());
         self.spawn(move |r| {
             let a: Vec<&str> = args.iter().map(String::as_str).collect();
-            Msg::Op(label, git::git(&r, &a))
+            let result = git::git(&r, &a);
+            if a.first() == Some(&"switch") {
+                Msg::Checkout(label, result)
+            } else {
+                Msg::Op(label, result)
+            }
         });
     }
 
@@ -357,7 +379,10 @@ impl GitView {
     }
 
     fn poll(&mut self) {
-        while let Ok(m) = self.rx.try_recv() {
+        while let Ok((repo_gen, m)) = self.rx.try_recv() {
+            if repo_gen != self.repo_gen {
+                continue;
+            }
             match m {
                 Msg::Branches(Ok(b)) => self.branches = b,
                 Msg::Branches(Err(e)) | Msg::Status(Err(e)) => self.err = Some(e),
@@ -413,6 +438,21 @@ impl GitView {
                     }
                 }
                 Msg::Diff(..) => {}
+                Msg::Checkout(label, r) => {
+                    self.busy = None;
+                    match r {
+                        Ok(_) => {
+                            // Ignore status and ref reads started before checkout finished.
+                            self.repo_gen += 1;
+                            self.scope = None;
+                            self.diff = None;
+                            self.file_sel = None;
+                            self.toast(tf("{} 完成", &[&label]), OK());
+                        }
+                        Err(e) => self.toast(tf("{} 失败：{}", &[&label, &friendly_err(&e)]), ERR()),
+                    }
+                    self.refresh();
+                }
                 Msg::Op(label, r) => {
                     self.busy = None;
                     match r {
@@ -453,18 +493,7 @@ impl GitView {
     }
 
     fn ask_checkout(&mut self, b: &Branch) {
-        let (args, target): (Vec<String>, String) = match b.kind {
-            RefKind::Local => (vec!["switch".into(), b.name.clone()], b.name.clone()),
-            RefKind::Remote => {
-                let local = b.name.split_once('/').map(|x| x.1).unwrap_or(&b.name).to_string();
-                if self.branches.iter().any(|x| x.kind == RefKind::Local && x.name == local) {
-                    (vec!["switch".into(), local.clone()], local)
-                } else {
-                    (vec!["switch".into(), "-c".into(), local.clone(), "--track".into(), b.name.clone()], local)
-                }
-            }
-            RefKind::Tag => (vec!["switch".into(), "--detach".into(), b.name.clone()], b.name.clone()),
-        };
+        let (args, target) = git::switch_args(b, &self.branches);
         let mut body = tf("将当前分支切换到「{}」。", &[&target]);
         if b.kind == RefKind::Remote {
             body.push('\n');
@@ -491,6 +520,12 @@ impl GitView {
     // ------------------------------------------------------------ 界面
 
     pub fn ui(&mut self, ctx: &egui::Context, acts: &[Act]) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.ui_in(ui, acts, false));
+    }
+
+    /// compact = 副页面：不要左边的分支栏，窄时详情也不放旁边
+    pub fn ui_in(&mut self, ui: &mut egui::Ui, acts: &[Act], compact: bool) {
+        let ctx = &ui.ctx().clone();
         self.poll();
         if self.root.is_some() {
             for a in acts {
@@ -503,25 +538,28 @@ impl GitView {
             }
         }
         if self.root.is_none() {
-            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| self.welcome(ui));
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.welcome(ui));
             return;
         }
-        egui::SidePanel::left("git-side")
-            .frame(egui::Frame::new().fill(BG1()))
-            .default_width(self.s.side_width)
-            .width_range(220.0..=460.0)
-            .resizable(true)
-            .show(ctx, |ui| {
-                self.s.side_width = ui.available_width();
-                self.side_panel(ui);
-            });
-        if self.sel != Sel::None {
+        let w = ui.available_width();
+        if !compact || w > 1100.0 {
+            egui::SidePanel::left("git-side")
+                .frame(egui::Frame::new().fill(BG1()))
+                .default_width(self.s.side_width)
+                .width_range(220.0..=460.0)
+                .resizable(true)
+                .show_inside(ui, |ui| {
+                    self.s.side_width = ui.available_width();
+                    self.side_panel(ui);
+                });
+        }
+        if self.sel != Sel::None && (!compact || w > 760.0) {
             egui::SidePanel::right("git-detail")
                 .frame(egui::Frame::new().fill(BG1()))
                 .default_width(self.s.detail_width)
                 .width_range(300.0..=760.0)
                 .resizable(true)
-                .show(ctx, |ui| {
+                .show_inside(ui, |ui| {
                     self.s.detail_width = ui.available_width();
                     match self.sel.clone() {
                         Sel::Work => self.work_panel(ui),
@@ -531,7 +569,7 @@ impl GitView {
                     }
                 });
         }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show(ctx, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| {
             if self.diff.is_some() {
                 self.diff_view(ui);
             } else {
@@ -714,7 +752,7 @@ impl GitView {
                     continue;
                 }
                 for b in list.iter().take(500) {
-                    let r = branch_row(ui, b, self.scope.as_deref() == Some(b.name.as_str()));
+                    let r = branch_row(ui, b, self.scope.as_ref().is_some_and(|s| s.refname == b.refname));
                     if r.double_clicked() {
                         act = Some(((*b).clone(), true));
                     } else if r.clicked() {
@@ -741,7 +779,7 @@ impl GitView {
                 if checkout && !b.head {
                     self.ask_checkout(&b);
                 } else {
-                    self.scope = Some(b.name.clone());
+                    self.scope = Some(b.clone());
                     self.limit = PAGE;
                     self.load_log();
                     self.select_commit_by_ref(&b);
@@ -778,7 +816,7 @@ impl GitView {
                     .inner_margin(egui::Margin { left: 8, right: 4, top: 2, bottom: 2 })
                     .show(ui, |ui| {
                         ui.spacing_mut().item_spacing.x = 4.0;
-                        ui.label(RichText::new(&s).font(FontId::new(11.5, FontFamily::Monospace)).color(VIOLET()));
+                        ui.label(RichText::new(&s.name).font(FontId::new(11.5, FontFamily::Monospace)).color(VIOLET()));
                         ui.add(egui::Button::new(RichText::new("×").color(VIOLET())).frame(false)).on_hover_text(t("显示全部分支")).clicked()
                     });
                 if r.inner {

@@ -298,7 +298,7 @@ impl CodeView {
         if let Some(c) = self.build_ctx(w, at) {
             self.ins.ctx = Some(c);
             self.ins.ctx_pinned = true;
-            self.context_win = true;
+            self.s.context_win = true;
         }
     }
 
@@ -419,7 +419,11 @@ impl CodeView {
                         self.ins.ctx = None;
                     }
                 }
-                ui.label(RichText::new(t("单击符号预览 · 双击跳转")).size(11.0).color(TEXT3()));
+                ui.label(
+                    RichText::new(if self.ins.ctx_pinned { t("已固定") } else { t("跟随光标") })
+                        .size(11.0)
+                        .color(if self.ins.ctx_pinned { ACCENT() } else { TEXT2() }),
+                );
             });
         });
         let rect = ui.available_rect_before_wrap();
@@ -471,7 +475,7 @@ impl CodeView {
             });
         }
         if close {
-            self.context_win = false;
+            self.s.context_win = false;
         }
         if let Some(w) = preview {
             if self.ctx_def(&w).is_some() {

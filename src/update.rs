@@ -60,7 +60,11 @@ pub enum UpdEvt {
     Failed(String),
 }
 
-fn agent() -> Result<ureq::Agent, String> {
+pub(crate) fn agent() -> Result<ureq::Agent, String> {
+    Ok(agent_builder()?.build())
+}
+
+pub(crate) fn agent_builder() -> Result<ureq::AgentBuilder, String> {
     let b = ureq::AgentBuilder::new()
         .timeout_connect(Duration::from_secs(10))
         .timeout_read(Duration::from_secs(30))
@@ -68,7 +72,7 @@ fn agent() -> Result<ureq::Agent, String> {
         .user_agent(concat!("QCCOM/", env!("CARGO_PKG_VERSION")));
     #[cfg(windows)]
     let b = b.tls_connector(std::sync::Arc::new(native_tls::TlsConnector::new().map_err(|e| e.to_string())?));
-    Ok(b.build())
+    Ok(b)
 }
 
 fn http_err(e: ureq::Error) -> String {

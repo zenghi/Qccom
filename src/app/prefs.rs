@@ -71,6 +71,7 @@ pub struct Prefs {
     conflict: Option<(Act, Vec<Act>)>,
     /// 系统右键菜单是否已加入（查一次注册表 / 文件后缓存）
     ctx_menu: Option<bool>,
+    offer_menu: bool,
 }
 
 impl Default for Prefs {
@@ -82,6 +83,7 @@ impl Default for Prefs {
             key_search: String::new(),
             conflict: None,
             ctx_menu: None,
+            offer_menu: true,
         }
     }
 }
@@ -117,19 +119,48 @@ fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mu
 /// 这一类里有没有设置项匹配搜索（决定搜索时显示不显示分类标题）
 fn cat_matches(cat: Cat, q: &str) -> bool {
     let items: &[&str] = match cat {
-        Cat::General => &["界面语言", "启动时自动检查更新", "检查更新", "便携模式", "系统右键菜单", "命令面板"],
-        Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号", "背景图片", "不透明度", "显示方式"],
+        Cat::General => &[
+            "界面语言",
+            "启动时自动检查更新",
+            "检查更新",
+            "便携模式",
+            "系统右键菜单",
+            "发送匿名使用统计",
+            "社区与反馈",
+            "自动发布故障报告",
+            "命令面板",
+            "需要时自动打开副页面",
+            "来回切页时提示放在一起",
+            "窄屏时把副页面放下方",
+            "常用组合",
+            "重置「不再自动」",
+        ],
+        Cat::Appearance => &[
+            "界面主题",
+            "深色",
+            "浅色",
+            "跟随系统",
+            "界面缩放",
+            "界面字体",
+            "等宽字体",
+            "日志字号",
+            "背景图片",
+            "不透明度",
+            "显示方式",
+        ],
         Cat::Log => &[
             "时间戳",
             "行号",
             "发送回显",
             "ANSI 颜色",
             "级别着色",
+            "高亮预设",
             "复制时带时间戳",
             "保留行数",
             "空闲分帧",
             "时间差",
-            "录制分卷",
+            "录制分卷大小",
+            "录制分卷时长",
             "多行发送间隔",
         ],
         Cat::Connection => &["拔出后自动重连", "自动选中新设备", "DTR", "RTS", "共享到网络"],
@@ -158,7 +189,68 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
     q.is_empty() || find_ci(cat.label(), q).is_some() || items.iter().any(|s| find_ci(t(s), q).is_some())
 }
 
+fn font_picker(ui: &mut egui::Ui, id: &str, value: &mut String, kind: FontKind) -> bool {
+    let names = font_names(kind);
+    let selected = names.clone().find(|name| *name == value.as_str()).unwrap_or(kind.bundled());
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(selected)
+        .width(160.0)
+        .show_ui(ui, |ui| {
+            for name in names {
+                if ui.selectable_label(name == selected, name).clicked() && value.as_str() != name {
+                    *value = name.into();
+                    return true;
+                }
+            }
+            false
+        })
+        .inner
+        .unwrap_or(false)
+}
+
 impl App {
+    fn set_shell_menu(&mut self, v: bool) {
+        let r = if v { crate::shellint::install() } else { crate::shellint::uninstall() };
+        match r {
+            Ok(()) => {
+                self.prefs.ctx_menu = Some(crate::shellint::installed());
+                self.s.shell_menu_noticed = true;
+                let msg = if v {
+                    t("已加入系统右键菜单；程序换了位置后重新开一次")
+                } else {
+                    t("已从系统右键菜单移除")
+                };
+                self.toast(msg, OK());
+            }
+            Err(e) => self.toast(e, ERR()),
+        }
+    }
+
+    pub(super) fn shell_menu_notice(&mut self, ctx: &egui::Context) {
+        if self.s.shell_menu_noticed {
+            return;
+        }
+        if *self.prefs.ctx_menu.get_or_insert_with(crate::shellint::installed) {
+            self.s.shell_menu_noticed = true;
+            return;
+        }
+        egui::TopBottomPanel::bottom("shell-menu-offer").show(ctx, |ui| {
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.prefs.offer_menu, t("将「用 QCCOM 打开 / 比较」加入系统右键菜单"));
+                if ui.button(t("确认")).clicked() {
+                    if self.prefs.offer_menu {
+                        self.set_shell_menu(true);
+                    } else {
+                        self.s.shell_menu_noticed = true;
+                    }
+                }
+                if ui.button(t("跳过")).clicked() {
+                    self.s.shell_menu_noticed = true;
+                }
+            });
+        });
+    }
+
     pub(super) fn settings_page(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.key_pressed(Key::Escape)) && self.prefs.recording.is_none() && !ctx.wants_keyboard_input() {
             self.set_page(self.prev_page);
@@ -317,27 +409,128 @@ impl App {
         row(ui, q, t("系统右键菜单"), desc, |ui| {
             let mut v = on;
             if switch(ui, &mut v).changed() {
-                let r = if v { crate::shellint::install() } else { crate::shellint::uninstall() };
-                match r {
-                    Ok(()) => {
-                        self.prefs.ctx_menu = Some(crate::shellint::installed());
-                        let msg = if v {
-                            t("已加入系统右键菜单；程序换了位置后重新开一次")
-                        } else {
-                            t("已从系统右键菜单移除")
-                        };
-                        self.toast(msg, OK());
-                    }
-                    Err(e) => self.toast(e, ERR()),
-                }
+                self.set_shell_menu(v);
             }
         });
+        row(
+            ui,
+            q,
+            t("发送匿名使用统计"),
+            t("随机设备 ID、版本、系统、语言、使用时长和各页面的打开次数，帮助作者知道哪些功能最常用。不含日志、文件和串口数据"),
+            |ui| {
+                if switch(ui, &mut self.s.telemetry).changed() {
+                    crate::hub::set_enabled(self.s.telemetry);
+                    self.s.telemetry_noticed = true;
+                }
+                ui.add_space(8.0);
+                ui.menu_button(t("收集了什么"), |ui| {
+                    ui.set_min_width(300.0);
+                    ui.label(RichText::new(crate::hub::what_we_send()).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
+                });
+            },
+        );
+        let mut desc = format!("{}\n{} {}", t("提需求、给别人的需求投票、求助和分享经验"), t("服务器："), crate::hub::base_url());
+        if let Some((at, e)) = crate::hub::last_error() {
+            desc.push_str(&format!("\n{} {} · {}", t("最近一次出错："), crate::community::ago(at), e));
+        }
+        row(ui, q, t("社区与反馈"), &desc, |ui| {
+            if ui.button(t("打开")).clicked() {
+                self.set_page(Page::Community);
+            }
+        });
+        if self.diagnostics.available() {
+            let account = crate::community::diagnostics::Account::current();
+            let desc = self.diagnostics.setting_description(account.as_ref());
+            row(ui, q, t("自动发布故障报告"), &desc, |ui| {
+                let mut enabled = self.diagnostics.automatic();
+                ui.add_enabled_ui(account.is_some() || enabled, |ui| {
+                    if switch(ui, &mut enabled).changed() && !self.diagnostics.set_automatic(enabled, account) {
+                        self.toast(t("无法保存故障报告设置。"), ERR());
+                    }
+                });
+                if self.diagnostics.has_report() && ui.button(t("查看故障报告")).clicked() {
+                    self.diagnostics.review();
+                }
+            });
+        }
         let pk = self.km.label(Act::Palette);
         row(ui, q, t("命令面板"), &tf("按 {} 可以搜索并执行任何功能", &[&pk]), |ui| {
             if ui.button(t("打开")).clicked() {
                 self.open_palette();
             }
         });
+        self.prefs_side(ui, q);
+    }
+
+    /// 常规 → 副页面（五项）
+    fn prefs_side(&mut self, ui: &mut egui::Ui, q: &str) {
+        row(
+            ui,
+            q,
+            t("需要时自动打开副页面"),
+            t("比如烧录后把串口放到代码旁边、电路通电后显示仿真串口；你收起过的那种以后只在状态栏提示"),
+            |ui| {
+                switch(ui, &mut self.s.work.auto);
+            },
+        );
+        row(
+            ui,
+            q,
+            t("来回切页时提示放在一起"),
+            t("2 分钟内在两个页面之间来回切 3 次，底部提示「放在一起看」"),
+            |ui| {
+                switch(ui, &mut self.s.work.switch_hint);
+            },
+        );
+        row(
+            ui,
+            q,
+            t("窄屏时把副页面放下方"),
+            t("窗口宽度不到 1400 像素时，自动打开的副页面放在下方而不是右边"),
+            |ui| {
+                switch(ui, &mut self.s.work.narrow_bottom);
+            },
+        );
+        let combos = self.s.work.combos.clone();
+        let desc = if combos.is_empty() {
+            t("点过「放在一起看」的组合会列在这里，以后切过去直接并排").to_string()
+        } else {
+            t("以后在这两个页面之间切换时直接并排；点 × 删除").to_string()
+        };
+        row(ui, q, t("常用组合"), &desc, |ui| {
+            ui.vertical(|ui| {
+                let mut del = None;
+                for (i, (a, b)) in combos.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(RichText::new(App::combo_label(*a, *b)).color(TEXT()));
+                        if ui.add(egui::Button::new(RichText::new("×").color(TEXT3())).frame(false)).on_hover_text(t("删除")).clicked() {
+                            del = Some(i);
+                        }
+                    });
+                }
+                if let Some(i) = del {
+                    self.s.work.combos.remove(i);
+                }
+                if combos.is_empty() {
+                    ui.label(RichText::new(t("还没有")).color(TEXT3()));
+                }
+            });
+        });
+        let n = self.s.work.no_auto.len() + self.s.work.muted.len();
+        row(
+            ui,
+            q,
+            t("重置「不再自动」"),
+            &tf("收起过的自动副页面、点过「不用」的组合：{} 项", &[&n]),
+            |ui| {
+                if ui.add_enabled(n > 0, egui::Button::new(t("重置"))).clicked() {
+                    self.s.work.no_auto.clear();
+                    self.s.work.muted.clear();
+                    self.s.work.mute_streak = 0;
+                    self.toast(t("已重置"), OK());
+                }
+            },
+        );
     }
 
     fn prefs_appearance(&mut self, ui: &mut egui::Ui, q: &str) {
@@ -365,6 +558,16 @@ impl App {
                 ui.ctx().set_zoom_factor(self.s.ui_scale);
             }
         });
+        let mut fonts_changed = false;
+        row(ui, q, t("界面字体"), "", |ui| {
+            fonts_changed |= font_picker(ui, "interface-font", &mut self.s.fonts.interface, FontKind::Interface);
+        });
+        row(ui, q, t("等宽字体"), t("用于日志、终端和代码编辑器"), |ui| {
+            fonts_changed |= font_picker(ui, "monospace-font", &mut self.s.fonts.monospace, FontKind::Monospace);
+        });
+        if fonts_changed {
+            set_font_preferences(ui.ctx(), &self.s.fonts);
+        }
         row(ui, q, t("日志字号"), t("日志和终端使用的等宽字体大小"), |ui| {
             if ui.add(egui::Slider::new(&mut self.s.font_size, 10.0..=22.0).step_by(0.5)).changed() {
                 let fs = self.s.font_size;
@@ -381,7 +584,7 @@ impl App {
         use crate::bgimg::Fit;
         let mut toast = None;
         let pick = |path: &mut String, toast: &mut Option<(String, Color32)>| {
-            if let Some(f) = rfd::FileDialog::new().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
+            if let Some(f) = crate::diagnostics::file_dialog().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
                 match crate::bgimg::import(&f) {
                     Ok(p) => *path = p.to_string_lossy().into_owned(),
                     Err(e) => *toast = Some((e, ERR())),
@@ -460,7 +663,7 @@ impl App {
         });
         row(ui, q, t("发送回显"), t("在日志里显示自己发送的数据"), |ui| {
             if switch(ui, &mut self.s.show_tx).changed() {
-                self.view_dirty = true;
+                self.invalidate_log_views();
             }
         });
         row(ui, q, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"), |ui| {
@@ -468,6 +671,9 @@ impl App {
         });
         row(ui, q, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"), |ui| {
             switch(ui, &mut self.s.level_color);
+        });
+        row(ui, q, t("高亮预设"), t("为文本与混合视图中的日志着色"), |ui| {
+            super::logx::log_preset_combo(ui, &mut self.s.log_preset);
         });
         row(
             ui,
@@ -499,10 +705,22 @@ impl App {
                 self.view_dirty = true;
             }
         });
-        row(ui, q, t("录制分卷"), t("录制文件超过大小或时长就换一个新文件（0 = 不限）"), |ui| {
-            ui.add(egui::DragValue::new(&mut self.s.rec_split_min).range(0..=1440).suffix(t(" 分钟")));
-            ui.add(egui::DragValue::new(&mut self.s.rec_split_mb).range(0..=4096).suffix(" MB"));
+        row(ui, q, t("录制分卷大小"), t("下一行会超出单个文件大小时，写入新文件（0 = 不限）"), |ui| {
+            if ui.add(egui::DragValue::new(&mut self.s.rec_split_mb).range(0..=4096).suffix(" MiB")).changed() {
+                self.configure_recording();
+            }
         });
+        row(
+            ui,
+            q,
+            t("录制分卷时长"),
+            t("达到单个文件的录制时长后，下次写入时换新文件（0 = 不限）"),
+            |ui| {
+                if ui.add(egui::DragValue::new(&mut self.s.rec_split_min).range(0..=1440).suffix(t(" 分钟"))).changed() {
+                    self.configure_recording();
+                }
+            },
+        );
         row(ui, q, t("多行发送间隔"), t("命令栏多行「逐行」发送时，每行之间等待的时间"), |ui| {
             ui.add(egui::DragValue::new(&mut self.s.line_gap_ms).range(0..=60_000).suffix(" ms"));
         });
@@ -911,7 +1129,7 @@ impl App {
                     self.prefs.conflict = None;
                 }
                 if ui.button(t("导出")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().set_file_name("qccom-keybindings.json").save_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog().set_file_name("qccom-keybindings.json").save_file() {
                         let txt = serde_json::to_string_pretty(&self.s.keys).unwrap_or_default();
                         match std::fs::write(&p, txt) {
                             Ok(()) => self.toast(t("已导出"), OK()),
@@ -920,7 +1138,7 @@ impl App {
                     }
                 }
                 if ui.button(t("导入")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter("JSON", &["json"]).pick_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog().add_filter("JSON", &["json"]).pick_file() {
                         match std::fs::read_to_string(&p)
                             .map_err(|e| e.to_string())
                             .and_then(|s| serde_json::from_str::<Overrides>(&s).map_err(|e| e.to_string()))

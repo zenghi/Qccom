@@ -12,6 +12,7 @@ use eframe::egui::{self, pos2, vec2, Align2, Color32, Event, FontFamily, FontId,
 
 use crate::cindex::Kind;
 use crate::highlight::{self, is_ident, pal, Lang, Tok};
+use crate::i18n::t;
 use crate::theme::*;
 
 pub const TAB: usize = 4;
@@ -397,6 +398,53 @@ pub struct View<'a> {
     pub show_ws: bool,
 }
 
+struct Completion {
+    range: Range<usize>,
+    caret: usize,
+    version: u64,
+    words: Vec<String>,
+    selected: usize,
+}
+
+impl Completion {
+    fn new(buf: &Buf, caret: usize, lang: Lang, symbols: Option<&HashMap<String, Kind>>) -> Option<Self> {
+        let (start, end) = buf.word_at(caret)?;
+        let prefix = &buf.text[start..caret];
+        if prefix.chars().take(2).count() < 2 {
+            return None;
+        }
+        let line = buf.line_of(caret);
+        let near = &buf.text[buf.start(line.saturating_sub(120))..buf.end((line + 120).min(buf.lines() - 1))];
+        let mut words = Vec::new();
+        let mut add = |word: &str| {
+            if words.len() < 7 && word.starts_with(prefix) && word != &buf.text[start..end] && !words.iter().any(|w| w == word) {
+                words.push(word.to_owned());
+            }
+        };
+        for word in near.split(|c| !is_ident(c)) {
+            add(word);
+        }
+        for word in lang.completion_words() {
+            add(word);
+        }
+        if let Some(sem) = symbols {
+            let mut project: Vec<_> = sem.keys().filter(|w| w.starts_with(prefix)).collect();
+            project.sort_unstable();
+            for w in project.into_iter().take(12) {
+                add(w);
+            }
+        }
+        words.truncate(7);
+        (!words.is_empty()).then_some(Self {
+            range: start..end,
+            caret,
+            version: buf.ver,
+            words,
+            selected: 0,
+        })
+    }
+}
+
 pub struct Editor {
     pub sels: Vec<Sel>,
     /// 主光标在 sels 里的下标（最后一次添加的那个）
@@ -412,6 +460,8 @@ pub struct Editor {
     drag: Option<Drag>,
     clicks: (f64, Pos2, u8),
     blink: f64,
+    /// 输入法组字状态
+    ime: crate::ime::Ime,
     cache: Cache,
     disp: (u64, Vec<Row>, Vec<usize>),
     /// 自动换行的宽度（像素，上一帧量的）；None 表示不换行
@@ -419,6 +469,7 @@ pub struct Editor {
     unit: String,
     sb_grab: Option<(bool, f32)>,
     ctrl_down_at: Option<usize>,
+    completion: Option<Completion>,
     pub id: egui::Id,
     pub focus_req: bool,
     /// 上一帧可见的行数（翻页用）
@@ -452,12 +503,14 @@ impl Editor {
             drag: None,
             clicks: (0.0, Pos2::ZERO, 0),
             blink: 0.0,
+            ime: Default::default(),
             cache: Cache::default(),
             disp: (u64::MAX, vec![], vec![]),
             wrap_w: None,
             unit: buf.indent_unit(),
             sb_grab: None,
             ctrl_down_at: None,
+            completion: None,
             id,
             focus_req: false,
             page_rows: 30,
@@ -1926,10 +1979,43 @@ impl Editor {
         }
 
         // ---- 键盘
+        if !focused
+            || self
+                .completion
+                .as_ref()
+                .is_some_and(|c| c.version != buf.ver || self.sels.len() != 1 || self.primary_sel() != Sel::at(c.caret))
+        {
+            self.completion = None;
+        }
         if focused {
-            let events = ui.input(|i| i.events.clone());
+            let events = self.ime.filter(ui.input(|i| i.events.clone()));
             let mut changed_ver = buf.ver;
             for e in events {
+                if let Event::Key { key, pressed: true, modifiers, .. } = &e {
+                    if let Some(c) = self.completion.as_mut().filter(|_| modifiers.is_none()) {
+                        match key {
+                            Key::ArrowUp => {
+                                c.selected = (c.selected + c.words.len() - 1) % c.words.len();
+                                continue;
+                            }
+                            Key::ArrowDown => {
+                                c.selected = (c.selected + 1) % c.words.len();
+                                continue;
+                            }
+                            Key::Tab => {
+                                let c = self.completion.take().unwrap();
+                                self.replace_at(buf, c.range, c.words[c.selected].clone(), None, now);
+                                continue;
+                            }
+                            Key::Escape => {
+                                self.completion = None;
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+                    self.completion = None;
+                }
                 if let Some(mode) = self.vim.as_ref().map(|v| v.mode) {
                     let keys = vim_keys(&e);
                     let mut vm = self.vim.take().unwrap();
@@ -1961,6 +2047,11 @@ impl Editor {
                     Event::Text(s) => {
                         if !s.chars().any(|c| c.is_control()) && !s.is_empty() {
                             self.insert_text(buf, &s, v.lang, now);
+                            self.completion = if v.lang.is_code() && !v.big && self.sels.len() == 1 && s.chars().all(is_ident) {
+                                Completion::new(buf, self.primary_sel().h, v.lang, v.sem)
+                            } else {
+                                None
+                            };
                         }
                     }
                     Event::Key { key, pressed: true, modifiers, .. } => {
@@ -2092,7 +2183,20 @@ impl Editor {
         };
 
         // ---- 鼠标
-        let mods = ui.input(|i| i.modifiers);
+        let mods = ui.input(|i| {
+            i.events
+                .iter()
+                .find_map(|event| match event {
+                    Event::PointerButton {
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers,
+                        ..
+                    } => Some(*modifiers),
+                    _ => None,
+                })
+                .unwrap_or(i.modifiers)
+        });
         let pointer = ui.input(|i| i.pointer.interact_pos());
         let pressed = ui.input(|i| i.pointer.primary_pressed() || i.pointer.button_pressed(egui::PointerButton::Middle));
         let middle = ui.input(|i| i.pointer.button_down(egui::PointerButton::Middle));
@@ -2118,6 +2222,7 @@ impl Editor {
             // 连击计数
             let (t0, p0, n0) = self.clicks;
             let n = if now - t0 < 0.45 && p0.distance(p) < 6.0 { (n0 % 3) + 1 } else { 1 };
+            let n = if mods.command { 1 } else { n };
             self.clicks = (now, p, n);
             if in_gutter {
                 let chevron = p.x > gutter.right() - 18.0;
@@ -2216,7 +2321,11 @@ impl Editor {
                     self.scroll += auto;
                     ui.ctx().request_repaint();
                 }
-                let moved = ui.input(|i| i.pointer.is_decidedly_dragging()) || auto != Vec2::ZERO;
+                let moved = if self.ctrl_down_at.is_some() {
+                    self.clicks.1.distance(p) > 6.0
+                } else {
+                    ui.input(|i| i.pointer.is_decidedly_dragging()) || auto != Vec2::ZERO
+                };
                 if moved {
                     let (b, l) = pos_to_byte(p);
                     let o = dr.origin;
@@ -2264,7 +2373,7 @@ impl Editor {
             }
         } else if !down {
             if self.drag.take().is_some() {
-                if let (Some(b), true) = (self.ctrl_down_at.take(), mods.command) {
+                if let Some(b) = self.ctrl_down_at.take() {
                     if self.sels.len() == 1 && self.sels[0].empty() {
                         out.ctrl_click = Some((b, pointer.unwrap_or_default()));
                     }
@@ -2291,7 +2400,7 @@ impl Editor {
                     tp.rect_filled(
                         Rect::from_min_max(pos2(text_rect.left(), y), pos2(text_rect.right(), y + row_h)),
                         0.0,
-                        tint(if focused { 2 } else { 1 }),
+                        ACCENT().gamma_multiply(if focused { 0.085 } else { 0.035 }),
                     );
                 }
             }
@@ -2344,7 +2453,7 @@ impl Editor {
                 let he = he.min(buf.start(l) + disp[di].b);
                 let r = Rect::from_min_max(pos2(x_at(di, h), y + 1.0), pos2(x_at(di, he), y + row_h - 1.0));
                 let cur = v.find_cur == Some(k);
-                tp.rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.45 } else { 0.2 }));
+                tp.rect_filled(r, 2.0, WARN().gamma_multiply(if cur { 0.52 } else { 0.24 }));
                 if cur {
                     tp.rect_stroke(r, 2.0, st(1.0, WARN()), egui::StrokeKind::Outside);
                 }
@@ -2673,6 +2782,15 @@ impl Editor {
                 }
                 continue;
             }
+            if focused && i == self.primary {
+                // 输入法：候选框跟着主光标，正在输入的拼音画在光标处
+                let cur = Rect::from_min_max(pos2(x - 1.0, y + 2.0), pos2(x + 1.0, y + row_h - 2.0));
+                crate::ime::Ime::allow(ui, text_rect, cur);
+                let w = self.ime.paint(&tp, pos2(x, y), row_h, font.clone(), TEXT(), BG2());
+                if w > 0.0 {
+                    continue;
+                }
+            }
             if focused && on {
                 tp.rect_filled(Rect::from_min_max(pos2(x - 1.0, y + 2.0), pos2(x + 1.0, y + row_h - 2.0)), 0.0, c);
             } else if !focused {
@@ -2995,6 +3113,33 @@ impl Editor {
             }
         }
 
+        if pressed || !self.ime.preedit.is_empty() || self.completion.as_ref().is_some_and(|c| c.version != buf.ver || c.caret != self.primary_sel().h) {
+            self.completion = None;
+        }
+        if let Some(c) = &self.completion {
+            let caret = pos2(x_of(c.caret), row_y(row_of(c.caret)));
+            if text_rect.contains(caret) {
+                let height = 22.0 * c.words.len() as f32 + 28.0;
+                let y = if caret.y + height < text_rect.bottom() {
+                    caret.y + row_h
+                } else {
+                    (caret.y - height).max(text_rect.top())
+                };
+                egui::Area::new(self.id.with("word-suggestions"))
+                    .order(egui::Order::Tooltip)
+                    .interactable(false)
+                    .fixed_pos(pos2(caret.x, y))
+                    .show(ui.ctx(), |ui| {
+                        egui::Frame::popup(ui.style()).show(ui, |ui| {
+                            for (i, word) in c.words.iter().enumerate() {
+                                ui.label(egui::RichText::new(word).monospace().color(if i == c.selected { ACCENT() } else { TEXT2() }));
+                            }
+                            ui.separator();
+                            ui.small(t("↑↓ 选择 · Tab 补全"));
+                        });
+                    });
+            }
+        }
         self.disp.1 = disp;
         out.doc_comment = self.doc_req.take();
         out
@@ -3172,6 +3317,20 @@ mod tests {
         let b = Buf::new(text.to_string());
         let e = Editor::new(egui::Id::new("t"), &b);
         (e, b)
+    }
+
+    #[test]
+    fn completion_replaces_whole_identifier_and_undo_restores_it() {
+        let (mut ed, mut buf) = ed("int sensor_read();\nint X = senXX;");
+        let start = buf.text.rfind("sen").unwrap();
+        let symbols = HashMap::from([("sensor_init".to_string(), Kind::Func)]);
+        let c = Completion::new(&buf, start + 3, Lang::C, Some(&symbols)).unwrap();
+        assert_eq!(c.words, ["sensor_read", "sensor_init"]);
+        ed.replace_at(&mut buf, c.range, c.words[0].clone(), None, 0.0);
+        assert!(buf.text.ends_with("sensor_read;"));
+        ed.undo(&mut buf);
+        assert!(buf.text.ends_with("senXX;"));
+        assert!(Completion::new(&buf, start + 1, Lang::C, None).is_none());
     }
 
     #[test]

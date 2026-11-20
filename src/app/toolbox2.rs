@@ -886,7 +886,7 @@ impl App {
         eyebrow(ui, t("文件校验"), "");
         ui.horizontal(|ui| {
             if ui.button(t("选择文件…")).clicked() {
-                if let Some(ps) = rfd::FileDialog::new().pick_files() {
+                if let Some(ps) = crate::diagnostics::file_dialog().pick_files() {
                     for p in ps {
                         self.hash_file(p);
                     }
@@ -1342,7 +1342,7 @@ impl App {
                     }
                 });
                 if ui.button(t("选择字体文件…")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().add_filter(t("字体"), &["ttf", "ttc", "otf"]).pick_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog().add_filter(t("字体"), &["ttf", "ttc", "otf"]).pick_file() {
                         c.fm_font = p.to_string_lossy().into_owned();
                     }
                 }
@@ -1484,7 +1484,7 @@ impl App {
             });
         });
         if pick {
-            if let Some(p) = rfd::FileDialog::new().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
+            if let Some(p) = crate::diagnostics::file_dialog().add_filter(t("图片"), &["png", "jpg", "jpeg", "bmp", "gif"]).pick_file() {
                 self.s.tb.x.img_path = p.to_string_lossy().into_owned();
                 self.s.tb.x.fm_name = bitmap::c_ident(&p.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default());
             }
@@ -1733,7 +1733,7 @@ pub(super) fn code_block(ui: &mut egui::Ui, code: &str, title: &str, file: &str)
         ui.label(RichText::new(title).font(FontId::new(11.0, bold())).color(TEXT3()).extra_letter_spacing(1.5));
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             if ui.button(t("另存为…")).clicked() {
-                if let Some(p) = rfd::FileDialog::new().set_file_name(file).save_file() {
+                if let Some(p) = crate::diagnostics::file_dialog().set_file_name(file).save_file() {
                     let _ = std::fs::write(p, code);
                 }
             }

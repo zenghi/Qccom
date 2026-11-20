@@ -17,6 +17,12 @@ pub(super) enum Item {
     Tool(toolbox::Tool),
     /// 连接保存的 SSH / Telnet 主机
     Host(usize),
+    /// 并排：把某个页面放到副页面
+    Side(super::work::Pane),
+    /// 布局方案（下标：内置在前）
+    Scheme(usize),
+    SaveLayout,
+    ResetLayout,
 }
 
 #[derive(Default)]
@@ -56,6 +62,10 @@ impl App {
                 let h = self.s.tb.ssh_hosts.get(i).cloned().unwrap_or_default();
                 (h.proto.name().to_string(), format!("{} {}  {}", t("连接"), h.title(), h.addr()), String::new())
             }
+            Item::Side(p) => (t("并排").to_string(), p.label(), String::new()),
+            Item::Scheme(i) => (t("布局").to_string(), self.all_schemes().get(i).map(|s| s.name.clone()).unwrap_or_default(), String::new()),
+            Item::SaveLayout => (t("布局").to_string(), t("保存当前布局").to_string(), String::new()),
+            Item::ResetLayout => (t("布局").to_string(), t("重置布局（回到单页）").to_string(), String::new()),
         }
     }
 
@@ -72,6 +82,18 @@ impl App {
         v.extend(prefs::Cat::ALL.iter().map(|c| Item::Prefs(*c)));
         v.extend(toolbox::groups().iter().flat_map(|g| g.1.iter()).map(|t| Item::Tool(*t)));
         v.extend((0..self.s.tb.ssh_hosts.len()).map(Item::Host));
+        use super::work::Pane;
+        let main = self.main_pane();
+        v.extend(
+            [Pane::Debug, Pane::Code, Pane::Git, Pane::Compare, Pane::Files, Pane::Community]
+                .into_iter()
+                .chain(toolbox::groups().iter().flat_map(|g| g.1.iter()).map(|t| Pane::Tool(*t)))
+                .filter(|p| Some(*p) != main)
+                .map(Item::Side),
+        );
+        v.extend((0..self.all_schemes().len()).map(Item::Scheme));
+        v.push(Item::SaveLayout);
+        v.push(Item::ResetLayout);
         v
     }
 
@@ -230,6 +252,22 @@ impl App {
                     self.ssh_connect(&h);
                 }
             }
+            Item::Side(p) => {
+                let pos = self.fit_pos(None).or(Some(super::work::DockPos::Bottom));
+                self.open_side(p, pos, true);
+            }
+            Item::Scheme(i) => {
+                if let Some(sc) = self.all_schemes().get(i) {
+                    let name = sc.name.clone();
+                    self.apply_scheme(&name);
+                }
+            }
+            Item::SaveLayout => {
+                let n = self.s.work.schemes.len() + 1;
+                let name = tf("我的布局 {}", &[&n]);
+                self.save_scheme(&name);
+            }
+            Item::ResetLayout => self.reset_layout(),
         }
     }
 }
@@ -243,6 +281,10 @@ fn item_key(it: Item) -> String {
         Item::Prefs(c) => format!("prefs.{}", c.id()),
         Item::Tool(tool) => format!("tool.{tool:?}"),
         Item::Host(i) => format!("host.{i}"),
+        Item::Side(p) => format!("side.{p:?}"),
+        Item::Scheme(i) => format!("scheme.{i}"),
+        Item::SaveLayout => "layout.save".into(),
+        Item::ResetLayout => "layout.reset".into(),
     }
 }
 

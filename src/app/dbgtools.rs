@@ -525,7 +525,7 @@ impl App {
                     ui.add(egui::Label::new(RichText::new(name.unwrap_or_else(|| t("未选择文件").into())).color(TEXT())).truncate());
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                         if ui.button(t("选择文件…")).clicked() {
-                            if let Some(p) = rfd::FileDialog::new().pick_file() {
+                            if let Some(p) = crate::diagnostics::file_dialog().pick_file() {
                                 self.xf.path = Some(p);
                             }
                         }

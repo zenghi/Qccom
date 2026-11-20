@@ -104,7 +104,7 @@ pub(super) fn file_pick(ui: &mut egui::Ui, label: &str, path: &mut String, exts:
             .add_sized(vec2(w, 26.0), egui::TextEdit::singleline(path).font(MONO(12.5)).margin(vec2(6.0, 4.0)).hint_text(t("选择或拖入文件")))
             .changed();
         if ui.add(egui::Button::new(RichText::new(t("选择…")).size(12.0)).min_size(vec2(70.0, 26.0))).clicked() {
-            let mut d = rfd::FileDialog::new();
+            let mut d = crate::diagnostics::file_dialog();
             if let Some(dir) = std::path::Path::new(path.as_str()).parent().filter(|d| d.is_dir()) {
                 d = d.set_directory(dir);
             }
@@ -236,6 +236,12 @@ impl App {
         if self.s.tb.tool == Tool::Ssh {
             return self.ssh_drop(vec![p]);
         }
+        if self.s.tb.tool == Tool::Circuit {
+            if let Some(cv) = &mut self.circ {
+                cv.drop_file(&p);
+            }
+            return;
+        }
         let s = p.to_string_lossy().into_owned();
         let c = &mut self.s.tb.z;
         match self.s.tb.tool {
@@ -332,7 +338,7 @@ impl App {
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     if ui.button(t("添加文件…")).clicked() {
-                        if let Some(ps) = rfd::FileDialog::new()
+                        if let Some(ps) = crate::diagnostics::file_dialog()
                             .add_filter(t("固件"), &["hex", "ihex", "bin", "srec", "s19", "s28", "s37", "mot", "elf", "axf", "out"])
                             .add_filter("*", &["*"])
                             .pick_files()
@@ -469,12 +475,12 @@ impl App {
                                 } else {
                                     format!("{stem}.{}", fmt.ext())
                                 };
-                                rfd::FileDialog::new()
+                                crate::diagnostics::file_dialog()
                                     .set_file_name(name)
                                     .save_file()
                                     .map(|path| std::fs::write(&path, fw::write(segs, fmt, p.fill, start)).map(|_| path.display().to_string()))
                             } else {
-                                rfd::FileDialog::new().pick_folder().map(|dir| {
+                                crate::diagnostics::file_dialog().pick_folder().map(|dir| {
                                     let parts = fw::split(segs, &cuts);
                                     for (a, _, s) in &parts {
                                         std::fs::write(dir.join(format!("{stem}_{a:08X}.{}", fmt.ext())), fw::write(s, fmt, p.fill, None))?;
@@ -713,7 +719,7 @@ impl App {
                         .file_stem()
                         .map(|s| s.to_string_lossy().into_owned())
                         .unwrap_or_else(|| "firmware".into());
-                    if let Some(path) = rfd::FileDialog::new().set_file_name(format!("{stem}_ota.{}", c.pk_fmt.ext())).save_file() {
+                    if let Some(path) = crate::diagnostics::file_dialog().set_file_name(format!("{stem}_ota.{}", c.pk_fmt.ext())).save_file() {
                         match std::fs::write(&path, fw::write(&packed.segs, c.pk_fmt, tp.fill, None)) {
                             Ok(_) => toast = Some((tf("已保存：{}", &[&path.display()]), OK())),
                             Err(e) => toast = Some((e.to_string(), ERR())),

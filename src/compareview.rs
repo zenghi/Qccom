@@ -176,6 +176,20 @@ impl CompareView {
         }
     }
 
+    /// 当前标签（None = 首页）
+    pub fn active_tab(&self) -> Option<usize> {
+        self.active
+    }
+
+    pub fn set_active_tab(&mut self, i: Option<usize>) {
+        self.active = i.filter(|i| *i < self.tabs.len());
+    }
+
+    /// 标签标题（切换器用）
+    pub fn tab_title(&self, i: usize) -> Option<String> {
+        self.tabs.get(i).map(|t| t.title().0)
+    }
+
     pub fn has_unsaved(&self) -> bool {
         self.tabs.iter().any(|t| t.title().2)
     }
@@ -292,6 +306,10 @@ impl CompareView {
     // ------------------------------------------------------------ 界面
 
     pub fn ui(&mut self, ctx: &egui::Context) {
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| self.ui_in(ui));
+    }
+
+    pub fn ui_in(&mut self, ui: &mut egui::Ui) {
         if let Some(i) = self.active {
             if i >= self.tabs.len() {
                 self.active = self.tabs.len().checked_sub(1);
@@ -300,11 +318,11 @@ impl CompareView {
         egui::TopBottomPanel::top("cmp-tabs")
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 8, right: 8, top: 6, bottom: 0 }))
             .show_separator_line(true)
-            .show(ctx, |ui| self.tab_strip(ui));
+            .show_inside(ui, |ui| self.tab_strip(ui));
         let mut outs = vec![];
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(BG0()))
-            .show(ctx, |ui| match self.active.and_then(|i| self.tabs.get_mut(i)) {
+            .show_inside(ui, |ui| match self.active.and_then(|i| self.tabs.get_mut(i)) {
                 None => self.home_ui(ui),
                 Some(Tab::Text(x)) => outs = x.ui(ui, &mut self.s),
                 Some(Tab::Folder(x)) => outs = x.ui(ui, &mut self.s),
@@ -319,7 +337,7 @@ impl CompareView {
                 Out::Compare(a, b, m) => self.open_sides(Side::file(&a), Side::file(&b), m),
             }
         }
-        self.close_modal(ctx);
+        self.close_modal(ui.ctx());
     }
 
     fn tab_strip(&mut self, ui: &mut Ui) {
@@ -511,7 +529,8 @@ impl CompareView {
     fn home_ui(&mut self, ui: &mut Ui) {
         let full = ui.max_rect();
         hgrad_line(ui.painter(), full.top() + 0.5, full.x_range(), ACCENT().gamma_multiply(0.35));
-        let w = (full.width() - 80.0).clamp(560.0, 880.0);
+        // 窄的时候（副页面）贴着两边，不再保证最小宽度
+        let w = (full.width() - 80.0).clamp(560.0, 880.0).min(full.width() - 24.0);
         let col = Rect::from_min_size(pos2(full.center().x - w / 2.0, full.top() + 36.0), vec2(w, full.height() - 48.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(col));
         let ui = &mut child;
@@ -663,12 +682,12 @@ fn path_row(ui: &mut Ui, label: &str, v: &mut String) {
                 .hint_text(t("路径，或把文件拖到这里")),
         );
         if icon_button(ui, Icon::Files, t("选择文件"), false).clicked() {
-            if let Some(p) = rfd::FileDialog::new().pick_file() {
+            if let Some(p) = crate::diagnostics::file_dialog().pick_file() {
                 *v = p.display().to_string();
             }
         }
         if icon_button(ui, Icon::Folder, t("选择文件夹"), false).clicked() {
-            if let Some(p) = rfd::FileDialog::new().pick_folder() {
+            if let Some(p) = crate::diagnostics::file_dialog().pick_folder() {
                 *v = p.display().to_string();
             }
         }
@@ -829,7 +848,7 @@ pub(crate) fn mono() -> FontId {
 
 /// 生成报告并用浏览器打开
 pub(crate) fn save_report(html: String, name: &str, outs: &mut Vec<Out>) {
-    if let Some(p) = rfd::FileDialog::new().set_file_name(format!("{name}.html")).add_filter("HTML", &["html"]).save_file() {
+    if let Some(p) = crate::diagnostics::file_dialog().set_file_name(format!("{name}.html")).add_filter("HTML", &["html"]).save_file() {
         match std::fs::write(&p, html) {
             Ok(_) => {
                 crate::app::open_url(&p.display().to_string());

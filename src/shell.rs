@@ -2,6 +2,8 @@
 //! Linux 用 pty）。cmd / PowerShell / Git Bash / bash / zsh … 自动检测。
 //! 屏幕和按键处理复用 TermView，所以 vi、top、颜色、回滚都和串口终端一样。
 
+mod environment;
+use environment::{EnvDialog, Environment};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
@@ -132,10 +134,17 @@ pub struct Shell {
     pub attn: bool,
     /// 启动用的 shell 类型名（标签可以改名，重启时按这个找）
     kind: String,
+    environment: Option<Environment>,
+    /// 编号（标签会重排，用它认出是哪一个）
+    pub id: usize,
 }
 
 impl Shell {
     pub fn spawn(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize) -> Result<Shell, String> {
+        Self::spawn_with_env(ctx, kind, cwd, n, None)
+    }
+
+    fn spawn_with_env(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize, env: Option<&Environment>) -> Result<Shell, String> {
         let (cols, rows) = (100u16, 24u16);
         let pair = native_pty_system()
             .openpty(PtySize {
@@ -149,9 +158,16 @@ impl Shell {
         cmd.args(&kind.args);
         utf8_args(&mut cmd, &kind.program);
         cmd.cwd(cwd);
+        if cfg!(windows) && kind.name == "Git Bash" {
+            // Git for Windows' login profile otherwise changes to $HOME.
+            cmd.env("CHERE_INVOKING", "1");
+        }
         cmd.env("TERM", "xterm-256color");
         cmd.env("COLORTERM", "truecolor");
         utf8_env(&mut cmd);
+        if let Some(env) = env {
+            env.apply(&mut cmd)?;
+        }
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
         let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
@@ -193,6 +209,8 @@ impl Shell {
             color: 0,
             attn: false,
             kind: kind.name.clone(),
+            environment: env.cloned(),
+            id: n,
         })
     }
 
@@ -259,6 +277,8 @@ pub struct ShellSettings {
     pub default: String,
     /// 面板头部的任务按钮（编译、烧录、清理…）
     pub tasks: Vec<Task>,
+    pub environments: Vec<Environment>,
+    pub environment: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -275,6 +295,8 @@ impl Default for ShellSettings {
             open: false,
             height: 260.0,
             default: String::new(),
+            environments: vec![],
+            environment: String::new(),
             tasks: vec![task("编译", "make -j8"), task("烧录", "make flash"), task("清理", "make clean")],
         }
     }
@@ -290,6 +312,36 @@ pub struct Problem {
 }
 
 /// 从编译输出里找错误和警告：GCC / Clang / armclang、Keil armcc、IAR、MSVC
+/// 命令里有没有用到这个串口（COM3 不算 COM31；/dev/ttyUSB0 也认 ttyUSB0）
+pub fn uses_port(cmd: &str, port: &str) -> bool {
+    if port.is_empty() {
+        return false;
+    }
+    let cmd = cmd.to_lowercase();
+    let mut names = vec![port.to_lowercase()];
+    if let Some(base) = port.rsplit(['/', '\\']).next().filter(|b| b.len() < port.len() && b.len() >= 3) {
+        names.push(base.to_lowercase());
+    }
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    names.iter().any(|n| {
+        cmd.match_indices(n.as_str()).any(|(i, _)| {
+            let before = cmd[..i].chars().next_back();
+            let after = cmd[i + n.len()..].chars().next();
+            !word(before) && !word(after)
+        })
+    })
+}
+
+/// 回车时那一行里的提示符部分（到第一个 > $ # % 为止，再带上后面的空格）；认不出返回空
+pub fn prompt_of(line: &str) -> String {
+    let Some(i) = line.char_indices().take(160).find(|(_, c)| matches!(c, '>' | '$' | '#' | '%')).map(|(i, _)| i) else {
+        return String::new();
+    };
+    let rest = &line[i + 1..];
+    let sp = rest.len() - rest.trim_start_matches(' ').len();
+    line[..i + 1 + sp].to_string()
+}
+
 pub fn parse_problems(text: &str) -> Vec<Problem> {
     use std::sync::OnceLock;
     static RE: OnceLock<[regex_lite::Regex; 3]> = OnceLock::new();
@@ -354,6 +406,8 @@ pub enum ShellEvt {
     Open(PathBuf, usize),
     /// 点了任务按钮：(任务名, 命令)
     Task(String, String),
+    /// 在本机终端里执行了一条命令：(终端编号, 提示符 + 命令, 回车时光标所在行)
+    Command(usize, String, u64),
 }
 
 pub struct Shells {
@@ -367,6 +421,7 @@ pub struct Shells {
     /// 右半边显示的标签
     split: Option<usize>,
     rename: Option<(usize, String)>,
+    project_shell_pending: bool,
     /// 当前标签的编译问题，以及从哪一行开始找（按任务按钮时记下）
     pub problems: Vec<Problem>,
     prob_from: Option<(usize, u64)>,
@@ -374,6 +429,7 @@ pub struct Shells {
     /// 面板在屏幕上的位置（拖文件进来时判断）
     pub rect: Option<Rect>,
     edit_tasks: bool,
+    env_dialog: EnvDialog,
 }
 
 impl Shells {
@@ -388,11 +444,13 @@ impl Shells {
             maximized: false,
             split: None,
             rename: None,
+            project_shell_pending: false,
             problems: vec![],
             prob_from: None,
             prob_at: None,
             rect: None,
             edit_tasks: false,
+            env_dialog: Default::default(),
         }
     }
 
@@ -422,6 +480,9 @@ impl Shells {
         let Some(sh) = self.tabs.get_mut(self.active) else { return };
         self.prob_from = Some((self.active, sh.tv.cursor_row()));
         self.problems.clear();
+        if !sh.remote {
+            self.events.push(ShellEvt::Command(sh.id, format!("{}{cmd}", sh.tv.cursor_line()), sh.tv.cursor_row()));
+        }
         sh.write(format!("{cmd}\r").as_bytes());
         sh.tv.focus_req = true;
         self.s.open = true;
@@ -443,12 +504,23 @@ impl Shells {
         self.problems = parse_problems(&sh.tv.text_since(from));
     }
 
+    /// 某个终端里的命令跑完、回到提示符了吗：None = 终端已经关了 / 进程退出了
+    pub fn back_at_prompt(&self, id: usize, prompt: &str, row: u64) -> Option<bool> {
+        let sh = self.tabs.iter().find(|s| s.id == id && s.exited.is_none())?;
+        let quiet = sh.tv.fed_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(700));
+        Some(quiet && sh.tv.cursor_row() > row && sh.tv.cursor_line() == prompt.trim_end())
+    }
+
     pub fn kinds(&mut self) -> &[ShellKind] {
         self.kinds.get_or_insert_with(detect)
     }
 
     pub fn focused(&self, ctx: &egui::Context) -> bool {
         self.s.open && self.tabs.get(self.active).is_some_and(|sh| ctx.memory(|m| m.has_focus(sh.tv.id())))
+    }
+
+    pub fn project_changed(&mut self) {
+        self.project_shell_pending = true;
     }
 
     /// 打开 / 关闭面板；第一次打开时自动开一个默认 shell
@@ -476,11 +548,13 @@ impl Shells {
             return;
         };
         self.next_id += 1;
-        match Shell::spawn(ctx, &kind, cwd, self.next_id) {
+        let env = self.s.environments.iter().find(|e| e.name == self.s.environment);
+        match Shell::spawn_with_env(ctx, &kind, cwd, self.next_id, env) {
             Ok(sh) => {
                 self.tabs.push(sh);
                 self.active = self.tabs.len() - 1;
                 self.s.open = true;
+                self.project_shell_pending = false;
             }
             Err(e) => {
                 let msg: &'static str = Box::leak(tf("启动 {} 失败：{}", &[&kind.name, &e]).into_boxed_str());
@@ -526,6 +600,11 @@ impl Shells {
             self.rect = None;
             return;
         }
+        if std::mem::take(&mut self.project_shell_pending) {
+            // An existing PTY may be busy, and its launch directory isn't
+            // necessarily its current directory. Keep it open and start fresh.
+            self.new_shell(ctx, None, cwd);
+        }
         let avail = ctx.available_rect().height();
         let limit = (avail - 120.0).max(120.0);
         let want = if self.maximized { limit } else { self.s.height.clamp(120.0, limit) };
@@ -557,10 +636,11 @@ impl Shells {
                 for (i, r) in panes {
                     if self.show_tab(ui, i, r) {
                         let old = &self.tabs[i];
+                        let env = old.environment.clone();
                         let (kname, title, color, cwd) = (old.kind.clone(), old.title.clone(), old.color, old.cwd.clone());
                         if let Some(kind) = self.kinds().iter().find(|k| k.name == kname).cloned() {
                             self.next_id += 1;
-                            match Shell::spawn(ui.ctx(), &kind, &cwd, self.next_id) {
+                            match Shell::spawn_with_env(ui.ctx(), &kind, &cwd, self.next_id, env.as_ref()) {
                                 Ok(mut new) => {
                                     new.title = title;
                                     new.color = color;
@@ -637,6 +717,9 @@ impl Shells {
         if sh.exited.is_some() {
             restart = o.input.contains(&b'\r');
         } else if !o.input.is_empty() {
+            if let Some(line) = o.enter_line.filter(|_| !sh.remote) {
+                self.events.push(ShellEvt::Command(sh.id, line, sh.tv.cursor_row()));
+            }
             sh.write(&o.input);
         }
         if let Some(m) = o.toast {
@@ -877,6 +960,11 @@ impl Shells {
                         ui.memory_mut(|m| m.close_popup());
                     }
                 }
+                let env = self.tabs.get(self.active).and_then(|sh| sh.environment.as_ref());
+                let name = env.map_or(t("环境导入"), |e| e.name.as_str());
+                if ui.small_button(crate::app::truncate(name, 16)).on_hover_text(t("终端环境")).clicked() {
+                    self.env_dialog.open = true;
+                }
                 // 任务按钮（右键编辑）
                 for k in (0..self.s.tasks.len()).rev() {
                     let tk = &self.s.tasks[k];
@@ -906,6 +994,7 @@ impl Shells {
             self.run_task(&ctx, cwd, &cmd);
         }
         self.tasks_window(&ctx);
+        self.environment_dialog(&ctx, cwd);
         if let Some(i) = pick {
             self.active = i;
             self.tabs[i].attn = false;
@@ -924,7 +1013,28 @@ impl Shells {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_problems;
+    use super::{parse_problems, prompt_of, uses_port};
+
+    #[test]
+    fn port_in_command() {
+        assert!(uses_port("esptool.py -p COM3 write_flash 0x0 a.bin", "COM3"));
+        assert!(uses_port("idf.py -p com3 flash", "COM3"));
+        assert!(uses_port("mode \\\\.\\COM3", "COM3"));
+        assert!(!uses_port("esptool.py -p COM31 flash", "COM3"));
+        assert!(!uses_port("echo COMMAND", "COM3"));
+        assert!(uses_port("idf.py -p /dev/ttyUSB0 flash", "/dev/ttyUSB0"));
+        assert!(uses_port("stty -F ttyUSB0 115200", "/dev/ttyUSB0"));
+        assert!(!uses_port("stty -F ttyUSB01", "/dev/ttyUSB0"));
+        assert!(!uses_port("ls", ""));
+    }
+
+    #[test]
+    fn prompt_part() {
+        assert_eq!(prompt_of(r"PS C:\fw> idf.py -p COM3 flash"), r"PS C:\fw> ");
+        assert_eq!(prompt_of("zenghi@pc:~/fw$ make flash"), "zenghi@pc:~/fw$ ");
+        assert_eq!(prompt_of(r"C:\fw>flash.bat"), r"C:\fw>");
+        assert_eq!(prompt_of("flash"), "");
+    }
 
     #[test]
     fn problems() {

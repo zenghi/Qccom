@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.8.0"
+version = "1.9.9"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -12,6 +12,7 @@ keywords = ["serial", "uart", "mqtt", "terminal", "embedded"]
 categories = ["development-tools", "embedded", "gui"]
 
 [dependencies]
+anyhow = "1"
 eframe = { version = "0.31", default-features = false, features = ["glow", "x11", "wayland", "persistence"] }
 serialport = "4"
 rfd = "0.15"
@@ -20,6 +21,7 @@ encoding_rs = "0.8"
 serde = { version = "1", features = ["derive"] }
 memmap2 = "0.9.11"
 vte = { version = "0.13", default-features = false }
+unicode-width = "0.1"
 serde_json = "1"
 sys-locale = "0.3"
 sha2 = { version = "0.10", default-features = false }
@@ -27,11 +29,14 @@ sha1 = { version = "0.10", default-features = false }
 md-5 = { version = "0.10", default-features = false }
 portable-pty = "0.9"
 regex-lite = "0.1"
+memchr = "2"
 # BLE: btleplug is async, it runs on a single-threaded tokio runtime in its own thread
 btleplug = "0.13"
-tokio = { version = "1", default-features = false, features = ["rt", "time", "macros", "sync"] }
+tokio = { version = "1", default-features = false, features = ["rt", "time", "macros", "sync", "fs", "io-util", "net", "process"] }
 futures = { version = "0.3", default-features = false, features = ["std"] }
-uuid = "1"
+uuid = { version = "1", features = ["v4"] }
+russh-sftp = "3.0.1"
+tempfile = "3"
 # USB HID debugging (hidraw on Linux, native API on Windows)
 hidapi = { version = "2", default-features = false, features = ["linux-static-hidraw", "windows-native"] }
 # Toolbox: glyph bitmaps (font modulo) and image to C array
@@ -42,6 +47,8 @@ roxmltree = "0.20"
 qrcode = { version = "0.14", default-features = false }
 # 本地历史的快照压缩（flate2 已经带了它，不增加体积）
 miniz_oxide = "0.9"
+# 社区：粘贴剪贴板里的截图（egui 已经带了它）
+arboard = "3"
 
 # HTTPS (self-update) and MQTT over TLS: Windows uses the system SChannel, which adds almost nothing to the size;
 # Linux uses pure-Rust rustls so it does not depend on the distribution's OpenSSL version
@@ -49,8 +56,12 @@ miniz_oxide = "0.9"
 ureq = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 raw-window-handle = "0.6"
+qccom-tunnel = { path = "remote-com", features = ["endpoint"] }
+windows-sys = { version = "0.61", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_System_Registry"] }
 
 [target.'cfg(not(windows))'.dependencies]
+# 虚拟串口（openpty）：已经被其他依赖带进来了
+libc = "0.2"
 ureq = { version = "2", default-features = false, features = ["tls"] }
 rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 webpki-roots = "0.26"
@@ -64,3 +75,13 @@ panic = "abort"
 
 [build-dependencies]
 winresource = "0.1.34"
+
+[patch.crates-io]
+# eframe uses winit 0.30, which has not released the Windows 11 mixed-DPI drag fix.
+# See vendor/winit/QCCOM-PATCH.md; remove this override when a fixed release is available.
+winit = { path = "vendor/winit" }
+
+[workspace]
+members = ["remote-com"]
+default-members = ["."]
+resolver = "2"

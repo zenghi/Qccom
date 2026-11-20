@@ -9,6 +9,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
@@ -26,6 +27,19 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+      - name: Check SignPath configuration
+        if: runner.os == 'Windows' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: pwsh
+        env:
+          SIGNPATH_CONFIGURED: ${{ vars.SIGNPATH_ORGANIZATION_ID != '' && secrets.SIGNPATH_API_TOKEN != '' }}
+        run: |
+          if ($env:SIGNPATH_CONFIGURED -ne 'true') {
+            $message = 'Configure SIGNPATH_ORGANIZATION_ID and SIGNPATH_API_TOKEN to sign Windows releases.'
+            if ($env:GITHUB_REF -like 'refs/tags/v*') { throw $message }
+            Write-Output "::notice::$message"
+          } else {
+            Write-Output 'SignPath configuration is present.'
+          }
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -54,22 +68,45 @@ jobs:
         with:
           name: ${{ matrix.name }}
           path: dist/${{ matrix.name }}
+          if-no-files-found: error
 
-      # Code signing (enable after the project is accepted by the SignPath Foundation):
-      # 1. Add SIGNPATH_API_TOKEN under Settings -> Secrets and variables -> Actions. Never commit it.
-      # 2. Fill in organization-id / project-slug / signing-policy-slug from the SignPath dashboard.
-      # 3. Remove `false &&` from the condition below.
+      # Each release signing request waits for manual approval in SignPath.
+      - name: Version
+        id: ver
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
       - name: Sign with SignPath
-        if: false && runner.os == 'Windows'
-        uses: signpath/github-action-submit-signing-request@v1
+        id: sign
+        if: runner.os == 'Windows' && startsWith(github.ref, 'refs/tags/v')
+        uses: signpath/github-action-submit-signing-request@v3
         with:
           api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
-          organization-id: "<organization id>"
-          project-slug: "qccom"
-          signing-policy-slug: "release-signing"
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG || 'qccom' }}
+          signing-policy-slug: ${{ vars.SIGNPATH_POLICY_SLUG || 'release-signing' }}
           github-artifact-id: ${{ steps.upload.outputs.artifact-id }}
           wait-for-completion: true
+          wait-for-completion-timeout-in-seconds: 86400
           output-artifact-directory: dist/signed
+          parameters: |
+            version: ${{ toJSON(steps.ver.outputs.version) }}
+
+      - name: Check signature
+        if: steps.sign.outcome == 'success'
+        shell: pwsh
+        run: |
+          $s = Get-AuthenticodeSignature "dist/signed/${{ matrix.name }}"
+          $s | Format-List Status, StatusMessage, SignerCertificate
+          if ($s.Status -ne 'Valid') { throw "signature is not valid" }
+
+      - uses: actions/upload-artifact@v4
+        if: steps.sign.outcome == 'success'
+        with:
+          name: signed-${{ matrix.name }}
+          path: dist/signed/${{ matrix.name }}
+          if-no-files-found: error
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -80,8 +117,13 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          path: dist
-          merge-multiple: true
+          path: artifacts
+
+      - name: Collect files
+        run: |
+          mkdir -p dist
+          cp artifacts/signed-qccom-windows-x64.exe/qccom-windows-x64.exe dist/
+          cp artifacts/qccom-linux-x64/qccom-linux-x64 dist/
 
       - name: Checksums
         working-directory: dist
@@ -90,4 +132,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: dist/*
+          fail_on_unmatched_files: true
           generate_release_notes: true

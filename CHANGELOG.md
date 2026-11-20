@@ -1,5 +1,115 @@
 # Changelog
 
+## 1.9.9
+
+- Open and monitor multiple serial ports with separate settings, logs, recordings, and reconnection. The simplified Devices list keeps the port controls together. Drag the serial log tabs to reorder them or open a split view. Right-click a tab to open its log in a separate window or manage the port and log.
+- Select a COM port directly in either split pane. Network COM shares show the same TX and RX directions on both devices, and selecting a local virtual port opens the corresponding physical port log.
+- Browse remote directories and transfer files through SFTP in the SSH workspace. The transfer menu also offers legacy SCP. Keep a separate collection of SSH quick commands, and drag frequently used tools to the left toolbar to pin them.
+- Share a serial port, MQTT broker, or passive FTP service using a single copyable address. QCCOM attempts a direct peer connection and falls back to the Rust relay. Test the relay from Advanced settings to identify DNS, TCP, TLS, or registration failures.
+- Use the debugging tools in narrower windows and configure interface and monospace fonts separately. Apply log highlighting presets and use the new controls and messages in all ten supported interface languages.
+
+## 1.9.8
+
+- **Local recording**: split long captures into numbered files at a configurable size boundary. Preserve complete records and avoid overwriting previous numbered parts.
+- **Log viewing and replay**: move large-file reads off the UI thread and stream replay with bounded buffering, reducing memory pressure and UI stalls.
+- **Crash diagnostics**: retain a small local record after Rust panics or a prolonged UI stall. On the next launch, preview it or opt in to automatic posting through the existing community Help board. No logs or files are uploaded.
+- **Runtime safety**: handle oversized WebSocket and MQTT receive frames without unbounded buffering.
+
+## 1.9.7
+
+- **Bluetooth LE**: improve Windows connection and service discovery, and keep device ordering stable while scanning.
+- **Windows multi-monitor**: correct window geometry handling when moving between displays with different DPI scaling.
+- **Circuit simulation**: open the oscilloscope by default and support eight voltage probe channels and branch-current waveforms.
+- **Editor and terminal**: improve Ctrl-click navigation and completion; add named toolchain environments and two configurable text or HEX send buttons.
+
+## 1.9.6
+
+Getting ready for free code signing (SignPath Foundation).
+
+- **Virtual port driver downloaded on demand**: the com0com installer is no longer bundled in the exe. On Windows, *Install* downloads the unmodified official com0com 3.0.0.0 installer (about 250 KB) and runs it only if its SHA-256 matches. The exe now contains only code built from this repository.
+- **Usage statistics notice**: on first run a one-line notice at the bottom says that anonymous usage statistics are sent, with *What's collected*, *Got it* and *Turn off*. Nothing is sent before the notice is shown.
+- **Code signing policy**: [CODE_SIGNING.md](CODE_SIGNING.md) describes what is signed, the team roles and the privacy policy. The release workflow submits the Windows exe to SignPath for signing on `v*` tags once the project is set up there, and the release then ships the signed exe.
+
+## 1.9.5
+
+Fixes.
+
+- **Chinese input method, Enter commits the letters**: on Windows, pressing Enter while typing pinyin now puts the letters into the editor, terminal or text box instead of starting a new line. Backspace and arrow keys used inside the input method no longer also edit the text behind it.
+- **Terminal commands that need the serial port**: when a command typed in the built-in terminal (or a task button such as *Flash*) names the port QCCOM has open, e.g. `esptool.py -p COM3 …` or `idf.py -p /dev/ttyUSB0 flash`, QCCOM closes the port first and opens it again once the command has finished and the prompt is back. If the device re-enumerates after flashing, it waits for it to come back.
+- **Side page serial**: the serial page on the side now has an *Open* / *Close* button next to the port, so you no longer need the drop-down to connect or disconnect.
+- **Explorer right-click *Open with QCCOM***: with QCCOM already running, the window now comes to the front (and is restored if it was minimized) and opens the folder. Before, a minimized window stayed hidden and the request waited until you clicked it. Drive roots such as `D:\` open correctly too.
+- **Community**: post titles, bodies and replies can be selected and copied with `Ctrl+C`.
+
+## 1.9.4
+
+Two pages side by side. The side page opens by itself when it helps, and otherwise stays out of the way.
+
+- **Side page**: any page (Debug, Code, Git, Compare, Community, a toolbox tool or the circuit) can sit on the right or at the bottom of the current page. The side version is compact: the serial port shows a one-line connection chip, the code page hides the explorer on narrow widths, the circuit hides its part library. Drag the divider to resize (double-click resets, dragging it almost closed closes it). Several side pages become tabs.
+- **Ways to open one**: middle-click an activity-bar icon or a toolbox tab; right-click it → *Open on the right / at the bottom*; drag an icon, a toolbox tab or an editor tab to the right or bottom edge (a preview shows where it lands; dropping in the middle swaps); *Side by side: …* in the command palette. `Ctrl+Alt+\` opens or closes the side page, `Ctrl+Alt+Enter` swaps main and side, `Ctrl+Alt+Shift+→ / ↓` moves it.
+- **Opens by itself when it helps** (first time only): after flashing, the serial log appears next to the code; when the circuit is powered and has a simulated port, the port connects and appears beside it; generated circuit code opens beside the circuit and updates as you change pins; *Compare with…* and Git conflicts open Compare beside the code. Once you close one of these it only shows a hint in the status bar. While you are typing nothing pops up. `F11` turns on focus mode, which pauses all of it.
+- **Hints from the log**: a HardFault or assert in the log, or a `file.c:123` reference, shows a status-bar hint to view it next to the code. `file:line` in the log is underlined; `Ctrl+click` opens it beside the log, and selecting a line in the code highlights the matching log lines.
+- **Switching back and forth**: switching between the same two pages 3 times within 2 minutes shows a small *View together* hint at the bottom. Accepting remembers the pair and opens it side by side from then on. Declining three times asks once whether to stop suggesting.
+- **Layouts**: a layout icon in the status bar (only while a side page is open) offers single / side by side / stacked / three areas, three built-in layouts (*Firmware debug*, *Simulation*, *Review*), saving your own and setting one as the default for a project. The last layout is remembered per project.
+- **Pop out**: the ↗ button moves the side page into its own window for a second screen; closing that window puts it back.
+- **Back / Ctrl+Tab** remember the side page: `Alt+←` restores the arrangement you came from, and `Ctrl+Tab` lists your common pairs and layouts.
+- **Compare file tree**: Compare can show the project tree on the left; click one file for the left side and another for the right.
+- **Open with tool**: select HEX bytes or a C array in the editor or log → right-click → *Open with tool* → *Data converter* / *Checksum* / *Struct parser*, prefilled.
+- *Settings → Side page* has the switches for all of the above and the list of remembered pairs.
+
+## 1.9.3
+
+Faster search, easier ways back, and the small things in the explorer and Markdown preview.
+
+- **First start opens maximized** (restoring the window gives a centered window at 80% of the screen); after that QCCOM opens the way you left it.
+- **Search everywhere is much faster**: it searches as you type, on all CPU cores, with file contents cached in memory and a quick whole-file check before looking line by line. Results appear while the search runs and the list stays smooth with thousands of hits. On a 10,000-file project the first search went from 5 s to about 0.1 s, and repeat searches take about 0.05 s. Unsaved edits in open files are searched too.
+- **Search scope**: one line under the options shows what is searched; click it for quick toggles (*C/H only*, *No vendor libs*, *No build output*, *.gitignore*, *Open files only*) and *Include* / *Exclude* boxes with `.gitignore`-style patterns. Right-click a result file to exclude it, its folder or its type, or to search only that folder; right-click a folder in the explorer → *Search in this folder*. A narrowed scope is shown in blue with a × to reset, and is remembered per project.
+- **Getting back**: `Alt+←` / `Alt+→` and the mouse's back / forward buttons now work across pages, so after *Compare*, opening a tool from the command palette or jumping from the log you return to the file and line you came from. A small *← Back to …* chip appears at the bottom left after such a jump. `Ctrl+Tab` lists recently used pages, tools, comparisons and files together (hold `Ctrl`, press `Tab` to pick, release to switch; editor tabs moved to `Ctrl+PgDn`).
+- **Toolbox tabs**: tools you open stay as tabs along the top (up to 8, green dot when running); click to switch, middle-click or × to close, drag to reorder. Hovering the toolbox icon lists recent tools.
+- **Explorer copy, paste and move**: `Ctrl` / `Shift` + click to select several items, `Ctrl+C` / `Ctrl+X` / `Ctrl+V` and right-click *Copy / Cut / Paste*. Files are exchanged with the system clipboard, so they paste into Windows Explorer and back. Drag items onto a folder to move them (`Ctrl` to copy). Existing names get ` - copy` instead of being overwritten, and moves create a local-history checkpoint first.
+- **Drop files from outside**: drop onto a folder in the explorer to copy them there (`Shift` to move), drop a folder on an empty code page to open it as the project. While dragging, a hint next to the pointer says what will happen. On Windows the drop position now comes from the system cursor, which fixes drops landing in the wrong place.
+- **Markdown preview**: drag to select text and `Ctrl+C`; code blocks have a *Copy* button on hover; right-click copies all text or the Markdown source.
+
+## 1.9.2
+
+Community polish and a fix for lists that never finished loading.
+
+- **Fixed**: a board, filter or search with no results kept reloading forever and showed the loading skeleton instead of the list or the empty message. This is why *Requests* could look blank.
+- **Community icon** moved to the activity bar, above the terminal and settings icons, with a dot for new replies or news. Click it again to go back to the page you came from. The status-bar icon is gone.
+- **Clearer errors**: failed loads show the reason with a *Retry* link, items the app can't read are counted instead of silently dropped, and *Settings → General → Community & feedback* shows the server address and the last error. Wrong proxy setups (an HTML page, 404, 502) get a plain explanation.
+- **Requests**: when nothing is under review or planned, the list says how many are done or declined and offers *Show all*. The status filter is now always-visible tabs.
+- **Look**: cards separated by whitespace with a larger title, one-line excerpt and the status in the top-right corner; a smaller vote button that fills in and bounces when you vote; post counts next to each board; *My activity* collapsed into one item with tabs; illustrated empty states; the post page has an info bar, a developer-response card and tinted replies from the author and the original poster.
+- **Interaction**: all boards are prefetched so switching doesn't flash; closing a new post (`Esc`) saves the draft and returns to the post you were reading; search terms are highlighted, and a search with no results offers to start a post with that title; right-click a card to open, vote, copy the title or copy the post number; on narrow windows the list and post fade between each other.
+- Anonymous usage stats no longer show a notice on first start; they can still be turned off in *Settings → General*.
+
+## 1.9.1
+
+Community and feedback, built into QCCOM. Nothing new is always on screen except a small chat icon in the status bar.
+
+- **Community** (chat icon in the status bar, or gear menu → *Community & feedback*): four boards — **Requests** (suggest features and vote; the most-voted get built first, with status *under review / planned / done / declined* and the developer's response), **Help** (mark the reply that solved it), **Share** and **News**. Floor-style replies with quoting, likes, Markdown with highlighted code blocks, and up to 4 images per post (pick a file, paste a screenshot or drop it into the window). Posting a request lists similar ones first so you can vote instead of repeating it.
+- **Anonymous or signed in**: post and vote without an account, or sign up with a username and password to see *My posts / votes / replies* and notifications on any computer; content posted anonymously from this computer can be moved into the account.
+- **Keyboard**: `J` / `K` next / previous, `Enter` open, `V` vote, `R` reply, `N` new post, `/` search, `Esc` back, `Ctrl+Enter` send. Drafts are saved automatically and the last lists stay readable offline.
+- **Ask from where you are**: select log lines or code, right-click → *Ask the community*; the selection, version and OS are put into a new Help post.
+- **Anonymous usage stats**: a random device ID, version, OS, UI language, usage time and how often each page or tool is opened, sent at start and every 6 hours. No logs, files, paths or serial data. Shown once on first start and can be turned off there or in *Settings → General* (*What's collected* shows exactly what is sent). `QCCOM_NO_TELEMETRY=1` turns it off as well.
+- The server is the separate `qccom-hub` program (single binary with SQLite and an admin page) served at `https://www.zenghi.com/qccom/`.
+
+## 1.9.0
+
+Circuits and wiring: build circuits on a virtual breadboard and power them up, keep a record of how the real hardware is wired, and let other apps share the serial port without locking it.
+
+- **Circuit simulation** (Toolbox → *Circuits & wiring*): drag a breadboard, supplies and parts onto the canvas and wire them; switch between the breadboard view and a schematic. *Power on* runs a real nonlinear and transient solver: LEDs light, current flows as moving dots, transistors and MOSFETs show cutoff / active / saturation, parts that are overloaded smoke and burn (replace them with one click), fuses blow. Parts include resistors, pots, LDRs, capacitors, inductors, diodes, Zener, LEDs, BJTs, MOSFETs, 555, op-amps, optocouplers, relays, 74HC595, ULN2003, regulators and DC-DC modules, displays (7-segment, TM1637, OLED, LCD, TFT), sensors, cameras and development boards (Arduino UNO / Nano, STM32 Blue Pill, 8051, ESP32, ESP8266, Raspberry Pi Pico).
+- **Instruments**: multimeter (voltage, resistance, continuity), oscilloscope, logic analyzer with VCD export, a current meter with battery-life estimate and a power ranking, and readings from a real INA219 / INA226 over serial.
+- **Wiring check** before and during simulation: shorts, missing resistors, reversed LEDs and electrolytics, over-voltage, missing ground, outputs tied to supply, floating buttons, 5 V into 3.3 V pins, TX-to-TX, missing common ground.
+- **MCU pins without code**: set each pin's behavior (output, blink, PWM, servo, input with pull-up, ADC, UART) and add *if… then…* rules (button, voltage, temperature, distance, serial text → set pin, print, show on screen, publish MQTT…). *Generate code* writes the same behavior for Arduino, STM32 HAL, ESP-IDF or 8051.
+- **Modules with real firmware behavior**: ESP-01 / ESP32 AT, HC-05 / JDY / HM-10 Bluetooth, Air780E / EC800M / ML307 4G and NB-IoT, GPS. AT commands are answered with real timing, and TCP / UDP / HTTP / MQTT from the simulated module go out to the real network. A USB-TTL adapter or USB-powered board in the simulation appears as a serial port in QCCOM, and a Bluetooth module can be paired with a simulated phone.
+- **72 examples** in 8 groups (electricity basics, diodes and transistors, analog and timing, MCU basics, modules and small projects, common mistakes, displays and IoT, power), each with how it works, things to try, what you learn and build steps.
+- **Wiring log** (*Wiring log* switch in the circuit toolbar): a table of connections (from, to, wire color, note, done tick), device templates (USB-TTL, ST-Link, J-Link, ESP-Prog, CMSIS-DAP, logic analyzer, INA219), *From circuit* to list the canvas connections, photos of the real board (dropped photos are resized) with numbered marks for each row, a hardware change log, and Markdown export (also copied to the clipboard). Saved in the project folder under `.qccom/wiring/`, so it goes into Git with the code.
+- **Virtual port** (renamed from *Share with other apps*): other apps open a virtual port and use the device together with QCCOM, without locking the real COM port. On Windows, the first time you switch it on QCCOM offers a one-click install of the bundled com0com driver (one administrator prompt) and creates a COM port pair; nothing to download. Nothing to install on Linux and macOS.
+
+## 1.8.1
+
+- **Input methods**: the code editor and all terminals (serial terminal, terminal panel, SSH / Telnet) now accept Chinese, Japanese, Korean and other IME input. The candidate window follows the cursor and the text being composed is shown in place.
+- **Share the serial port with other apps**: the new *Share with other apps* switch under the port's signals lets a flasher or another serial monitor use the same device while QCCOM stays connected; both sides see the data and both can send. On Linux and macOS QCCOM creates a virtual port (with a fixed-name link `vcom/ttyQCCOM0` in the QCCOM data folder; copy the path with one click). On Windows install the free signed com0com driver and pick one end of its port pair; the other app opens the other end. *Share on network* (TCP) still works for apps that support it.
+
 ## 1.8.0
 
 Review what other programs change, go back in time, commit from QCCOM, and look inside more file types. Nothing new is always on screen except the branch name in the status bar.

@@ -816,7 +816,12 @@ impl HexView {
     }
 
     fn export_bin(&self) -> Result<Option<PathBuf>, String> {
-        let Some(p) = rfd::FileDialog::new().set_title(t("导出为 BIN")).add_filter("BIN", &["bin"]).set_file_name("firmware.bin").save_file() else {
+        let Some(p) = crate::diagnostics::file_dialog()
+            .set_title(t("导出为 BIN"))
+            .add_filter("BIN", &["bin"])
+            .set_file_name("firmware.bin")
+            .save_file()
+        else {
             return Ok(None);
         };
         let (lo, hi) = self.img.range();
@@ -872,7 +877,7 @@ impl HexView {
             ui.add_space(8.0);
             if self.cmp.is_none() {
                 if ui.button(t("与其他文件比较…")).clicked() {
-                    if let Some(p) = rfd::FileDialog::new().set_title(t("选择要比较的文件")).pick_file() {
+                    if let Some(p) = crate::diagnostics::file_dialog().set_title(t("选择要比较的文件")).pick_file() {
                         if let Err(e) = self.compare_with(&p) {
                             evt = Some(BinEvt::Toast(e, ERR()));
                         }

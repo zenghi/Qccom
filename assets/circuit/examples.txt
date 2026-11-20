@@ -1,0 +1,1051 @@
+# 示例电路（格式见 src/circuit/examples.rs）。说明文字在 content.tsv 的 ex.<编号>.intro / try / learn
+
+# ───────── A. 电学基础
+== A1 | 欧姆定律 | Ohm's law | 1
+part B1 battery 0 0 type=9v
+part R1 res 6 0 r=1k
+part AM1 ammeter 14 0
+part M1 meter 6 -6 mode=v
+w B1.+ R1.1
+w R1.2 AM1.+
+w AM1.- B1.-
+w M1.VΩ R1.1
+w M1.COM R1.2
+power on
+
+== A2 | 点亮一个 LED | Light an LED | 1
+part P1 usb5v 0 0
+part R1 res 6 0 r=330
+part D1 led 14 0 color=red
+w P1.+ R1.1
+w R1.2 D1.A
+w D1.K P1.-
+power on
+
+== A3 | 串联和并联 | Series and parallel | 1
+part P1 usb5v 0 0
+part R1 res 6 0 r=1k
+part R2 res 14 0 r=1k
+part R3 res 6 8 r=1k
+part R4 res 6 12 r=1k
+part AM1 ammeter 22 0
+w P1.+ R1.1
+w R1.2 R2.1
+w R2.2 AM1.+
+w AM1.- P1.-
+w P1.+ R3.1
+w R3.1 R4.1
+w R3.2 R4.2
+w R4.2 P1.-
+power on
+
+== A4 | 电阻分压 | Voltage divider | 1
+part P1 usb5v 0 0
+part R1 res 6 0 r=2k
+part R2 res 14 0 r=3.3k
+part M1 meter 14 -6 mode=v
+part RL res 14 8 r=1k
+part S1 slide 22 8 on=false
+w P1.+ R1.1
+w R1.2 R2.1
+w R2.2 P1.-
+w M1.VΩ R2.1
+w M1.COM R2.2
+w R2.1 RL.1
+w RL.2 S1.COM
+w S1.1 P1.-
+power on
+
+== A5 | 电位器调光 | Dimming with a potentiometer | 1
+part P1 usb5v 0 0
+part RV1 pot 6 0 r=10k pos=30
+part R1 res 12 4 r=220
+part D1 led 20 4 color=yellow
+w P1.+ RV1.1
+w RV1.W R1.1
+w R1.2 D1.A
+w D1.K P1.-
+power on
+
+== A6 | 按键开关灯 | A button switches the lamp | 1
+part P1 usb5v 0 0
+part K1 button 6 0
+part R1 res 12 0 r=330
+part D1 led 20 0 color=green
+w P1.+ K1.1
+w K1.3 R1.1
+w R1.2 D1.A
+w D1.K P1.-
+power on
+
+== A7 | 二极管单向导电 | A diode conducts one way | 1
+part P1 psu 0 0 v=5
+part D1 diode 6 0
+part R1 res 14 0 r=1k
+part D2 diode 6 8 rot=2
+part R2 res 14 8 r=1k
+part M1 meter 6 -6 mode=v
+w P1.+ D1.A
+w D1.K R1.1
+w R1.2 P1.-
+w P1.+ D2.A
+w D2.K R2.1
+w R2.2 P1.-
+w M1.VΩ D1.A
+w M1.COM D1.K
+power on
+
+== A8 | 稳压管稳压 | A Zener diode holds the voltage | 2
+part P1 psu 0 0 v=9
+part R1 res 6 0 r=470
+part Z1 zener 14 6 rot=3 model=5V1
+part M1 meter 20 -6 mode=v
+w P1.+ R1.1
+w R1.2 Z1.K
+w Z1.A P1.-
+w M1.VΩ R1.2
+w M1.COM P1.-
+power on
+
+== A9 | RC 充放电延时灯 | RC delay light | 2
+part P1 usb5v 0 0
+part K1 button 6 0
+part R1 res 12 0 r=1k
+part C1 ecap 18 4 c=1000u
+part R2 res 22 0 r=1k
+part D1 led 28 0 color=red
+part PR1 probe 18 -4
+w P1.+ K1.1
+w K1.3 R1.1
+w R1.2 C1.+
+w C1.- P1.-
+w R1.2 R2.1
+w R2.2 D1.A
+w D1.K P1.-
+w PR1.TIP R1.2
+power on
+
+== A10 | 光敏电阻小夜灯 | Light-dependent night light | 2
+part P1 usb5v 0 0
+part LDR1 ldr 6 6 lux=5
+part R1 res 6 0 r=10k
+part Q1 npn 14 6
+part R2 res 20 0 r=330
+part D1 led 26 0 color=white
+part RB res 10 10 r=4.7k
+w P1.+ R1.1
+w R1.2 LDR1.1
+w LDR1.2 P1.-
+w R1.2 RB.1
+w RB.2 Q1.B
+w Q1.E P1.-
+w P1.+ R2.1
+w R2.2 D1.A
+w D1.K Q1.C
+power on
+
+# ───────── B. 二极管、三极管和 MOS 管
+== B1 | 三极管当开关点灯 | Transistor as a switch | 1
+part P1 usb5v 0 0
+part K1 slide 6 8 on=false
+part RB res 12 8 r=1k
+part Q1 npn 20 12
+part R1 res 12 0 r=330
+part D1 led 20 0 color=red
+w P1.+ K1.1
+w K1.COM RB.1
+w RB.2 Q1.B
+w Q1.E P1.-
+w P1.+ R1.1
+w R1.2 D1.A
+w D1.K Q1.C
+power on
+
+== B2 | 三极管放大区 | Transistor amplifier region | 2
+part P1 psu 0 0 v=5
+part RV1 pot 6 0 r=100k pos=20
+part RB res 12 6 r=100k
+part AM1 ammeter 20 6
+part Q1 npn 28 12
+part RC res 12 -6 r=1k
+part AM2 ammeter 20 -6
+part M1 meter 32 -12 mode=v
+w P1.+ RV1.1
+w RV1.3 P1.-
+w RV1.W RB.1
+w RB.2 AM1.+
+w AM1.- Q1.B
+w Q1.E P1.-
+w P1.+ RC.1
+w RC.2 AM2.+
+w AM2.- Q1.C
+w M1.VΩ Q1.C
+w M1.COM Q1.E
+power on
+
+== B3 | 三极管驱动蜂鸣器 | Driving a buzzer with a transistor | 1
+part P1 usb5v 0 0
+part K1 button 6 8
+part RB res 12 8 r=1k
+part Q1 npn 20 12
+part BZ1 buzzer 14 0 v=5
+w P1.+ K1.1
+w K1.3 RB.1
+w RB.2 Q1.B
+w Q1.E P1.-
+w P1.+ BZ1.+
+w BZ1.- Q1.C
+power on
+
+== B4 | 三极管驱动继电器 | Driving a relay with a transistor | 2
+part P1 usb5v 0 0
+part K1 slide 6 10 on=false
+part RB res 12 10 r=1k
+part Q1 npn 20 14
+part K2 relay 14 0 v=5
+part D1 diode 24 -2 rot=3 model=1N4148
+part P2 battery 34 0 type=2aa
+part L1 lamp 40 0 v=3
+w P1.+ K1.1
+w K1.COM RB.1
+w RB.2 Q1.B
+w Q1.E P1.-
+w P1.+ K2.L1
+w K2.L2 Q1.C
+w D1.K K2.L1
+w D1.A K2.L2
+w P2.+ K2.COM
+w K2.NO L1.1
+w L1.2 P2.-
+power on
+
+== B5 | PNP 高边开关 | PNP high-side switch | 2
+part P1 usb5v 0 0
+part Q1 pnp 10 0 rot=2
+part RB res 10 6 r=1k
+part K1 slide 18 6 on=false
+part R1 res 14 -6 r=330
+part D1 led 22 -6
+w P1.+ Q1.E
+w Q1.B RB.1
+w RB.2 K1.COM
+w K1.1 P1.-
+w Q1.C R1.1
+w R1.2 D1.A
+w D1.K P1.-
+power on
+
+== B6 | N-MOS 低边驱动电机 | Low-side N-MOSFET motor driver | 2
+part P1 psu 0 0 v=5
+part K1 slide 6 10 on=false
+part RG res 12 10 r=100
+part RPD res 20 14 r=10k span=0,4
+part Q1 nmos 20 10
+part M1 motor 14 0 v=5
+part D1 diode 22 -3 rot=3 model=SS34
+w P1.+ K1.1
+w K1.COM RG.1
+w RG.2 Q1.G
+w Q1.G RPD.1
+w RPD.2 P1.-
+w Q1.S P1.-
+w P1.+ M1.1
+w M1.2 Q1.D
+w D1.K M1.1
+w D1.A M1.2
+power on
+
+== B7 | P-MOS 高边电源开关 | P-MOSFET high-side power switch | 2
+part P1 usb5v 0 0
+part Q1 pmos 10 0
+part RPU res 6 6 r=10k
+part Q2 npn 14 10
+part RB res 20 10 r=10k
+part K1 slide 28 10 on=false
+part R1 res 16 -6 r=330
+part D1 led 24 -6
+w P1.+ Q1.S
+w P1.+ RPU.1
+w RPU.2 Q1.G
+w Q1.G Q2.C
+w Q2.E P1.-
+w Q2.B RB.1
+w RB.2 K1.COM
+w K1.1 P1.+
+w Q1.D R1.1
+w R1.2 D1.A
+w D1.K P1.-
+power on
+
+== B8 | 3.3V 推不动普通 MOS | 3.3 V can't fully turn on a standard MOSFET | 3
+part P1 psu 0 0 v=5
+part P2 psu 0 12 v=3.3
+part Q1 nmos 14 12 model=IRF540N
+part Q2 nmos 24 12 model=IRLZ44N
+part L1 lamp 12 0 v=5
+part L2 lamp 22 0 v=5
+w P1.+ L1.1
+w L1.2 Q1.D
+w P1.+ L2.1
+w L2.2 Q2.D
+w P2.+ Q1.G
+w P2.+ Q2.G
+w Q1.S P1.-
+w Q2.S P1.-
+w P2.- P1.-
+power on
+
+== B9 | MOS 防反接电路 | Reverse-polarity protection with a MOSFET | 3
+part B1 battery 0 0 type=2aa
+part Q1 pmos 8 0
+part RG res 8 6 r=10k
+part R1 res 16 -6 r=100
+part D1 led 24 -6
+w B1.+ Q1.D
+w Q1.G RG.1
+w RG.2 B1.-
+w Q1.S R1.1
+w R1.2 D1.A
+w D1.K B1.-
+power on
+
+== B10 | 二极管防反接和双电源切换 | Diode OR-ing and reverse protection | 2
+part P1 usb5v 0 0
+part B1 battery 0 10 type=3aa
+part D1 diode 6 0 model=SS34
+part D2 diode 6 10 model=1N4007
+part R1 res 16 4 r=100
+part M1 meter 22 -6 mode=v
+w P1.+ D1.A
+w B1.+ D2.A
+w D1.K R1.1
+w D2.K R1.1
+w R1.2 P1.-
+w B1.- P1.-
+w M1.VΩ R1.1
+w M1.COM R1.2
+power on
+
+== B11 | 光耦隔离 | Optocoupler isolation | 2
+part P1 usb5v 0 0
+part K1 button 6 0
+part R1 res 12 0 r=330
+part U1 pc817 20 -3
+part P2 battery 34 -4 type=3aa
+part R2 res 26 -10 r=470
+part D1 led 32 -10 color=green
+w P1.+ K1.1
+w K1.3 R1.1
+w R1.2 U1.A
+w U1.K P1.-
+w P2.+ R2.1
+w R2.2 D1.A
+w D1.K U1.C
+w U1.E P2.-
+power on
+
+== B12 | 电平转换（MOS 双向） | Bidirectional level shifter | 3
+part P1 usb5v 0 0
+part U2 ldo 6 12 model=AMS1117-3.3
+part Q1 nmos 16 0 model=2N7002
+part R1 res 12 -6 r=10k
+part R2 res 20 -6 r=10k
+part K1 button 26 4
+part M1 meter 10 -14 mode=v
+part M2 meter 22 -14 mode=v
+w P1.+ U2.IN
+w U2.GND P1.-
+w U2.OUT Q1.G
+w U2.OUT R1.1
+w R1.2 Q1.S
+w P1.+ R2.1
+w R2.2 Q1.D
+w Q1.D K1.1
+w K1.3 P1.-
+w M1.VΩ Q1.S
+w M1.COM P1.-
+w M2.VΩ Q1.D
+w M2.COM P1.-
+power on
+
+# ───────── C. 模拟和定时电路
+== C1 | 555 闪烁灯 | 555 blinker | 2
+part P1 usb5v 0 0
+part U1 ne555 14 4
+part RA res 8 -6 r=10k
+part RB res 16 -6 r=47k
+part C1 ecap 10 12 c=10u
+part R3 res 22 10 r=330
+part D1 led 30 10
+part PR1 probe 26 4
+w P1.+ U1.VCC
+w P1.+ U1.RESET
+w U1.GND P1.-
+w P1.+ RA.1
+w RA.2 U1.DIS
+w RA.2 RB.1
+w RB.2 U1.THR
+w U1.THR U1.TRIG
+w U1.TRIG C1.+
+w C1.- P1.-
+w U1.OUT R3.1
+w R3.2 D1.A
+w D1.K P1.-
+w PR1.TIP U1.OUT
+power on
+
+== C2 | 555 延时开关 | 555 one-shot timer | 2
+part P1 usb5v 0 0
+part U1 ne555 14 4
+part RT res 26 -6 r=100k
+part C1 ecap 24 12 c=47u
+part RP res 6 12 r=10k
+part K1 button 0 14
+part R3 res 30 6 r=330
+part D1 led 36 6
+w P1.+ U1.VCC
+w P1.+ U1.RESET
+w U1.GND P1.-
+w P1.+ RT.1
+w RT.2 U1.THR
+w U1.THR U1.DIS
+w U1.THR C1.+
+w C1.- P1.-
+w P1.+ RP.1
+w RP.2 U1.TRIG
+w U1.TRIG K1.3
+w K1.1 P1.-
+w U1.OUT R3.1
+w R3.2 D1.A
+w D1.K P1.-
+power on
+
+== C3 | 运放比较器光控灯 | Op-amp comparator light switch | 2
+part P1 usb5v 0 0
+part LDR1 ldr 6 10 lux=50
+part R1 res 6 4 r=10k
+part RV1 pot 14 14 r=10k pos=50
+part U1 lm358 22 4
+part R2 res 30 0 r=330
+part D1 led 36 0
+w P1.+ R1.1
+w R1.2 LDR1.1
+w LDR1.2 P1.-
+w R1.2 U1.IN1+
+w P1.+ RV1.1
+w RV1.3 P1.-
+w RV1.W U1.IN1-
+w P1.+ U1.VCC
+w U1.GND P1.-
+w U1.OUT1 R2.1
+w R2.2 D1.A
+w D1.K P1.-
+power on
+
+== C4 | 运放电压跟随器 | Op-amp voltage follower | 2
+part P1 usb5v 0 0
+part R1 res 6 0 r=100k
+part R2 res 14 0 r=100k
+part U1 lm358 22 4
+part RL res 30 12 r=1k
+part M1 meter 36 -6 mode=v
+w P1.+ R1.1
+w R1.2 R2.1
+w R2.2 P1.-
+w R1.2 U1.IN1+
+w U1.OUT1 U1.IN1-
+w P1.+ U1.VCC
+w U1.GND P1.-
+w U1.OUT1 RL.1
+w RL.2 P1.-
+w M1.VΩ U1.OUT1
+w M1.COM P1.-
+power on
+
+== C5 | PWM 加 RC 滤波变模拟电压 | PWM plus RC filter makes an analog voltage | 2
+part G1 siggen 0 0 freq=1k duty=30
+part R1 res 6 0 r=10k
+part C1 cap 14 4 c=1u
+part PR1 probe 4 -4 ch=1
+part PR2 probe 14 -4 ch=2
+w G1.OUT R1.1
+w R1.2 C1.1
+w C1.2 G1.GND
+w PR1.TIP G1.OUT
+w PR2.TIP R1.2
+power on
+
+== C6 | 整流滤波 | Rectifier and smoothing capacitor | 2
+part G1 acsrc 0 0 amp=9 freq=50
+part BR1 bridge 8 6
+part C1 ecap 18 6 c=470u vmax=25
+part RL res 24 6 r=1k span=0,4
+part PR1 probe 4 -4 ch=1
+part PR2 probe 18 -4 ch=2
+part GND1 gnd 14 14
+w G1.~1 BR1.~1
+w G1.~2 BR1.~2
+w BR1.+ C1.+
+w BR1.- C1.-
+w C1.+ RL.1
+w RL.2 C1.-
+w GND1.GND BR1.-
+w PR1.TIP G1.~1
+w PR2.TIP C1.+
+power on
+
+# ───────── D. 单片机入门
+== D1 | 点灯 | Blink | 1
+part U1 uno 0 10
+part R1 res 22 2 r=330
+part D1 led 30 2
+w U1.D13 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"D13","mode":{"m":"Blink","ms":500}}],"rules":[],"baud":115200}
+power on
+
+== D2 | 流水灯 | Running lights | 1
+part U1 uno 0 10
+part R1 res 24 -10 r=330
+part R2 res 24 -6 r=330
+part R3 res 24 -2 r=330
+part R4 res 24 2 r=330
+part D1 led 32 -10
+part D2 led 32 -6
+part D3 led 32 -2
+part D4 led 32 2
+w U1.D4 R1.1
+w U1.D5 R2.1
+w U1.D6 R3.1
+w U1.D7 R4.1
+w R1.2 D1.A
+w R2.2 D2.A
+w R3.2 D3.A
+w R4.2 D4.A
+w D1.K U1.GND
+w D2.K U1.GND
+w D3.K U1.GND
+w D4.K U1.GND
+mcu U1 {"pins":[{"pin":"D4","mode":{"m":"Seq","group":0,"index":0,"ms":200}},{"pin":"D5","mode":{"m":"Seq","group":0,"index":1,"ms":200}},{"pin":"D6","mode":{"m":"Seq","group":0,"index":2,"ms":200}},{"pin":"D7","mode":{"m":"Seq","group":0,"index":3,"ms":200}}],"rules":[],"baud":115200}
+power on
+
+== D3 | 按键控制 LED | Button controls an LED | 1
+part U1 uno 0 10
+part K1 button 2 2
+part R1 res 22 2 r=330
+part D1 led 30 2
+w K1.1 U1.D2
+w K1.3 U1.GND
+w U1.D13 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"D2","mode":{"m":"InPullUp"}},{"pin":"D13","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Falling","pin":"D2"},"then":[{"do":"Toggle","pin":"D13"}]}],"baud":115200}
+power on
+
+== D4 | 呼吸灯 | Breathing LED | 1
+part U1 uno 0 10
+part R1 res 22 2 r=330
+part D1 led 30 2 color=blue
+w U1.D9 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"D9","mode":{"m":"Breath","ms":2000}}],"rules":[],"baud":115200}
+power on
+
+== D5 | 电位器读 ADC | Read a potentiometer with the ADC | 1
+part U1 uno 0 0
+part RV1 pot 16 26 r=10k pos=40
+w RV1.1 U1.5V
+w RV1.3 U1.GND
+w RV1.W U1.A0
+mcu U1 {"pins":[{"pin":"A0","mode":{"m":"Adc"}}],"rules":[{"when":{"if":"Every","ms":500},"then":[{"do":"Print","text":"A0={adc:A0} ({v:A0} V)"}]}],"baud":115200}
+power on
+
+== D6 | 串口打印 Hello | Print Hello over serial | 1
+part U1 uno 0 10
+part T1 usbttl 30 4 level=5
+w T1.RXD U1.D1
+w T1.GND U1.GND
+mcu U1 {"pins":[{"pin":"D1","mode":{"m":"UartTx"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"Print","text":"Hello {count}"},{"do":"Count"}]}],"baud":115200}
+power on
+
+== D7 | 串口命令控制 LED | Control an LED with serial commands | 1
+part U1 uno 0 10
+part R1 res 22 2 r=330
+part D1 led 30 2
+w U1.D13 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"D13","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Recv","text":"ON"},"then":[{"do":"Set","pin":"D13","high":true},{"do":"Print","text":"LED on"}]},{"when":{"if":"Recv","text":"OFF"},"then":[{"do":"Set","pin":"D13","high":false},{"do":"Print","text":"LED off"}]}],"baud":115200}
+power on
+
+== D8 | 无源蜂鸣器放音调 | Play tones on a passive buzzer | 1
+part U1 uno 0 10
+part BZ1 pbuzzer 22 4
+w U1.D8 BZ1.+
+w BZ1.- U1.GND
+mcu U1 {"pins":[{"pin":"D8","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Every","ms":1200},"then":[{"do":"Tone","pin":"D8","freq":523,"ms":300},{"do":"Sleep","ms":400},{"do":"Tone","pin":"D8","freq":659,"ms":300},{"do":"Sleep","ms":400},{"do":"Tone","pin":"D8","freq":784,"ms":300}]}],"baud":115200}
+power on
+
+== D9 | 数码管显示数字 | Show digits on a 7-segment display | 2
+part U1 uno 0 14
+part S1 seg7 6 -2 common=cc
+part R1 res 16 6 r=330
+w U1.D2 S1.a
+w U1.D3 S1.b
+w U1.D4 S1.c
+w U1.D5 S1.d
+w U1.D6 S1.e
+w U1.D7 S1.f
+w U1.D8 S1.g
+w S1.COM R1.1
+w R1.2 U1.GND
+mcu U1 {"pins":[{"pin":"D2","mode":{"m":"OutLow"}},{"pin":"D3","mode":{"m":"OutLow"}},{"pin":"D4","mode":{"m":"OutLow"}},{"pin":"D5","mode":{"m":"OutLow"}},{"pin":"D6","mode":{"m":"OutLow"}},{"pin":"D7","mode":{"m":"OutLow"}},{"pin":"D8","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"Seg","pins":["D2","D3","D4","D5","D6","D7","D8"],"value":"{count}","common_anode":false},{"do":"Count"}]}],"baud":115200}
+power on
+
+== D10 | 74HC595 扩展 IO | Expand outputs with a 74HC595 | 2
+part U1 uno 0 16
+part U2 hc595 20 2
+part D1 led 18 -6
+part D2 led 21 -6
+part D3 led 24 -6
+part D4 led 27 -6
+part R1 res 32 -2 r=1k
+w U2.VCC U1.5V
+w U2.SRCLR U1.5V
+w U2.GND U1.GND
+w U2.OE U1.GND
+w U1.D11 U2.SER
+w U1.D12 U2.SRCLK
+w U1.D8 U2.RCLK
+w U2.QA D1.A
+w U2.QB D2.A
+w U2.QC D3.A
+w U2.QD D4.A
+w D1.K R1.1
+w D2.K R1.1
+w D3.K R1.1
+w D4.K R1.1
+w R1.2 U1.GND
+mcu U1 {"pins":[{"pin":"D11","mode":{"m":"OutLow"}},{"pin":"D12","mode":{"m":"OutLow"}},{"pin":"D8","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Every","ms":500},"then":[{"do":"Shift","data":"D11","clk":"D12","latch":"D8","value":"{count}"},{"do":"Count"}]}],"baud":115200}
+power on
+
+== D11 | 舵机角度控制 | Servo angle control | 1
+part U1 uno 0 10
+part SV1 servo 24 4
+part RV1 pot 16 36 r=10k pos=50
+w SV1.GND U1.GND
+w SV1.VCC U1.5V
+w SV1.SIG U1.D9
+w RV1.1 U1.5V
+w RV1.3 U1.GND
+w RV1.W U1.A0
+mcu U1 {"pins":[{"pin":"D9","mode":{"m":"Servo","angle":90}},{"pin":"A0","mode":{"m":"Adc"}}],"rules":[{"when":{"if":"Every","ms":50},"then":[{"do":"ServoFromAdc","pin":"D9","adc":"A0"}]}],"baud":115200}
+power on
+
+== D12 | 继电器控制台灯 | Relay switches a lamp | 2
+part U1 uno 0 10
+part K1 relay_mod 24 4 trig=high
+part B1 battery 40 4 type=3aa
+part L1 lamp 46 4 v=5
+w K1.VCC U1.5V
+w K1.GND U1.GND
+w K1.IN U1.D7
+w B1.+ K1.COM
+w K1.NO L1.1
+w L1.2 B1.-
+mcu U1 {"pins":[{"pin":"D7","mode":{"m":"Blink","ms":1500}}],"rules":[],"baud":115200}
+power on
+
+# ───────── E. 模块和小项目
+== E1 | OLED 显示文字 | Text on an OLED | 1
+part U1 uno 0 10
+part DS1 oled 24 2
+w DS1.GND U1.GND
+w DS1.VCC U1.5V
+w DS1.SCL U1.SCL
+w DS1.SDA U1.SDA
+mcu U1 {"pins":[{"pin":"SDA","mode":{"m":"I2cSda"}},{"pin":"SCL","mode":{"m":"I2cScl"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"Show","text":"Hello QCCOM\nt = {t} s"}]}],"baud":115200}
+power on
+
+== E2 | LCD1602 显示 | LCD1602 display | 1
+part U1 uno 0 10
+part DS1 lcd1602 24 2
+w DS1.GND U1.GND
+w DS1.VCC U1.5V
+w DS1.SDA U1.SDA
+w DS1.SCL U1.SCL
+mcu U1 {"pins":[{"pin":"SDA","mode":{"m":"I2cSda"}},{"pin":"SCL","mode":{"m":"I2cScl"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"Show","text":"Count: {count}"},{"do":"Count"}]}],"baud":115200}
+power on
+
+== E3 | DHT11 温湿度上报串口 | DHT11 readings over serial | 1
+part U1 uno 0 10
+part S1 dht11 26 4 temp=26 hum=55
+w S1.VCC U1.5V
+w S1.GND U1.GND
+w S1.DATA U1.D2
+mcu U1 {"pins":[{"pin":"D2","mode":{"m":"InPullUp"}}],"rules":[{"when":{"if":"Every","ms":2000},"then":[{"do":"ReadDht","pin":"D2"},{"do":"Print","text":"temp={temp},hum={hum}"}]}],"baud":115200}
+power on
+
+== E4 | 超声波测距 | Ultrasonic distance | 1
+part U1 uno 0 10
+part S1 hcsr04 26 4 dist=30
+w S1.VCC U1.5V
+w S1.GND U1.GND
+w S1.TRIG U1.D9
+w S1.ECHO U1.D10
+mcu U1 {"pins":[{"pin":"D9","mode":{"m":"OutLow"}},{"pin":"D10","mode":{"m":"InFloat"}}],"rules":[{"when":{"if":"Every","ms":500},"then":[{"do":"Measure","trig":"D9","echo":"D10"},{"do":"Print","text":"dist={dist} cm"}]}],"baud":115200}
+power on
+
+== E5 | 电机正反转 | Motor forward and reverse | 2
+part U1 uno 0 14
+part U2 tb6612 6 4
+part B1 battery 30 -6 type=li
+part M1 motor 24 -10 v=5
+w U2.VCC U1.5V
+w U2.GND U1.GND
+w U2.STBY U1.5V
+w U2.VM B1.+
+w B1.- U1.GND
+w U2.AO1 M1.1
+w U2.AO2 M1.2
+w U2.AIN1 U1.D7
+w U2.AIN2 U1.D8
+w U2.PWMA U1.D5
+mcu U1 {"pins":[{"pin":"D5","mode":{"m":"Pwm","duty":0.8,"freq":1000}},{"pin":"D7","mode":{"m":"Blink","ms":2000}},{"pin":"D8","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Rising","pin":"D7"},"then":[{"do":"Set","pin":"D8","high":false}]},{"when":{"if":"Falling","pin":"D7"},"then":[{"do":"Set","pin":"D8","high":true}]}],"baud":115200}
+power on
+
+== E6 | 温控风扇 | Temperature-controlled fan | 2
+part U1 uno 0 14
+part S1 dht11 30 8 temp=31
+part Q1 nmos 22 -4 model=AO3400
+part M1 motor 14 -12 v=5
+part D1 diode 8 -14 rot=3 model=SS34
+part RG res 22 2 r=10k span=0,4
+w S1.VCC U1.5V
+w S1.GND U1.GND
+w S1.DATA U1.D2
+w M1.1 U1.5V
+w M1.2 Q1.D
+w D1.K M1.1
+w D1.A M1.2
+w Q1.S U1.GND
+w Q1.G U1.D6
+w Q1.G RG.1
+w RG.2 U1.GND
+mcu U1 {"pins":[{"pin":"D2","mode":{"m":"InPullUp"}},{"pin":"D6","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Every","ms":2000},"then":[{"do":"ReadDht","pin":"D2"},{"do":"Print","text":"temp={temp}"}]},{"when":{"if":"TempAbove","c":28},"then":[{"do":"PwmSet","pin":"D6","duty":0.9}]},{"when":{"if":"TempBelow","c":26},"then":[{"do":"PwmSet","pin":"D6","duty":0}]}],"baud":115200}
+power on
+
+# ───────── F. 常见接错（反面教材）
+== F1 | TX 接 TX | TX wired to TX | 1
+part U1 uno 0 10
+part T1 usbttl 30 4 level=5
+w T1.TXD U1.D1
+w T1.GND U1.GND
+mcu U1 {"pins":[{"pin":"D1","mode":{"m":"UartTx"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"Print","text":"Hello"}]}],"baud":115200}
+power on
+
+== F2 | 忘记共地 | Forgot the common ground | 1
+part U1 uno 0 10
+part T1 usbttl 30 4 level=5
+w T1.RXD U1.D1
+w T1.TXD U1.D0
+mcu U1 {"pins":[{"pin":"D1","mode":{"m":"UartTx"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"Print","text":"Hello"}]}],"baud":115200}
+power on
+
+== F3 | LED 不加电阻 | LED without a resistor | 1
+part P1 usb5v 0 0
+part D1 led 8 0
+w P1.+ D1.A
+w D1.K P1.-
+
+== F4 | 5V 信号直接进 3.3V 引脚 | A 5 V signal straight into a 3.3 V pin | 2
+part U1 esp32 0 10
+part P1 usb5v -10 0
+part K1 button 2 2
+w P1.+ K1.1
+w K1.3 U1.IO13
+w P1.- U1.GND
+mcu U1 {"pins":[{"pin":"IO13","mode":{"m":"InPullDown"}}],"rules":[],"baud":115200}
+
+== F5 | IO 口直接驱动继电器 | Driving a relay straight from an IO pin | 2
+part U1 uno 0 10
+part K1 relay 24 2 v=5
+w U1.D7 K1.L1
+w K1.L2 U1.GND
+mcu U1 {"pins":[{"pin":"D7","mode":{"m":"Blink","ms":1500}}],"rules":[],"baud":115200}
+
+== F6 | I2C 忘接上拉 | I2C without pull-ups | 2
+part U1 bluepill 0 10
+part DS1 sht30 24 2
+w DS1.VCC U1.3V3
+w DS1.GND U1.GND
+w DS1.SCL U1.PB6
+w DS1.SDA U1.PB7
+mcu U1 {"pins":[{"pin":"PB7","mode":{"m":"I2cSda"}},{"pin":"PB6","mode":{"m":"I2cScl"}}],"rules":[{"when":{"if":"Every","ms":1000},"then":[{"do":"ReadSht"},{"do":"Print","text":"temp={temp}"}]}],"baud":115200}
+
+== F7 | 电解电容接反 | Electrolytic capacitor reversed | 1
+part P1 psu 0 0 v=12
+part C1 ecap 8 4 c=100u vmax=16
+w P1.+ C1.-
+w C1.+ P1.-
+
+== F8 | 用 USB 转 TTL 下载程序失败 | Flashing over USB-TTL fails | 2
+part U1 bluepill 0 10
+part T1 usbttl 26 2 level=3.3
+w T1.TXD U1.PA10
+w T1.RXD U1.PA9
+w T1.GND U1.GND
+w T1.3V3 U1.3V3
+
+# ───────── G. 显示、摄像头和物联网
+== G1 | SPI TFT 显示图片 | Picture on an SPI TFT | 2
+part U1 esp32 0 14
+part DS1 st7789 4 2
+w DS1.GND U1.GND
+w DS1.VCC U1.3V3
+w DS1.SCL U1.IO18
+w DS1.SDA U1.IO23
+w DS1.RES U1.IO4
+w DS1.DC U1.IO2
+w DS1.CS U1.IO5
+w DS1.BLK U1.3V3
+mcu U1 {"pins":[{"pin":"IO18","mode":{"m":"SpiSck"}},{"pin":"IO23","mode":{"m":"SpiMosi"}},{"pin":"IO5","mode":{"m":"SpiCs"}}],"rules":[{"when":{"if":"Start"},"then":[{"do":"ShowImage"}]}],"baud":115200}
+power on
+
+== G2 | OLED 的 I2C 和 SPI 对比 | OLED over I2C vs SPI | 2
+part U1 esp32 0 16
+part DS1 oled 2 4
+part DS2 oled_spi 12 4
+w DS1.GND U1.GND
+w DS1.VCC U1.3V3
+w DS1.SCL U1.IO22
+w DS1.SDA U1.IO21
+w DS2.GND U1.GND
+w DS2.VCC U1.3V3
+w DS2.D0 U1.IO18
+w DS2.D1 U1.IO23
+w DS2.RES U1.IO4
+w DS2.DC U1.IO2
+w DS2.CS U1.IO5
+mcu U1 {"pins":[{"pin":"IO21","mode":{"m":"I2cSda"}},{"pin":"IO22","mode":{"m":"I2cScl"}},{"pin":"IO18","mode":{"m":"SpiSck"}},{"pin":"IO23","mode":{"m":"SpiMosi"}},{"pin":"IO5","mode":{"m":"SpiCs"}}],"rules":[{"when":{"if":"Every","ms":500},"then":[{"do":"Show","text":"Frame {count}"},{"do":"Count"}]}],"baud":115200}
+power on
+
+== G3 | TFT 触摸画板 | TFT touch drawing pad | 3
+part U1 esp32 0 18
+part DS1 ili9341 0 4
+w DS1.VCC U1.3V3
+w DS1.GND U1.GND
+w DS1.CS U1.IO15
+w DS1.RESET U1.IO4
+w DS1.DC U1.IO2
+w DS1.SDI U1.IO23
+w DS1.SCK U1.IO18
+w DS1.LED U1.3V3
+w DS1.SDO U1.IO19
+w DS1.T_CLK U1.IO18
+w DS1.T_CS U1.IO5
+w DS1.T_DIN U1.IO23
+w DS1.T_DO U1.IO19
+w DS1.T_IRQ U1.IO27
+mcu U1 {"pins":[{"pin":"IO18","mode":{"m":"SpiSck"}},{"pin":"IO23","mode":{"m":"SpiMosi"}},{"pin":"IO19","mode":{"m":"SpiMiso"}},{"pin":"IO15","mode":{"m":"SpiCs"}}],"rules":[{"when":{"if":"Start"},"then":[{"do":"Show","text":"Touch to draw"}]}],"baud":115200}
+power on
+
+== G4 | ESP32-CAM 拍照 | ESP32-CAM takes a photo | 2
+part U1 esp32cam 0 10
+part P1 usb5v -8 6
+part T1 usbttl 16 2 level=3.3
+part K1 button 10 22
+w P1.+ U1.5V
+w P1.- U1.GND
+w T1.RXD U1.U0T
+w T1.TXD U1.U0R
+w T1.GND U1.GND
+w K1.1 U1.IO13
+w K1.3 U1.GND
+mcu U1 {"pins":[{"pin":"IO13","mode":{"m":"InPullUp"}}],"rules":[{"when":{"if":"Falling","pin":"IO13"},"then":[{"do":"Photo"},{"do":"Print","text":"photo taken"}]}],"baud":115200}
+power on
+
+== G5 | MIPI 屏和摄像头怎么接 | How MIPI screens and cameras connect | 3
+part U1 pico 0 16
+part DS1 mipi_lcd 0 4
+part CM1 mipi_cam 14 4
+w DS1.VCC U1.3V3
+w DS1.GND U1.GND
+w CM1.3V3 U1.3V3
+w CM1.GND U1.GND
+
+== G6 | ESP8266 用 AT 指令连 WiFi | ESP8266 joins WiFi with AT commands | 1
+part T1 usbttl 0 0 level=3.3
+part M1 esp01 12 0
+w T1.TXD M1.RX
+w T1.RXD M1.TX
+w T1.GND M1.GND
+w T1.3V3 M1.3V3
+w T1.3V3 M1.EN
+power on
+
+== G7 | ESP32 上报 MQTT | ESP32 publishes to MQTT | 2
+part U1 esp32 0 10
+part S1 dht11 4 2 temp=24
+w S1.VCC U1.3V3
+w S1.GND U1.GND
+w S1.DATA U1.IO4
+mcu U1 {"pins":[{"pin":"IO4","mode":{"m":"InPullUp"}}],"rules":[{"when":{"if":"Every","ms":5000},"then":[{"do":"ReadDht","pin":"IO4"},{"do":"Mqtt","host":"127.0.0.1","port":1883,"topic":"qccom/sensor","payload":"{\"temp\":{temp},\"hum\":{hum}}"},{"do":"Print","text":"sent temp={temp}"}]}],"baud":115200}
+power on
+
+== G8 | 4G Cat1 模块上网 | Going online with a 4G Cat1 module | 2
+part T1 usbttl 0 0 level=3.3
+part B1 battery 8 10 type=li
+part C1 ecap 16 14 c=470u vmax=10
+part M1 cat1 22 0 model=Air780E
+w T1.TXD M1.RXD
+w T1.RXD M1.TXD
+w T1.GND M1.GND
+w B1.+ M1.VBAT
+w B1.- M1.GND
+w C1.+ M1.VBAT
+w C1.- M1.GND
+power on
+
+== G9 | W5500 网口 TCP 通信 | Ethernet TCP with a W5500 | 2
+part U1 esp32 0 14
+part M1 w5500 4 4
+w M1.3V3 U1.3V3
+w M1.GND U1.GND
+w M1.MISO U1.IO19
+w M1.MOSI U1.IO23
+w M1.SCS U1.IO5
+w M1.SCLK U1.IO18
+w M1.RST U1.IO4
+mcu U1 {"pins":[{"pin":"IO18","mode":{"m":"SpiSck"}},{"pin":"IO23","mode":{"m":"SpiMosi"}},{"pin":"IO19","mode":{"m":"SpiMiso"}},{"pin":"IO5","mode":{"m":"SpiCs"}}],"rules":[{"when":{"if":"Every","ms":3000},"then":[{"do":"Tcp","host":"127.0.0.1","port":8080,"text":"hello from W5500 #{count}\n"},{"do":"Count"}]}],"baud":115200}
+power on
+
+== G10 | RS485 读 Modbus 传感器 | Reading a Modbus sensor over RS485 | 2
+part T1 usbttl 0 0 level=5
+part M1 max485 10 0
+part M2 max485 34 0
+part R1 res 22 6 r=120
+w T1.TXD M1.DI
+w T1.RXD M1.RO
+w T1.GND M1.GND
+w T1.5V M1.VCC
+w T1.5V M1.DE
+w T1.5V M1.RE
+w M1.A M2.A
+w M1.B M2.B
+w M1.A R1.1
+w M1.B R1.2
+w M2.VCC T1.5V
+w M2.GND T1.GND
+power on
+
+# ───────── H. 电源和功耗
+== H1 | 电流表看 LED 和单片机耗电 | Measure LED and MCU current | 1
+part P1 usb5v -10 0
+part AM1 ammeter -4 0
+part U1 uno 4 10 power=ext
+part R1 res 26 2 r=330
+part D1 led 34 2
+w P1.+ AM1.+
+w AM1.- U1.5V
+w P1.- U1.GND
+w U1.D13 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"D13","mode":{"m":"Blink","ms":1000}}],"rules":[],"baud":115200}
+power on
+
+== H2 | 电池续航估算 | Battery life estimate | 1
+part B1 battery 0 0 type=li mah=1000
+part U1 esp32c3 8 6 power=ext
+part R1 res 20 0 r=1k
+part D1 led 26 0
+w B1.+ U1.5V
+w B1.- U1.GND
+w U1.IO8 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"IO8","mode":{"m":"Blink","ms":1000}}],"rules":[],"baud":115200}
+power on
+
+== H3 | 睡眠模式省电 | Sleep mode saves power | 2
+part B1 battery 0 0 type=li mah=1000
+part U1 esp32c3 8 6 power=ext
+part R1 res 20 0 r=10k
+part D1 led 28 0
+w B1.+ U1.5V
+w B1.- U1.GND
+w U1.IO8 R1.1
+w R1.2 D1.A
+w D1.K U1.GND
+mcu U1 {"pins":[{"pin":"IO8","mode":{"m":"OutLow"}}],"rules":[{"when":{"if":"Every","ms":5000},"then":[{"do":"Set","pin":"IO8","high":true},{"do":"Sleep","ms":200},{"do":"Set","pin":"IO8","high":false},{"do":"Sleep","ms":4500}]}],"baud":115200}
+power on
+
+== H4 | LDO 为什么发烫 | Why the LDO gets hot | 2
+part P1 psu 0 0 v=12
+part U1 ldo 8 4 model=AMS1117-3.3
+part RL res 18 0 r=22 pmax=1
+part AM1 ammeter 18 8
+w P1.+ U1.IN
+w U1.GND P1.-
+w U1.OUT RL.1
+w RL.2 AM1.+
+w AM1.- P1.-
+power on
+
+== H5 | DC-DC 降压波形 | Buck converter waveforms | 2
+part P1 psu 0 0 v=12
+part U1 buck 8 6 model=MP1584 vout=3.3
+part RL res 22 0 r=10 pmax=2
+part PR1 probe 20 -4
+w P1.+ U1.IN+
+w P1.- U1.IN-
+w U1.OUT+ RL.1
+w RL.2 U1.OUT-
+w PR1.TIP U1.OUT+
+power on
+
+== H6 | LDO 和 DC-DC 续航对比 | LDO vs DC-DC battery life | 2
+part B1 battery 0 0 type=li mah=2000
+part U1 ldo 10 4 model=ME6211-3.3
+part R1 res 18 0 r=33 pmax=1
+part B2 battery 0 14 type=li mah=2000
+part U2 buck 10 20 model=MP1584 vout=3.3
+part R2 res 22 14 r=33 pmax=1
+w B1.+ U1.IN
+w U1.GND B1.-
+w U1.OUT R1.1
+w R1.2 B1.-
+w B2.+ U2.IN+
+w B2.- U2.IN-
+w U2.OUT+ R2.1
+w R2.2 U2.OUT-
+power on
+
+== H7 | 锂电池充电和保护 | Li-ion charging and protection | 2
+part P1 usb5v 0 0
+part U1 tp4056 6 6 ichg=500
+part B1 battery 26 14 type=li soc=40
+part R1 res 30 0 r=100 pmax=0.5
+w P1.+ U1.IN+
+w P1.- U1.IN-
+w U1.B+ B1.+
+w U1.B- B1.-
+w U1.OUT+ R1.1
+w R1.2 U1.OUT-
+power on
+
+== H8 | 4G 发射时掉电重启 | 4G brownout during transmit | 3
+part P1 psu 0 0 v=4 ilim=0.5
+part R1 res 6 0 r=0.5
+part M1 cat1 16 6 model=Air780E
+part T1 usbttl 34 0 level=3.3
+w P1.+ R1.1
+w R1.2 M1.VBAT
+w P1.- M1.GND
+w T1.TXD M1.RXD
+w T1.RXD M1.TXD
+w T1.GND M1.GND
+power on

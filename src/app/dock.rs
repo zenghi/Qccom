@@ -81,9 +81,11 @@ impl App {
     }
 
     /// 新收完一行：检查应答规则、交给脚本
-    pub(super) fn on_line(&mut self, text: &str) {
-        if let Some(sc) = &self.dock.script {
-            sc.feed_line(text);
+    pub(super) fn on_line(&mut self, text: &str, from_replay: bool) {
+        if !from_replay {
+            if let Some(sc) = &self.dock.script {
+                sc.feed_line(text);
+            }
         }
         let mut fire = vec![];
         for (i, m) in self.dock.trig_rt.iter().enumerate() {
@@ -97,7 +99,7 @@ impl App {
             }
             let tr = self.s.triggers[i].clone();
             // 回放旧日志时不真的回复设备
-            if !tr.reply.is_empty() && self.replay.is_none() {
+            if !from_replay && !tr.reply.is_empty() && self.replay.is_none() {
                 let data = if tr.hex {
                     parse_hex(&tr.reply).unwrap_or_default()
                 } else {
@@ -114,7 +116,7 @@ impl App {
             if tr.pause && !self.paused {
                 self.toggle_pause();
             }
-            if !tr.script.is_empty() && self.dock.script.is_none() {
+            if !from_replay && !tr.script.is_empty() && self.dock.script.is_none() {
                 if let Some(k) = self.s.scripts.iter().position(|s| s.name == tr.script) {
                     self.run_script(k);
                 }

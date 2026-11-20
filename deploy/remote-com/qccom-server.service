@@ -1,0 +1,21 @@
+[Unit]
+Description=QCCOM peer rendezvous and encrypted relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+DynamicUser=yes
+EnvironmentFile=-/etc/default/qccom-server
+LoadCredential=relay-fullchain.pem:/etc/qccom/fullchain.pem
+LoadCredential=relay-privkey.pem:/etc/qccom/privkey.pem
+ExecStart=/usr/local/bin/qccom-server serve --cert %d/relay-fullchain.pem --key %d/relay-privkey.pem
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

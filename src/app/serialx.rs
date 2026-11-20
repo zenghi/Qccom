@@ -55,6 +55,7 @@ pub struct Profile {
     pub net: Option<NetConfig>,
     pub encoding: Option<Encoding>,
     pub view: Option<ViewMode>,
+    pub log_preset: Option<LogPreset>,
     pub line_ending: Option<LineEnding>,
     pub hex_send: bool,
     pub dtr: bool,
@@ -100,7 +101,7 @@ pub(super) struct SerialUi {
     pub bridge_err: Option<String>,
     /// Windows：打开虚拟串口时发现没装 com0com，显示安装提示
     pub vc_need_install: bool,
-    pub vc_installing: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    pub vc_installing: Option<(String, u64, std::sync::mpsc::Receiver<Result<(), String>>)>,
     pub vc_err: Option<String>,
 }
 
@@ -215,6 +216,10 @@ impl App {
         if name.is_empty() || name == self.s.port {
             return;
         }
+        if self.serial_port_busy(&name) {
+            self.toast(t("该串口正在使用"), WARN());
+            return;
+        }
         self.sniff.gen += 1;
         match serial::open_side(self.sniff.gen | 1 << 62, &name, self.s.cfg, false, false, true, self.evt_tx.clone(), self.ctx.clone()) {
             Ok(c) => {
@@ -277,6 +282,9 @@ impl App {
             self.buf.sys(tf("已停止共享（端口 {}）", &[&b.port]));
             return;
         }
+        if self.conn.is_none() {
+            return;
+        }
         match Bridge::start(self.s.bridge_port, self.ctx.clone()) {
             Ok(b) => {
                 self.buf.sys(tf("串口已共享到网络：{}:{}", &[&local_ip(), &b.port]));
@@ -323,32 +331,39 @@ impl App {
 
     /// 终端里执行的命令用到了 QCCOM 正开着的串口（烧录、stty、别的工具）：先关掉，命令跑完再打开
     pub(super) fn lend_port(&mut self, shell: usize, line: &str, row: u64) {
-        if !self.slot_online(0) || self.lent.is_some() {
-            return;
-        }
-        let port = self.s.port.clone();
-        let cmd = line.strip_prefix(crate::shell::prompt_of(line).as_str()).unwrap_or(line);
-        if !crate::shell::uses_port(cmd, &port) {
-            return;
-        }
         let prompt = crate::shell::prompt_of(line);
-        let back = !prompt.is_empty();
-        self.with_slot(0, |app| {
-            app.disconnect();
-            app.buf.sys(if back {
-                tf("终端命令要用 {}，已先关闭串口，命令结束后自动重新打开", &[&port])
-            } else {
-                tf("终端命令要用 {}，已先关闭串口", &[&port])
-            });
-        });
-        self.toast(tf("已关闭 {}，让给终端命令使用", &[&port]), WARN());
-        if back {
-            self.lent = Some(Lent {
-                port,
-                shell,
-                prompt,
-                row,
-                since: Instant::now(),
+        let cmd = line.strip_prefix(prompt.as_str()).unwrap_or(line);
+        let matching: Vec<_> = self
+            .serial_tabs
+            .iter()
+            .copied()
+            .filter(|&k| {
+                let port = self.serial_port_for(k);
+                !port.is_empty() && crate::shell::uses_port(cmd, port)
+            })
+            .collect();
+        for k in matching {
+            self.with_session(k, |app| {
+                if app.conn.is_none() || app.lent.is_some() {
+                    return;
+                }
+                let port = app.s.port.clone();
+                app.disconnect();
+                app.buf.sys(if prompt.is_empty() {
+                    tf("终端命令要用 {}，已先关闭串口", &[&port])
+                } else {
+                    tf("终端命令要用 {}，已先关闭串口，命令结束后自动重新打开", &[&port])
+                });
+                app.toast(tf("已关闭 {}，让给终端命令使用", &[&port]), WARN());
+                if !prompt.is_empty() {
+                    app.lent = Some(Lent {
+                        port,
+                        shell,
+                        prompt: prompt.clone(),
+                        row,
+                        since: Instant::now(),
+                    });
+                }
             });
         }
     }
@@ -357,7 +372,7 @@ impl App {
     pub(super) fn tick_lent(&mut self) {
         let Some(l) = &self.lent else { return };
         // 用户自己又打开了，或者等太久了：不管了
-        if self.slot_online(0) || l.since.elapsed() > Duration::from_secs(1800) {
+        if self.conn.is_some() || l.since.elapsed() > Duration::from_secs(1800) {
             self.lent = None;
             return;
         }
@@ -366,11 +381,9 @@ impl App {
             done => {
                 let l = self.lent.take().unwrap();
                 if done.is_some() {
-                    self.with_slot(0, |app| {
-                        app.s.port = l.port.clone();
-                        app.buf.sys(tf("命令已结束，重新打开 {}", &[&l.port]));
-                        app.reconnect = Some((l.port.clone(), Instant::now()));
-                    });
+                    self.s.port = l.port.clone();
+                    self.buf.sys(tf("命令已结束，重新打开 {}", &[&l.port]));
+                    self.reconnect = Some((l.port, Instant::now()));
                 }
             }
         }
@@ -383,23 +396,40 @@ impl App {
             self.buf.sys(t("虚拟串口已关闭"));
             return;
         }
+        if self.conn.is_none() {
+            return;
+        }
         self.serial_ui.vc_err = None;
         #[cfg(unix)]
-        let r = crate::vcom::Vcom::start_pty(1, self.ctx.clone());
+        let r = crate::vcom::Vcom::start_pty(1, self.session_slot, self.ctx.clone());
         #[cfg(not(unix))]
         let r = {
             let pairs = crate::vcom::pairs();
-            // 记住上次用的那一对；没有就用第一对
-            let Some(pair) = pairs.iter().find(|p| p.mine == self.s.vcom_port).or(pairs.first()).cloned() else {
+            if pairs.is_empty() {
                 // 没装 com0com：在侧边栏提示一键安装（用户点了才装）
                 self.serial_ui.vc_need_install = true;
                 return;
+            }
+            let busy = |port: &str| {
+                #[cfg(windows)]
+                let mapped = self.mappings.serial_view_port(port).is_some();
+                #[cfg(not(windows))]
+                let mapped = false;
+                mapped || self.serial_port_busy(port) || self.local_vcom_owner(port).is_some()
+            };
+            let available = |pair: &crate::vcom::Pair| !busy(&pair.mine) && !busy(&pair.other);
+            // 优先用上次的串口对，也可以用其他空闲的串口对。
+            let Some(pair) = pairs
+                .iter()
+                .find(|pair| pair.mine == self.s.vcom_port && available(pair))
+                .or_else(|| pairs.iter().find(|pair| available(pair)))
+            else {
+                self.serial_ui.vc_need_install = false;
+                self.serial_ui.vc_err = Some(tf("虚拟串口打不开：{}", &[&t("该串口正在使用")]));
+                return;
             };
             self.s.vcom_port = pair.mine.clone();
-            crate::vcom::Vcom::start_port(&pair.mine, self.s.cfg.baud, self.ctx.clone()).map(|mut v| {
-                v.names = vec![pair.other.clone()];
-                v
-            })
+            crate::vcom::Vcom::start_port(&pair.mine, &pair.other, self.s.cfg.baud, self.ctx.clone())
         };
         match r {
             Ok(v) => {
@@ -415,17 +445,37 @@ impl App {
 
     #[cfg(windows)]
     fn start_com0com_install(&mut self) {
+        let Some(port) = self.connected.clone() else { return };
         let (tx, rx) = std::sync::mpsc::channel();
         let ctx = self.ctx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(crate::vcom::install_com0com());
             ctx.request_repaint();
         });
-        self.serial_ui.vc_installing = Some(rx);
+        self.serial_ui.vc_installing = Some((port, self.conn_gen, rx));
         self.serial_ui.vc_err = None;
     }
 
     pub(super) fn poll_vcom(&mut self) {
+        if let Some((port, generation, rx)) = &self.serial_ui.vc_installing {
+            match rx.try_recv() {
+                Ok(Ok(())) => {
+                    let same_connection = self.conn.is_some() && self.conn_gen == *generation && self.connected.as_deref() == Some(port.as_str());
+                    self.serial_ui.vc_installing = None;
+                    self.serial_ui.vc_need_install = false;
+                    self.toast(t("虚拟串口驱动装好了"), OK());
+                    if same_connection && self.vcom.is_none() {
+                        self.toggle_vcom();
+                    }
+                }
+                Ok(Err(error)) => {
+                    self.serial_ui.vc_installing = None;
+                    self.serial_ui.vc_err = Some(error);
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => self.serial_ui.vc_installing = None,
+                Err(std::sync::mpsc::TryRecvError::Empty) => self.ctx.request_repaint_after(Duration::from_millis(300)),
+            }
+        }
         let Some(v) = &mut self.vcom else { return };
         let mut evts = vec![];
         while let Ok(e) = v.rx.try_recv() {
@@ -448,26 +498,10 @@ impl App {
 
     fn vcom_ui(&mut self, ui: &mut egui::Ui) {
         ui.add_space(6.0);
-        // 安装进行中 / 结束
-        if let Some(rx) = &self.serial_ui.vc_installing {
-            match rx.try_recv() {
-                Ok(Ok(())) => {
-                    self.serial_ui.vc_installing = None;
-                    self.serial_ui.vc_need_install = false;
-                    self.toast(t("虚拟串口驱动装好了"), OK());
-                    self.toggle_vcom();
-                }
-                Ok(Err(e)) => {
-                    self.serial_ui.vc_installing = None;
-                    self.serial_ui.vc_err = Some(e);
-                }
-                Err(_) => ui.ctx().request_repaint_after(Duration::from_millis(300)),
-            }
-        }
         ui.horizontal(|ui| {
             let mut on = self.vcom.is_some();
             let tip = t("再给其他软件（烧录工具、别的串口助手）一个虚拟串口：大家同时收发同一个设备，不占用 COM 口，不用来回断开");
-            if toggle_chip(ui, &mut on, t("共享给本机软件"), tip) {
+            if ui.add_enabled_ui(self.conn.is_some() || on, |ui| toggle_chip(ui, &mut on, t("共享给本机软件"), tip)).inner {
                 self.toggle_vcom();
             }
         });
@@ -489,7 +523,7 @@ impl App {
             });
         }
         // Windows 没装驱动：用户点了「虚拟串口」才提示，点按钮一键装
-        if self.vcom.is_none() && (self.serial_ui.vc_need_install || self.serial_ui.vc_installing.is_some()) {
+        if self.vcom.is_none() && ((self.conn.is_some() && self.serial_ui.vc_need_install) || self.serial_ui.vc_installing.is_some()) {
             egui::Frame::new()
                 .fill(BG2())
                 .stroke(st(1.0, LINE()))
@@ -540,11 +574,16 @@ impl App {
         ui.add_space(6.0);
         ui.horizontal(|ui| {
             let mut on = self.bridge.is_some();
-            if toggle_chip(ui, &mut on, t("共享到网络"), t("开一个 TCP 服务器：连上来的客户端和串口双向透传")) {
+            if ui
+                .add_enabled_ui(self.conn.is_some() || on, |ui| {
+                    toggle_chip(ui, &mut on, t("局域网 TCP 透传"), t("开一个 TCP 服务器：连上来的客户端和串口双向透传"))
+                })
+                .inner
+            {
                 self.toggle_bridge();
             }
             if self.bridge.is_none() {
-                ui.add(egui::DragValue::new(&mut self.s.bridge_port).range(1..=65535).prefix(":"));
+                ui.add_enabled(self.conn.is_some(), egui::DragValue::new(&mut self.s.bridge_port).range(1..=65535).prefix(":"));
             } else {
                 ui.label(RichText::new(format!(":{}", self.s.bridge_port)).font(FontId::new(12.0, FontFamily::Monospace)).color(TEXT2()));
             }
@@ -556,7 +595,7 @@ impl App {
 
     // ------------------------------------------------------------ 端口卡片右键菜单
 
-    pub(super) fn port_menu(&mut self, ui: &mut egui::Ui, p: &PortEntry) {
+    pub(super) fn port_menu(&mut self, ui: &mut egui::Ui, p: &PortEntry, can_listen: bool) {
         if menu_item(ui, t("重命名…"), "") {
             self.serial_ui.alias_edit = Some((p.name.clone(), self.port_alias(&p.name).cloned().unwrap_or_default()));
             ui.close_menu();
@@ -567,7 +606,7 @@ impl App {
         }
         ui.separator();
         let is_b = self.s.sniff_port == p.name;
-        if p.name != self.s.port {
+        if p.name != self.s.port && (can_listen || is_b) {
             if menu_item(ui, if is_b { t("取消监听口 B") } else { t("设为监听口 B") }, "") {
                 self.s.sniff_port = if is_b { String::new() } else { p.name.clone() };
                 if self.conn.is_some() && self.s.transport == Transport::Serial {
@@ -635,6 +674,7 @@ impl App {
             net: Some(s.net.clone()),
             encoding: Some(s.encoding),
             view: Some(s.view),
+            log_preset: Some(s.log_preset),
             line_ending: Some(s.line_ending),
             hex_send: s.hex_send,
             dtr: s.dtr,
@@ -676,16 +716,28 @@ impl App {
                 return;
             }
         };
-        if self.conn.is_some() {
+        if let Some(v) = pr.transport {
+            self.use_slot(sess::slot_of(v));
+            self.s.transport = v;
+        }
+        let target = if self.s.transport == Transport::Serial && !pr.port.is_empty() {
+            self.choose_serial_port(&pr.port, false);
+            if self.work.focus_side {
+                self.side_pane().and_then(|pane| pane.serial_slot(self.selected_serial)).unwrap_or(self.session_slot)
+            } else {
+                self.session_slot
+            }
+        } else {
+            self.session_slot
+        };
+        self.with_session(target, |app| app.apply_profile(name, pr));
+    }
+
+    fn apply_profile(&mut self, name: &str, pr: Profile) {
+        if self.conn.is_some() || self.reconnect.is_some() {
             self.disconnect();
         }
         let s = &mut self.s;
-        if let Some(v) = pr.transport {
-            s.transport = v;
-        }
-        if !pr.port.is_empty() {
-            s.port = pr.port;
-        }
         if let Some(v) = pr.cfg {
             s.cfg = v;
         }
@@ -697,6 +749,9 @@ impl App {
         }
         if let Some(v) = pr.view {
             s.view = v;
+        }
+        if let Some(v) = pr.log_preset {
+            s.log_preset = v;
         }
         if let Some(v) = pr.line_ending {
             s.line_ending = v;

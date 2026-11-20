@@ -135,13 +135,26 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
             "常用组合",
             "重置「不再自动」",
         ],
-        Cat::Appearance => &["界面主题", "深色", "浅色", "跟随系统", "界面缩放", "日志字号", "背景图片", "不透明度", "显示方式"],
+        Cat::Appearance => &[
+            "界面主题",
+            "深色",
+            "浅色",
+            "跟随系统",
+            "界面缩放",
+            "界面字体",
+            "等宽字体",
+            "日志字号",
+            "背景图片",
+            "不透明度",
+            "显示方式",
+        ],
         Cat::Log => &[
             "时间戳",
             "行号",
             "发送回显",
             "ANSI 颜色",
             "级别着色",
+            "高亮预设",
             "复制时带时间戳",
             "保留行数",
             "空闲分帧",
@@ -174,6 +187,25 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
         Cat::About => &["关于", "版本", "许可证"],
     };
     q.is_empty() || find_ci(cat.label(), q).is_some() || items.iter().any(|s| find_ci(t(s), q).is_some())
+}
+
+fn font_picker(ui: &mut egui::Ui, id: &str, value: &mut String, kind: FontKind) -> bool {
+    let names = font_names(kind);
+    let selected = names.clone().find(|name| *name == value.as_str()).unwrap_or(kind.bundled());
+    egui::ComboBox::from_id_salt(id)
+        .selected_text(selected)
+        .width(160.0)
+        .show_ui(ui, |ui| {
+            for name in names {
+                if ui.selectable_label(name == selected, name).clicked() && value.as_str() != name {
+                    *value = name.into();
+                    return true;
+                }
+            }
+            false
+        })
+        .inner
+        .unwrap_or(false)
 }
 
 impl App {
@@ -526,6 +558,16 @@ impl App {
                 ui.ctx().set_zoom_factor(self.s.ui_scale);
             }
         });
+        let mut fonts_changed = false;
+        row(ui, q, t("界面字体"), "", |ui| {
+            fonts_changed |= font_picker(ui, "interface-font", &mut self.s.fonts.interface, FontKind::Interface);
+        });
+        row(ui, q, t("等宽字体"), t("用于日志、终端和代码编辑器"), |ui| {
+            fonts_changed |= font_picker(ui, "monospace-font", &mut self.s.fonts.monospace, FontKind::Monospace);
+        });
+        if fonts_changed {
+            set_font_preferences(ui.ctx(), &self.s.fonts);
+        }
         row(ui, q, t("日志字号"), t("日志和终端使用的等宽字体大小"), |ui| {
             if ui.add(egui::Slider::new(&mut self.s.font_size, 10.0..=22.0).step_by(0.5)).changed() {
                 let fs = self.s.font_size;
@@ -621,7 +663,7 @@ impl App {
         });
         row(ui, q, t("发送回显"), t("在日志里显示自己发送的数据"), |ui| {
             if switch(ui, &mut self.s.show_tx).changed() {
-                self.view_dirty = true;
+                self.invalidate_log_views();
             }
         });
         row(ui, q, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"), |ui| {
@@ -629,6 +671,9 @@ impl App {
         });
         row(ui, q, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"), |ui| {
             switch(ui, &mut self.s.level_color);
+        });
+        row(ui, q, t("高亮预设"), t("为文本与混合视图中的日志着色"), |ui| {
+            super::logx::log_preset_combo(ui, &mut self.s.log_preset);
         });
         row(
             ui,

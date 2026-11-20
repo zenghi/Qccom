@@ -5,12 +5,10 @@ Wants=network-online.target
 
 [Service]
 DynamicUser=yes
-StateDirectory=qccom
-StateDirectoryMode=0700
-WorkingDirectory=/var/lib/qccom
-Environment=QCCOM_SERVER=www.zenghi.com
 EnvironmentFile=-/etc/default/qccom-server
-ExecStart=/usr/local/bin/qccom-server run ${QCCOM_SERVER} $QCCOM_ALIASES
+LoadCredential=relay-fullchain.pem:/etc/qccom/fullchain.pem
+LoadCredential=relay-privkey.pem:/etc/qccom/privkey.pem
+ExecStart=/usr/local/bin/qccom-server serve --cert %d/relay-fullchain.pem --key %d/relay-privkey.pem
 Restart=on-failure
 RestartSec=3
 NoNewPrivileges=yes

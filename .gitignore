@@ -10,7 +10,6 @@ qccom-pair/
 /dist/
 /bin/
 *.zip
-!vendor/hub4com/source.zip
 
 # Self-update leftovers (see src/update.rs)
 *.old

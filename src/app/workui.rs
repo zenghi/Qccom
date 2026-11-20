@@ -2,7 +2,7 @@
 //! 来回切页的提示条、状态栏上的格局图标和提示。
 
 use super::toolbox::Tool;
-use super::work::{DockPos, DragPane, DropAt, Pane, Strength, DEFAULT_FRAC, MIN_SIDE};
+use super::work::{DockPos, DragPane, DropAt, Pane, SerialTarget, Strength, DEFAULT_FRAC, MIN_SIDE};
 use super::*;
 
 const TITLE_H: f32 = 30.0;
@@ -28,11 +28,18 @@ impl App {
         }
         let k = 1.0 - (1.0 - k).powi(3);
         let frame = egui::Frame::new().fill(BG0());
+        let log_main = self.main_pane() == Some(Pane::Debug);
         let mut close = false;
-        match self.work.pos {
+        let position = if self.work.pos == DockPos::Right && avail.width() < MIN_SIDE + 360.0 {
+            DockPos::Bottom
+        } else {
+            self.work.pos
+        };
+        match position {
             DockPos::Right => {
                 let total = avail.width();
-                let max = (total - 360.0).max(MIN_SIDE);
+                let main_min = if log_main { MIN_LOG_PANE_WIDTH } else { 360.0 };
+                let max = (total - main_min).max(MIN_SIDE);
                 let w = (self.work.frac * total).clamp(MIN_SIDE.min(max), max) * k;
                 egui::SidePanel::right("work-dock-r")
                     .exact_width(w)
@@ -42,13 +49,15 @@ impl App {
                     .show(ctx, |ui| {
                         let rect = ui.max_rect();
                         self.work.rect = Some(rect);
-                        close = self.splitter(ui, rect, total, true);
-                        ui.push_id("work-side", |ui| self.side_frame(ui, p, acts));
+                        close = self.splitter(ui, rect, total, true, if log_main { max / total } else { 0.8 });
+                        ui.push_id("work-side", |ui| self.side_frame(ui, acts));
                     });
             }
             DockPos::Bottom => {
                 let total = avail.height();
-                let max = (total - 200.0).max(160.0);
+                let short_log = log_main && avail.width() >= MIN_LOG_PANE_WIDTH + MIN_SIDE && !self.s.plot.on && !self.s.multiline;
+                let main_min = if short_log { 172.0 } else { 200.0 };
+                let max = (total - main_min).max(160.0);
                 let h = (self.work.frac * total).clamp(160.0f32.min(max), max) * k;
                 egui::TopBottomPanel::bottom("work-dock-b")
                     .exact_height(h)
@@ -58,8 +67,8 @@ impl App {
                     .show(ctx, |ui| {
                         let rect = ui.max_rect();
                         self.work.rect = Some(rect);
-                        close = self.splitter(ui, rect, total, false);
-                        ui.push_id("work-side", |ui| self.side_frame(ui, p, acts));
+                        close = self.splitter(ui, rect, total, false, if log_main { max / total } else { 0.8 });
+                        ui.push_id("work-side", |ui| self.side_frame(ui, acts));
                     });
             }
         }
@@ -69,7 +78,7 @@ impl App {
     }
 
     /// 主副之间的分隔条：拖动调比例，双击回到默认，拖到太窄就收起。返回是否要收起
-    fn splitter(&mut self, ui: &mut egui::Ui, rect: Rect, total: f32, right: bool) -> bool {
+    fn splitter(&mut self, ui: &mut egui::Ui, rect: Rect, total: f32, right: bool, max_fraction: f32) -> bool {
         let strip = if right {
             Rect::from_min_max(rect.min, pos2(rect.left() + 5.0, rect.bottom()))
         } else {
@@ -93,7 +102,7 @@ impl App {
         if r.dragged() {
             if let Some(h) = ui.input(|i| i.pointer.interact_pos()) {
                 let size = if right { rect.right() - h.x } else { rect.bottom() - h.y };
-                self.work.frac = (size / total).clamp(0.12, 0.8);
+                self.work.frac = (size / total).clamp(0.12, max_fraction.clamp(0.12, 1.0));
                 if size < MIN_SIDE * 0.6 {
                     // 拖得太窄：松手就收起，先给个暗示
                     ui.painter().rect_filled(rect, 0.0, shade(60));
@@ -113,13 +122,17 @@ impl App {
     }
 
     /// 副页面：标题栏 + 内容
-    fn side_frame(&mut self, ui: &mut egui::Ui, p: Pane, acts: &[Act]) {
+    fn side_frame(&mut self, ui: &mut egui::Ui, acts: &[Act]) {
         egui::TopBottomPanel::top("work-title")
             .exact_height(TITLE_H)
             .show_separator_line(true)
             .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 8, right: 6, top: 0, bottom: 0 }))
             .show_inside(ui, |ui| self.side_title(ui, false));
-        egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| self.render_pane(ui, p, acts));
+        egui::CentralPanel::default().frame(egui::Frame::NONE).show_inside(ui, |ui| {
+            if let Some(p) = self.side_pane() {
+                self.render_pane(ui, p, acts);
+            }
+        });
     }
 
     /// 标题栏：标签（多个时）+ ⇄ ⬌ ↗ ×
@@ -133,7 +146,7 @@ impl App {
             let tabs = self.work.tabs.clone();
             for (i, tab) in tabs.iter().enumerate() {
                 let on = i == self.work.cur;
-                let name = tab.label();
+                let name = self.pane_label(*tab);
                 let font = FontId::proportional(12.5);
                 let gw = ui.painter().layout_no_wrap(name.clone(), font.clone(), TEXT()).size().x;
                 let multi = tabs.len() > 1;
@@ -187,6 +200,9 @@ impl App {
                         });
                     }
                 }
+                if let Pane::Serial(slot) = *tab {
+                    resp.context_menu(|ui| self.serial_pane_menu(ui, slot, detached));
+                }
                 resp.on_hover_text(t("双击放到整页；拖到中间和主页面互换"));
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -235,22 +251,28 @@ impl App {
         if let Some(i) = pick {
             self.work.cur = i;
             self.work.focus_side = true;
+            self.work.serial_devices_side = self.serial_split_active();
         }
         if let Some(i) = close_tab {
             self.close_side_tab(i);
-        }
-        if let Some(p) = full {
+        } else if let Some(p) = full {
             // 放到整页：副页面收起，「← 返回」能回到并排
-            self.work.tabs.retain(|x| *x != p);
-            self.work.cur = 0;
-            self.goto_pane(p);
+            if let Some(i) = self.work.tabs.iter().position(|&pane| pane == p) {
+                self.remove_work_tab(i);
+                self.goto_pane(p);
+            }
         }
     }
 
     /// 在一块区域里画某个页面（副页面、独立窗口）
     pub(super) fn render_pane(&mut self, ui: &mut egui::Ui, p: Pane, acts: &[Act]) {
         match p {
-            Pane::Debug => self.with_slot(0, |app| app.debug_in(ui, true)),
+            Pane::Debug => self.with_slot(0, |app| app.serial_debug_in(ui, true, false)),
+            Pane::Serial(slot) => {
+                if self.serial_tabs.contains(&slot) {
+                    self.with_session(slot, |app| app.serial_debug_in(ui, true, true));
+                }
+            }
             Pane::Code => {
                 let km = &self.km;
                 self.code.ui_in(ui, acts, km, true);
@@ -297,26 +319,34 @@ impl App {
 
     /// 临时换进第 k 个会话来画，画完换回去
     pub(super) fn with_slot(&mut self, k: usize, f: impl FnOnce(&mut Self)) {
-        let cur = self.cur_slot();
+        self.with_session(self.target_slot(k), f);
+    }
+
+    pub(super) fn with_session<R>(&mut self, k: usize, f: impl FnOnce(&mut Self) -> R) -> R {
+        let cur = self.session_slot;
         if k == cur {
-            f(self);
-            return;
+            return f(self);
         }
-        self.quiet_slot(k);
+        self.quiet_session(k);
         self.update_view();
-        f(self);
-        self.quiet_slot(cur);
+        let result = f(self);
+        self.quiet_session(cur);
+        result
     }
 
     /// 副页面弹出成独立窗口
+    pub(super) fn detached_viewport_id() -> egui::ViewportId {
+        egui::ViewportId::from_hash_of("qccom-side")
+    }
+
     fn detached_window(&mut self, ctx: &egui::Context, p: Pane, acts: &[Act]) {
         self.work.rect = None;
-        let id = egui::ViewportId::from_hash_of("qccom-side");
-        let title = format!("QCCOM · {}", p.label());
+        let id = Self::detached_viewport_id();
+        let title = format!("QCCOM · {}", self.pane_label(p));
         let builder = egui::ViewportBuilder::default().with_title(title).with_inner_size([760.0, 620.0]).with_min_inner_size([320.0, 240.0]);
         let ctx2 = ctx.clone();
         let mut back = false;
-        ctx2.show_viewport_immediate(id, builder, |vctx, _class| {
+        ctx2.show_viewport_immediate(id, builder, |vctx, class| {
             egui::TopBottomPanel::top("work-title-x")
                 .exact_height(TITLE_H)
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 8, right: 6, top: 0, bottom: 0 }))
@@ -324,7 +354,16 @@ impl App {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(vctx, |ui| {
                 if let Some(p) = self.side_pane() {
                     // 窗口里有焦点时键盘归它
-                    let acts: &[Act] = if vctx.input(|i| i.focused) { acts } else { &[] };
+                    let focused = vctx.input(|i| i.focused);
+                    let acts = if focused { acts } else { &[] };
+                    if let Some(slot) = p.serial_slot(self.selected_serial) {
+                        if focused && class != egui::ViewportClass::Embedded && self.serial_tabs.contains(&slot) {
+                            if vctx.input(|i| i.pointer.any_pressed()) {
+                                self.work.serial_devices_side = true;
+                            }
+                            self.detached_serial_shortcuts(vctx, slot);
+                        }
+                    }
                     ui.push_id("work-side", |ui| self.render_pane(ui, p, acts));
                 }
             });
@@ -359,19 +398,25 @@ impl App {
     pub(super) fn drag_overlay(&mut self, ctx: &egui::Context) {
         let Some(d) = &mut self.work.drag else { return };
         let (pos, down, esc) = ctx.input(|i| (i.pointer.hover_pos(), i.pointer.primary_down(), i.key_pressed(Key::Escape)));
+        if esc || (pos.is_none() && !down) {
+            self.work.drag = None;
+            return;
+        }
         let Some(pos) = pos else { return };
         if !d.live && pos.distance(d.from) > 8.0 {
             d.live = true;
-        }
-        if esc {
-            self.work.drag = None;
-            return;
         }
         let live = d.live;
         let pane = d.pane;
         let own = d.own;
         let file = d.file.clone();
         if !live {
+            if !down {
+                self.work.drag = None;
+            }
+            return;
+        }
+        if matches!(pane, Pane::Serial(_)) && self.work.serial_tab_rect.is_some_and(|r| r.contains(pos)) {
             if !down {
                 self.work.drag = None;
             }
@@ -422,7 +467,7 @@ impl App {
         // 指针旁边的小卡片
         let name = match &file {
             Some(f) => f.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
-            None => pane.label(),
+            None => self.pane_label(pane),
         };
         let g = painter.layout_no_wrap(name, FontId::proportional(12.5), TEXT());
         let card = Rect::from_min_size(pos + vec2(14.0, 12.0), vec2(g.size().x + 36.0, 26.0));
@@ -443,7 +488,9 @@ impl App {
         match a {
             DropAt::Right | DropAt::Bottom => {
                 let pos = if a == DropAt::Right { DockPos::Right } else { DockPos::Bottom };
-                if self.main_pane() == Some(pane) {
+                if let Pane::Serial(slot) = pane {
+                    self.open_serial_side(slot, pos, false);
+                } else if self.main_pane() == Some(pane) {
                     // 把主页面拖出去：上一个页面回到主区域
                     let prev = self.work.switches.iter().rev().map(|x| x.0).find(|p| *p != pane && *p != Pane::Files);
                     match prev {
@@ -458,7 +505,7 @@ impl App {
                 }
             }
             DropAt::Center => {
-                if own {
+                if own && !matches!(pane, Pane::Serial(_)) {
                     self.swap_side();
                 } else {
                     self.nav_manual();
@@ -798,22 +845,18 @@ impl App {
         egui::popup::popup_below_widget(ui, pop, &r, egui::PopupCloseBehavior::CloseOnClick, |ui| {
             ui.set_min_width(240.0);
             if self.s.transport == Transport::Serial {
-                if self.ports.is_empty() {
+                let ports = self.serial_device_entries();
+                if ports.is_empty() {
                     ui.label(RichText::new(t("没有找到串口")).color(TEXT3()));
                 }
-                for p in self.ports.clone() {
+                for p in ports {
                     let on = p.name == self.s.port;
                     let label = match self.port_alias(&p.name) {
                         Some(a) => format!("{a}  ({})", p.name),
                         None => p.name.clone(),
                     };
                     if ui.selectable_label(on, RichText::new(label).monospace()).on_hover_text(&p.desc).clicked() && !on {
-                        let was = live;
-                        if was {
-                            self.disconnect();
-                        }
-                        self.s.port = p.name.clone();
-                        self.connect();
+                        self.choose_serial_port_in(&p.name, true, SerialTarget::Side);
                     }
                 }
                 ui.separator();

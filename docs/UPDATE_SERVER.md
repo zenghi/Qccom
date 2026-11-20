@@ -49,6 +49,8 @@ UTF-8 JSON (a BOM is tolerated). Only `version` is required.
 
 ### Publishing a release
 
+The repository can stage the next version and its notes under `pending_release` in `1.json`. QCCOM reads the top-level fields for updates. Once the signed executable is ready, move the pending version and notes to the top level, fill in the release date, and compute the hash and size from that signed file.
+
 ```bash
 # Windows build
 sha256sum qccom-windows-x64.exe      # PowerShell: Get-FileHash .\qccom-windows-x64.exe -Algorithm SHA256
@@ -122,6 +124,8 @@ UTF-8 编码的 JSON（带 BOM 也可以），只有 `version` 是必填的。
 6. 把正在运行的程序改名为 `qccom.old`，新文件改成原来的名字，再带 `--updated` 参数启动它；`.old` 文件在下次启动时删除。任何一步失败都会还原原来的文件。
 
 ### 发布新版本的步骤
+
+仓库的 `1.json` 可把待发布的版本号和说明暂存在 `pending_release` 中。QCCOM 使用顶层字段检查更新。签名后的 EXE 准备好以后，再将待发布的版本号和说明移到顶层，填写发布日期，并根据这份签名文件计算 SHA-256 和大小。
 
 ```bash
 # Windows 版

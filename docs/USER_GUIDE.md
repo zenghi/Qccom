@@ -32,6 +32,8 @@ The thin **activity bar** on the far left switches between the pages:
 
 The **gear** at the bottom of the activity bar holds everything you need less often: the command palette, settings, keyboard shortcuts, theme, language, update check and About. A **download arrow** appears above it only while an update needs your attention.
 
+Drag a tool from the Toolbox list to the activity bar to pin it. Click its icon to open it, or right-click it to unpin it.
+
 ### Command palette
 
 ![Command palette](gif/demo-palette.gif)
@@ -71,17 +73,21 @@ The Debug page has three columns:
 - **Center**: the top bar (Log / Terminal switch, search, level filter, pause, clear, copy, save, record), the log or terminal itself, and the command bar.
 - **Right**: the quick-command panel (`Ctrl+J` shows or hides it).
 
-The status bar at the bottom shows the connection, RX / TX activity lights, every other connection that is online (click one to jump to it; its dot flashes when data arrives), the encoding, the line count and the version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
+The status bar at the bottom shows the current connection, RX / TX activity, other active network connections, encoding, line count, and version. Click **Shortcuts** for the full key list. Click the version pill at the top of the sidebar to open the About box.
 
 ## Serial connection
 
 ![Auto baud, colored log and search](gif/demo-connect.gif)
 
-1. **Choose a port.** Ports are rescanned every second. Each card shows the chip name and VID:PID, and the connected one is marked **LIVE**. A newly plugged device is selected for you.
+1. **Choose a port** under **Devices**. The list shows each port's name, alias, and connection status. Hover over a port for device details. The **More** menu offers rename, copy, and secondary listening controls.
 2. **Choose a baud rate**, either by typing it or picking it from the list. If you don't know the rate, let the device print something and click **⚡ Auto**. QCCOM tries 18 common rates, scores the received data for readability and connects with the best one.
 3. Click **Connect** or press **F5**. Press F5 again to disconnect.
 
 If the device is unplugged while connected, QCCOM waits and reconnects when it comes back.
+
+Choose and connect a second port to show port tabs above the log. Click a tab to switch logs, drag within the tab bar to reorder, or drag a tab to the right or bottom edge to dock its log in a split pane. Right-click a tab to open it in a separate window or manage its connection and log. **Network sharing** manages share addresses on Windows. **This PC and LAN** contains local virtual ports and LAN TCP forwarding.
+
+While split, use the port picker in the split pane or the device row menu to choose which port appears in each pane. When a COM share is online, **View log** opens its serial session. Both ends show TX for bytes sent to the physical device and RX for bytes read from it. Select the local virtual port under **Devices** to see the same log as its physical port.
 
 **Advanced settings** (bottom of the sidebar) cover data bits, parity, stop bits, flow control, DTR / RTS (many ESP32 and Arduino boards use these for reset), auto-reconnect, auto-select of new ports, the font size, the maximum number of lines kept, and the idle frame gap (for binary protocols, it starts a new line after N ms of silence).
 
@@ -405,7 +411,7 @@ Toolbox → *Communication* → **SSH / Telnet** logs in to boards, gateways and
 - Several sessions stay open as tabs at the same time. When a session ends, press Enter in it to reconnect.
 - SSH runs the system OpenSSH client (`ssh` on Linux; on Windows 10 and later, add *OpenSSH Client* under Settings → Apps → Optional features). Your keys, `ssh-agent` and `~/.ssh/config` all work. Passwords are typed in the terminal and QCCOM never stores them.
 - **Edit host** sets a name, private key, upload folder, extra `ssh` arguments and commands to run after login (one per line).
-- **File transfer** (SSH with key login): drop files or folders on the terminal, or click the upload button, to copy them to the host's upload folder. *Download…* fetches a remote file or folder. Transfers use `scp` and fall back to the legacy protocol on servers without SFTP (common on BusyBox / Dropbear boards). For password-only hosts, use `rz` / `sz` or `scp` in the terminal.
+- **Remote files** opens the file browser to the left of the SSH terminal. Browse, upload, and download through the host's SFTP subsystem. A password-based host may prompt again when the browser first connects. The browser reuses that connection for subsequent transfers. The **SCP** menu lets you transfer files by path on hosts that offer legacy SCP.
 - Telnet negotiates the terminal type and window size, so full-screen programs fit the window. Telnet cannot transfer files.
 
 ## Circuits and wiring

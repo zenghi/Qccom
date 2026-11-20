@@ -25,7 +25,7 @@ sudo pacman -S base-devel pkgconf systemd-libs
 
 macOS is not a supported target yet. The code is mostly portable, so a pull request that adds it is welcome.
 
-The optional portable remote COM build and standalone Rust relay use current stable Rust. [Portable build and server instructions](../deploy/remote-com/README.md)
+The portable Windows build and standalone Rust relay use current stable Rust. [Portable build and server instructions](../deploy/remote-com/README.md)
 
 ## Native build
 

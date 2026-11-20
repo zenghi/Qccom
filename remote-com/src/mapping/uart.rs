@@ -1,6 +1,10 @@
-use super::line_events::{Decoder, Event, ESC};
-use anyhow::{ensure, Context, Result};
-use iroh::endpoint::{RecvStream, SendStream};
+use super::line_events::{Event, ESC};
+use super::{
+    traffic::{escape_controller_data, publish_host_tx, receive_host_tx, ControllerTraffic},
+    MappingMessage, SerialDirection, TrafficObserver,
+};
+use anyhow::{ensure, Result};
+use iroh::endpoint::{Connection, RecvStream, SendStream};
 use serialport::{COMPort, SerialPort};
 use std::{
     io::{Read, Write},
@@ -22,13 +26,28 @@ pub(super) struct Port {
     virtual_end: bool,
     initial: Vec<u8>,
 }
+
+enum UartWrite {
+    Peer(Vec<u8>),
+    Local(Vec<u8>),
+}
+
+async fn local_input(commands: &mut Option<mpsc::Receiver<Vec<u8>>>) -> Vec<u8> {
+    if let Some(commands) = commands {
+        if let Some(bytes) = commands.recv().await {
+            return bytes;
+        }
+    }
+    std::future::pending().await
+}
+
 impl Port {
     pub fn open(name: &str, virtual_end: bool) -> Result<Self> {
-        ensure!(super::valid_com(name), "invalid COM port");
+        ensure!(super::valid_com(name), MappingMessage::new("请选择有效 COM 口"));
         let com = serialport::new(name, 115200)
             .timeout(Duration::from_millis(15))
             .open_native()
-            .with_context(|| format!("打不开 {name}，请检查占用和驱动"))?;
+            .map_err(|error| MappingMessage::new("打不开 {}，请检查占用和驱动").with_value(name).caused_by(error))?;
         // A fast idle read must not impose the same deadline on a full UART transmit queue.
         let io_time = COMMTIMEOUTS {
             ReadIntervalTimeout: u32::MAX,
@@ -62,12 +81,12 @@ impl Port {
                     std::ptr::null_mut(),
                 )
             };
-            ensure!(ok != 0 && used == 17, "该端口不支持 com0com 控制线同步，请选择虚拟串口对");
+            ensure!(ok != 0 && used == 17, MappingMessage::new("该端口不支持 com0com 控制线同步，请选择虚拟串口对"));
             initial.extend_from_slice(&out[..used as usize]);
         }
         Ok(Self { com, virtual_end, initial })
     }
-    pub async fn bridge(mut self, tx: &mut SendStream, rx: &mut RecvStream) -> Result<()> {
+    pub async fn bridge(mut self, connection: &Connection, tx: &mut SendStream, rx: &mut RecvStream, observer: Option<TrafficObserver>, observe_host_tx: bool) -> Result<()> {
         let mut reader = self.com.try_clone_native()?;
         let stop = Arc::new(AtomicBool::new(false));
         struct Stop(Arc<AtomicBool>);
@@ -78,7 +97,18 @@ impl Port {
         }
         let _stop = Stop(stop.clone());
         let (out, mut outgoing) = mpsc::channel::<Vec<u8>>(8);
-        let (incoming, mut input) = mpsc::channel::<Vec<u8>>(8);
+        let (incoming, mut input) = mpsc::channel::<UartWrite>(8);
+        let virtual_end = self.virtual_end;
+        let (_attached_writer, commands) = observer.as_ref().and_then(TrafficObserver::attach_writer).unzip();
+        let (mut outgoing_commands, mut incoming_commands) = if virtual_end { (commands, None) } else { (None, commands) };
+        let (host_tap, _tap_task) = match (observe_host_tx, virtual_end, observer.as_ref()) {
+            (true, true, Some(observer)) => (None, Some(receive_host_tx(connection.clone(), observer.clone()))),
+            (true, false, Some(_)) => {
+                let (sender, tap) = publish_host_tx(connection.clone());
+                (Some(sender), Some(tap))
+            }
+            _ => (None, None),
+        };
         let read_stop = stop.clone();
         let read = tokio::task::spawn_blocking(move || -> Result<()> {
             let mut buf = [0; 8192];
@@ -96,20 +126,36 @@ impl Port {
             }
             Ok(())
         });
-        let virtual_end = self.virtual_end;
+        let write_observer = observer.clone();
         let write = tokio::task::spawn_blocking(move || -> Result<()> {
-            let mut decoder = Decoder::default();
+            let mut controller = ControllerTraffic::default();
             let mut pins = None;
             let mut last_break = None;
-            while let Some(bytes) = input.blocking_recv() {
+            while let Some(message) = input.blocking_recv() {
                 if stop.load(Ordering::Acquire) {
                     break;
                 }
-                if virtual_end {
-                    self.com.write_all(&bytes)?;
-                    continue;
-                }
-                decoder.feed(&bytes, |event| {
+                let bytes = match message {
+                    UartWrite::Local(bytes) => {
+                        self.com.write_all(&bytes)?;
+                        if let Some(observer) = &write_observer {
+                            observer.record(SerialDirection::Tx, &bytes);
+                        }
+                        if let Some(tap) = &host_tap {
+                            let _ = tap.try_send(bytes);
+                        }
+                        continue;
+                    }
+                    UartWrite::Peer(bytes) if virtual_end => {
+                        self.com.write_all(&bytes)?;
+                        if let Some(observer) = &write_observer {
+                            observer.record(SerialDirection::Rx, &bytes);
+                        }
+                        continue;
+                    }
+                    UartWrite::Peer(bytes) => bytes,
+                };
+                controller.feed(&bytes, write_observer.as_ref(), |event| {
                     match event {
                         Event::Data(b) => self.com.write_all(b)?,
                         Event::Baud(baud) => {
@@ -117,7 +163,7 @@ impl Port {
                             self.com.set_baud_rate(baud)?;
                         }
                         Event::Format(bits, parity, stops) => {
-                            ensure!((5..=8).contains(&bits) && parity <= 4 && stops <= 2, "串口格式无效");
+                            ensure!((5..=8).contains(&bits) && parity <= 4 && stops <= 2, MappingMessage::new("串口格式无效"));
                             self.com.flush()?;
                             let mut dcb = DCB {
                                 DCBlength: std::mem::size_of::<DCB>() as u32,
@@ -165,15 +211,47 @@ impl Port {
         });
         let send = async {
             tx.write_all(&self.initial).await?;
-            while let Some(b) = outgoing.recv().await {
-                tx.write_all(&b).await?;
+            let mut controller = ControllerTraffic::default();
+            let mut escaped = Vec::new();
+            loop {
+                tokio::select! {
+                    bytes = outgoing.recv() => {
+                        let Some(bytes) = bytes else { break };
+                        tx.write_all(&bytes).await?;
+                        if let Some(observer) = &observer {
+                            if virtual_end {
+                                if controller.feed(&bytes, Some(observer), |_| Ok(())).is_err() {
+                                    // Decoding here is for observation only. The host applies the actual controls.
+                                    controller = ControllerTraffic::default();
+                                }
+                            } else {
+                                observer.record(SerialDirection::Rx, &bytes);
+                            }
+                        }
+                    }
+                    bytes = local_input(&mut outgoing_commands), if controller.is_between_events() => {
+                        // A partial com0com record must finish before inserting a UI write.
+                        escape_controller_data(&bytes, &mut escaped);
+                        tx.write_all(&escaped).await?;
+                        if let Some(observer) = &observer {
+                            observer.record(SerialDirection::Tx, &bytes);
+                        }
+                    }
+                }
             }
             Ok::<_, anyhow::Error>(())
         };
         let receive = async {
             let mut buf = [0; 8192];
-            while let Some(n) = rx.read(&mut buf).await? {
-                incoming.send(buf[..n].to_vec()).await.context("串口已关闭")?;
+            loop {
+                let input = tokio::select! {
+                    result = rx.read(&mut buf) => {
+                        let Some(n) = result? else { break };
+                        UartWrite::Peer(buf[..n].to_vec())
+                    }
+                    bytes = local_input(&mut incoming_commands) => UartWrite::Local(bytes),
+                };
+                incoming.send(input).await.map_err(|error| MappingMessage::new("串口已关闭").caused_by(error))?;
             }
             Ok::<_, anyhow::Error>(())
         };

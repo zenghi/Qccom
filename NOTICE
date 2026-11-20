@@ -46,9 +46,3 @@ bundled. On Windows, when the user asks for a virtual port, QCCOM downloads the
 unmodified com0com 3.0.0.0 installer and runs it only if its SHA-256 matches
 the value in src/vcom.rs. Its legacy cross-signature may be rejected by the
 Windows driver signing policy.
-
-The optional unsigned portable-remote-com build embeds hub4com 2.1.0.0
-(Copyright 2006-2012 Vyacheslav Frolov) as a separate executable. Its
-license, corresponding source and build scripts are distributed in the
-executable and in vendor/hub4com. To extract them and the QCCOM notices,
-run qccom-portable.exe --hub4com-source DIRECTORY.

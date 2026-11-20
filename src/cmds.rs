@@ -237,7 +237,7 @@ impl CmdPanel {
                     continue;
                 }
                 let c = &groups[gi].cmds[ci];
-                let r = cmd_card(ui, c, ci, connected);
+                let r = cmd_card(ui, c, Some(ci), connected, t("连接串口后可发送；右键编辑"));
                 if r.clicked() {
                     if connected {
                         action = Some(CmdAction::Send(c.clone()));
@@ -291,20 +291,8 @@ impl CmdPanel {
             .show(ui, |ui| {
                 ui.set_width(ui.available_width());
                 ui.label(RichText::new(if ci.is_some() { t("编辑命令") } else { t("新命令") }).font(FontId::new(12.0, bold())).color(ACCENT()));
-                ui.add(
-                    egui::TextEdit::singleline(&mut draft.name)
-                        .hint_text(t("名称（可留空）"))
-                        .desired_width(f32::INFINITY)
-                        .margin(vec2(8.0, 4.0)),
-                );
                 let hint = if draft.hex { t("HEX，例如 AA 55 01") } else { t("要发送的内容") };
-                ui.add(
-                    egui::TextEdit::singleline(&mut draft.payload)
-                        .hint_text(hint)
-                        .desired_width(f32::INFINITY)
-                        .font(FontId::new(13.0, FontFamily::Monospace))
-                        .margin(vec2(8.0, 4.0)),
-                );
+                command_fields(ui, draft, hint);
                 ui.horizontal(|ui| {
                     ui.checkbox(&mut draft.hex, "HEX");
                     ui.add_enabled_ui(!draft.hex, |ui| {
@@ -392,7 +380,7 @@ fn tab(ui: &mut egui::Ui, name: &str, n: usize, on: bool) -> egui::Response {
     resp
 }
 
-fn cmd_card(ui: &mut egui::Ui, c: &QuickCmd, idx: usize, connected: bool) -> egui::Response {
+pub(crate) fn cmd_card(ui: &mut egui::Ui, c: &QuickCmd, idx: Option<usize>, connected: bool, disconnected_tip: &str) -> egui::Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 46.0), Sense::click());
     let p = ui.painter();
@@ -413,13 +401,16 @@ fn cmd_card(ui: &mut egui::Ui, c: &QuickCmd, idx: usize, connected: bool) -> egu
         egui::StrokeKind::Inside,
     );
     // 序号徽标（Alt+数字快捷键）
-    let badge = Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(20.0, 20.0));
-    p.rect_filled(badge, CornerRadius::same(5), if idx < 9 { BG3() } else { BG2() });
-    if idx < 9 {
-        p.text(badge.center(), Align2::CENTER_CENTER, (idx + 1).to_string(), FontId::new(11.0, mono_bold()), TEXT2());
+    if let Some(idx) = idx {
+        let badge = Rect::from_center_size(pos2(rect.left() + 18.0, rect.center().y), vec2(20.0, 20.0));
+        p.rect_filled(badge, CornerRadius::same(5), if idx < 9 { BG3() } else { BG2() });
+        if idx < 9 {
+            p.text(badge.center(), Align2::CENTER_CENTER, (idx + 1).to_string(), FontId::new(11.0, mono_bold()), TEXT2());
+        }
     }
-    let x = rect.left() + 36.0;
-    let maxw = rect.width() - 36.0 - 52.0;
+    let inset = if idx.is_some() { 36.0 } else { 10.0 };
+    let x = rect.left() + inset;
+    let maxw = rect.width() - inset - if idx.is_some() { 52.0 } else { 32.0 };
     let name = clip(ui, &c.name, FontId::new(12.5, bold()), maxw);
     p.text(
         pos2(x, rect.top() + 15.0),
@@ -445,15 +436,11 @@ fn cmd_card(ui: &mut egui::Ui, c: &QuickCmd, idx: usize, connected: bool) -> egu
         ));
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
-    let tip = if connected {
-        t("点击发送，右键编辑")
-    } else {
-        t("连接串口后可发送；右键编辑")
-    };
+    let tip = if connected { t("点击发送，右键编辑") } else { disconnected_tip };
     resp.on_hover_text(tip)
 }
 
-fn add_button(ui: &mut egui::Ui) -> egui::Response {
+pub(crate) fn add_button(ui: &mut egui::Ui) -> egui::Response {
     let w = ui.available_width();
     let (rect, resp) = ui.allocate_exact_size(vec2(w, 36.0), Sense::click());
     let p = ui.painter();
@@ -467,6 +454,22 @@ fn add_button(ui: &mut egui::Ui) -> egui::Response {
         ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
     }
     resp
+}
+
+pub(crate) fn command_fields(ui: &mut egui::Ui, draft: &mut QuickCmd, payload_hint: &str) {
+    ui.add(
+        egui::TextEdit::singleline(&mut draft.name)
+            .hint_text(t("名称（可留空）"))
+            .desired_width(f32::INFINITY)
+            .margin(vec2(8.0, 4.0)),
+    );
+    ui.add(
+        egui::TextEdit::singleline(&mut draft.payload)
+            .hint_text(payload_hint)
+            .desired_width(f32::INFINITY)
+            .font(FontId::new(13.0, FontFamily::Monospace))
+            .margin(vec2(8.0, 4.0)),
+    );
 }
 
 /// 文字超宽时截断加省略号

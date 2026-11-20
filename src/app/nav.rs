@@ -195,8 +195,11 @@ impl App {
             }
             None => {
                 self.work.hidden = std::mem::take(&mut self.work.tabs);
+                self.work.cur = 0;
                 self.work.auto = None;
                 self.work.manual = false;
+                self.work.detached = false;
+                self.work.focus_side = false;
             }
         }
     }
@@ -207,7 +210,7 @@ impl App {
         }
         let (icon, name, sub) = self.loc_label_page(l);
         match l.side {
-            Some(p) => (icon, format!("{name} + {}", p.label()), sub),
+            Some(p) => (icon, format!("{name} + {}", self.pane_label(p)), sub),
             None => (icon, name, sub),
         }
     }
@@ -507,7 +510,7 @@ impl App {
 /// 页面对应的 (Page, 工具)；「文件」不是页面
 fn pane_page(p: Pane) -> Option<(Page, Option<Tool>)> {
     Some(match p {
-        Pane::Debug => (Page::Debug, None),
+        Pane::Debug | Pane::Serial(_) => (Page::Debug, None),
         Pane::Code => (Page::Code, None),
         Pane::Git => (Page::Git, None),
         Pane::Compare => (Page::Compare, None),

@@ -1,4 +1,4 @@
-# QCCOM 1.9.8 端口映射
+# QCCOM 端口映射
 
 两台 Windows x64 电脑各运行一个 `qccom-portable.exe`，一台 Linux x86_64 公网服务器运行一个 Rust 可执行文件 `qccom-server`。串口、MQTT 和被动 FTP 共用经过身份认证的 QUIC 端点，可以同时开启。接开发板或运行 MQTT、FTP 服务的电脑称为设备端，运行烧录工具或网络客户端的电脑称为使用端。
 
@@ -11,37 +11,49 @@ chmod +x qccom-server
 ./qccom-server serve --cert /path/to/fullchain.pem --key /path/to/privkey.pem
 ```
 
-设备端在「高级设置 → 穿透服务器」填写证书覆盖的域名。默认是 `www.zenghi.com`，该服务器需要先更新并按上面的命令启动。使用公网 IP 时，证书的 SAN 须包含该 IP。设备端生成的连接地址会自动带上服务器地址，使用端粘贴后无需另行配置服务器。
+设备端在「高级设置 → 穿透服务器」填写运行中继服务且证书覆盖的域名，默认值为 `www.zenghi.com`。使用公网 IP 时，证书的 SAN 须包含该 IP。点击「测试服务器」可从当前电脑验证 TLS 和中继注册。设备端生成的分享地址会自动带上服务器地址，使用端粘贴后无需另行配置服务器。
 
-地址共享模式默认对每条中继连接的接收流量限速为 8 MiB/s，允许 1 MiB 突发。设置 `QCCOM_RELAY_BYTES_PER_SECOND` 可调整速率，单位为字节/秒，最小值为 10。限速只作用于中继路径。
+服务器已启动但分享超时时，在发起分享的 Windows 电脑上运行以下命令，域名换成 QCCOM 中实际填写的地址。
+
+```powershell
+Test-NetConnection www.zenghi.com -Port 7000
+curl.exe --noproxy "*" --connect-timeout 8 https://www.zenghi.com:7000/healthz
+```
+
+TCP 测试失败时检查服务器安全组、防火墙和客户端网络。HTTPS 返回证书错误时检查证书的域名和完整链。HTTPS 正常时继续用 QCCOM 的「测试服务器」检查 WebSocket 和中继注册。
+
+可访问公网服务器的 QCCOM 设备可以注册共享。服务端对每条中继连接的接收流量默认限速 8 MiB/s，允许 1 MiB 突发。设置 `QCCOM_RELAY_BYTES_PER_SECOND` 可调整速率，单位为字节/秒，最小值为 10。限速只作用于中继路径。
 
 ### 开机自启
 
-用部署包中的 systemd 单元安装服务，再通过 drop-in 启用地址共享。先停止占用同一端口的旧实例。
+部署包中的 systemd 单元从 `/etc/qccom` 读取证书和私钥，并由 systemd 将两份文件提供给动态服务账户。把命令中的证书来源路径换成实际路径。
 
 ```sh
 sudo install -m 0755 qccom-server /usr/local/bin/qccom-server
 sudo install -m 0644 qccom-server.service /etc/systemd/system/qccom-server.service
-sudo systemctl edit qccom-server
-```
-
-在编辑器中加入下面内容，把证书路径改成服务器上的实际路径。systemd 会将证书和私钥复制到服务的凭据目录，供动态服务账户读取。
-
-```ini
-[Service]
-LoadCredential=relay-fullchain.pem:/etc/letsencrypt/live/www.zenghi.com/fullchain.pem
-LoadCredential=relay-privkey.pem:/etc/letsencrypt/live/www.zenghi.com/privkey.pem
-ExecStart=
-ExecStart=/usr/local/bin/qccom-server serve --cert %d/relay-fullchain.pem --key %d/relay-privkey.pem
-```
-
-```sh
+sudo install -d -m 0700 /etc/qccom
+sudo install -m 0600 /path/to/fullchain.pem /etc/qccom/fullchain.pem
+sudo install -m 0600 /path/to/privkey.pem /etc/qccom/privkey.pem
+sudo systemctl daemon-reload
 sudo systemctl enable qccom-server
 sudo systemctl restart qccom-server
 sudo journalctl -u qccom-server -n 20
 ```
 
-证书续期后重启服务以加载新证书。原有 JSON 凭据配对继续使用 `qccom-server run`，已有 `qccom-pair/` 目录应保留。凭据模式和地址共享模式分别占用相同的默认端口，若要同时提供两种服务，可分别部署到两台服务器。
+证书续期后更新 `/etc/qccom` 下的文件并重启服务。也可直接从证书管理器的目录加载证书。用 `sudo systemctl edit qccom-server` 写入以下配置，并将示例路径改成实际路径。证书续期后重启服务即可加载新证书。
+
+```ini
+[Service]
+LoadCredential=
+LoadCredential=relay-fullchain.pem:/etc/letsencrypt/live/www.zenghi.com/fullchain.pem
+LoadCredential=relay-privkey.pem:/etc/letsencrypt/live/www.zenghi.com/privkey.pem
+```
+
+需要自定义中继速率时，在 `/etc/default/qccom-server` 写入速率设置并重启服务。
+
+```ini
+QCCOM_RELAY_BYTES_PER_SECOND=8388608
+```
 
 Windows 便携模式把设置保存在 EXE 同目录的 `qccom-data`。把程序和此目录放在当前用户专有的可写位置。
 
@@ -49,15 +61,17 @@ Windows 便携模式把设置保存在 EXE 同目录的 `qccom-data`。把程序
 
 | 用途 | 设备端操作 | 使用端操作 |
 | --- | --- | --- |
-| 串口烧录 | 点板子所接实体 COM 行右侧的「映射此端口」，再点「复制连接地址」 | 点「连接映射」，粘贴地址后点「连接设备端」。烧录工具选择窗口显示的本机虚拟 COM |
-| MQTT | 点「共享服务」并选择 MQTT，填写 broker 的主机和端口，默认 `127.0.0.1:1883`，复制连接地址 | 粘贴地址并连接，MQTT 客户端连本机 `127.0.0.1:1883`。认证和消息照常交给 broker 处理 |
-| FTP | 点「共享服务」并选择 FTP，目标默认 `127.0.0.1:21`。在 FTP 服务配置被动端口 `50000–50009`，或改成服务实际范围，再复制连接地址 | 粘贴地址并连接，使用被动 FTP，默认连本机 `127.0.0.1:2121`。两端自动协商数据端口范围 |
+| 串口烧录 | 点实体 COM 行右侧的「分享到网络」，再点「复制分享地址」 | 点「关联网络分享」并粘贴地址。烧录工具选择窗口显示的本机虚拟 COM |
+| MQTT | 点「分享到网络」并选择 MQTT，填写 broker 的主机和端口，默认 `127.0.0.1:1883`，复制分享地址 | 关联网络分享后，MQTT 客户端连本机 `127.0.0.1:1883`。认证和消息照常交给 broker 处理 |
+| FTP | 点「分享到网络」并选择 FTP，目标默认 `127.0.0.1:21`。在 FTP 服务配置被动端口 `50000–50009`，或改成服务实际范围，再复制分享地址 | 关联网络分享后，使用被动 FTP，默认连本机 `127.0.0.1:2121`。两端自动协商数据端口范围 |
 
 连接地址形如 `qccom://域名:7000/…`，包含该映射的授权。只需复制和粘贴完整地址，两端自动完成握手，无需导入 JSON 或额外输入配对码。地址可在生成后 15 分钟内用于建立连接，请仅发给要连接的人。停止共享或退出设备端 QCCOM 后，该地址失效。到期时，等待连接的共享会自动停止。已有连接可以继续使用，结束后可点「重新共享」生成新地址。
 
 使用端只在回环地址监听。同机另一个程序已占用端口时，更改「本机监听端口」；FTP 被动范围同样需要空闲。普通 FTP 的 PASV 和 EPSV 都受支持。FTP 协议代理处理明文控制命令，隧道使用端到端加密。主动 FTP、显式 FTPS 和隐式 FTPS 均在本版支持范围之外。
 
 连接地址已标识对应映射。多个映射可以共用同一个公网 IP。串口和 MQTT/FTP 的业务端口由两端 QCCOM 管理，公网服务器只需开放 TCP 7000 和 UDP 7842。
+
+COM 分享连通后，两端可从映射卡片的「查看日志」打开对应串口。TX 表示发送给实体设备的数据，RX 表示从该设备读出的数据。两端都使用支持日志同步的客户端时，设备端在 QCCOM 中发送的数据也会同步到使用端的 TX 日志。日志同步由客户端协商。
 
 ### 直连与中继
 
@@ -73,7 +87,7 @@ Windows 便携模式把设置保存在 EXE 同目录的 `qccom-data`。把程序
 
 新映射路径由 Rust 转发串口字节、波特率、数据位、校验、停止位、DTR、RTS 和 Break。设备可用的波特率和线控由 USB 转串口驱动决定。跨网复位脉宽还受电脑调度和网络抖动影响。首次建议执行芯片识别，再烧录带读回校验的镜像。掉线时检查设备并从头开始烧录。支持串口 bootloader，USB DFU、SWD、JTAG 需要各自的接口。
 
-「共享给本机软件」用于同一台电脑上的本地虚拟串口共享，可在已连接的设备行操作。原版串口配对和 frp 可从「高级设置 → 旧版串口映射」进入，新映射只需要本版本的 Rust 程序。[旧版部署说明](LEGACY-FRP.md)
+「共享给本机软件」用于同一台电脑上的本地虚拟串口共享，可在已连接的设备行操作。
 
 ## 从源码构建
 
@@ -90,11 +104,8 @@ rustup target add x86_64-unknown-linux-musl
 CC_x86_64_unknown_linux_musl=musl-gcc CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=musl-gcc cargo build --locked --release -p qccom-tunnel --features server --bin qccom-server --target x86_64-unknown-linux-musl
 ```
 
-网络回归测试使用本机 TCP 7000 和 UDP 7842。MQTT/FTP 场景需要 Mosquitto、mosquitto-clients 和 Python pyftpdlib。
+网络回归测试在本机启动中继并建立共享连接。
 
 ```sh
 cargo test --locked -p qccom-tunnel --features endpoint,server --lib
-cargo build --locked -p qccom-tunnel --features server,endpoint --bin qccom-server --example tunnel-worker
-python3 tests/remote_com_rust.py target/debug/qccom-server target/debug/examples/tunnel-worker
-python3 tests/remote_mappings.py target/debug/qccom-server target/debug/examples/tunnel-worker
 ```

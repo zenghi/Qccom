@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.9
+
+- Open and monitor multiple serial ports with separate settings, logs, recordings, and reconnection. The simplified Devices list keeps the port controls together. Drag the serial log tabs to reorder them or open a split view. Right-click a tab to open its log in a separate window or manage the port and log.
+- Select a COM port directly in either split pane. Network COM shares show the same TX and RX directions on both devices, and selecting a local virtual port opens the corresponding physical port log.
+- Browse remote directories and transfer files through SFTP in the SSH workspace. The transfer menu also offers legacy SCP. Keep a separate collection of SSH quick commands, and drag frequently used tools to the left toolbar to pin them.
+- Share a serial port, MQTT broker, or passive FTP service using a single copyable address. QCCOM attempts a direct peer connection and falls back to the Rust relay. Test the relay from Advanced settings to identify DNS, TCP, TLS, or registration failures.
+- Use the debugging tools in narrower windows and configure interface and monospace fonts separately. Apply log highlighting presets and use the new controls and messages in all ten supported interface languages.
+
 ## 1.9.8
 
 - **Local recording**: split long captures into numbered files at a configurable size boundary. Preserve complete records and avoid overwriting previous numbered parts.

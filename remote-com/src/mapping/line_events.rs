@@ -1,4 +1,5 @@
 //! Ordered com0com escape insertions. Reads and network frames can split any record.
+use super::MappingMessage;
 use anyhow::{bail, Result};
 pub(super) const ESC: u8 = 0xff;
 #[derive(Debug, PartialEq)]
@@ -12,6 +13,10 @@ pub(super) enum Event<'a> {
 #[derive(Default)]
 pub(super) struct Decoder(Vec<u8>);
 impl Decoder {
+    pub fn is_between_events(&self) -> bool {
+        self.0.is_empty()
+    }
+
     pub fn feed(&mut self, bytes: &[u8], mut apply: impl FnMut(Event<'_>) -> Result<()>) -> Result<()> {
         self.0.extend_from_slice(bytes);
         let mut i = 0;
@@ -32,7 +37,7 @@ impl Decoder {
                 2 | 3 => 3,
                 16 => 6,
                 17 => 5,
-                _ => bail!("未知虚拟串口控制事件 {kind}"),
+                _ => bail!(MappingMessage::new("未知虚拟串口控制事件 {}").with_value(kind)),
             };
             if s.len() < len {
                 break;

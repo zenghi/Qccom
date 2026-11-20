@@ -8,13 +8,9 @@ on:
       - 'Cargo.*'
       - 'remote-com/**'
       - 'src/main.rs'
-      - 'src/remote_com.rs'
       - 'src/mappings.rs'
       - 'src/vcom.rs'
       - 'src/app.rs'
-      - 'tests/remote_mappings.py'
-      - 'tests/remote_com_rust.py'
-      - 'vendor/hub4com/**'
 
 permissions:
   contents: read
@@ -28,20 +24,17 @@ jobs:
         with:
           targets: x86_64-unknown-linux-musl
       - uses: Swatinem/rust-cache@v2
-      - run: sudo apt-get update && sudo apt-get install -y musl-tools mosquitto mosquitto-clients python3-pyftpdlib
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
       - name: Build static Linux server
         run: cargo build --locked -p qccom-tunnel --features server --bin qccom-server --release --target x86_64-unknown-linux-musl
         env:
           CC_x86_64_unknown_linux_musl: musl-gcc
           CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER: musl-gcc
-      - name: Test direct and relayed serial streams
+      - name: Test address sharing and verify static linkage
         run: |
           server=target/x86_64-unknown-linux-musl/release/qccom-server
           if readelf -lW "$server" | grep -q INTERP || readelf -dW "$server" | grep -q NEEDED; then exit 1; fi
           cargo test --locked -p qccom-tunnel --features endpoint,server --lib
-          cargo build --locked -p qccom-tunnel --features endpoint --example tunnel-worker
-          python3 tests/remote_com_rust.py "$server" target/debug/examples/tunnel-worker
-          /usr/bin/python3 tests/remote_mappings.py "$server" target/debug/examples/tunnel-worker
       - uses: actions/upload-artifact@v4
         with:
           name: qccom-server-linux-x64
@@ -58,12 +51,11 @@ jobs:
         run: |
           New-Item -ItemType Directory portable | Out-Null
           Copy-Item target/release/qccom.exe portable/qccom-portable.exe
-      - name: Exercise the Windows executable against the Rust server
-        shell: pwsh
+      - name: Test address sharing and Windows virtual port discovery
         run: |
-          cargo build --locked -p qccom-tunnel --features server --bin qccom-server
+          cargo test --locked -p qccom-tunnel --features endpoint,server --lib
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python tests/remote_com_rust.py target/debug/qccom-server.exe portable/qccom-portable.exe
+          cargo test --locked vcom::pair_tests
       - uses: actions/upload-artifact@v4
         with:
           name: qccom-portable-windows-x64

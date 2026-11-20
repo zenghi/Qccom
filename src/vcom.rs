@@ -22,8 +22,11 @@ pub enum VcomEvt {
 pub struct Vcom {
     /// 给别的软件用的路径 / 端口名
     pub names: Vec<String>,
+    external_ports: Vec<String>,
     to_ports: Sender<Vec<u8>>,
     pub rx: Receiver<VcomEvt>,
+    #[cfg(unix)]
+    links: Vec<(std::path::PathBuf, String)>,
 }
 
 trait Endpoint: Send {
@@ -35,38 +38,77 @@ trait Endpoint: Send {
 impl Vcom {
     /// Linux / macOS：创建 n 个虚拟串口
     #[cfg(unix)]
-    pub fn start_pty(n: usize, ctx: egui::Context) -> Result<Vcom, String> {
+    pub fn start_pty(n: usize, slot: usize, ctx: egui::Context) -> Result<Vcom, String> {
         let dir = crate::data_dir().join("vcom");
         let _ = std::fs::create_dir_all(&dir);
         let mut eps: Vec<Box<dyn Endpoint>> = vec![];
         let mut names = vec![];
-        for i in 0..n.max(1) {
-            let p = pty::Pty::open()?;
-            let link = dir.join(format!("ttyQCCOM{i}"));
-            let _ = std::fs::remove_file(&link);
+        let mut external_ports = vec![];
+        let ports: Vec<_> = (0..n.max(1)).map(|_| pty::Pty::open()).collect::<Result<_, _>>()?;
+        let mut links = vec![];
+        for (i, p) in ports.into_iter().enumerate() {
+            let link = if slot == 0 { dir.join(format!("ttyQCCOM{i}")) } else { dir.join(format!("ttyQCCOM-{slot}-{i}")) };
+            if std::fs::read_link(&link).is_ok_and(|previous| !previous.exists()) {
+                let _ = std::fs::remove_file(&link);
+            }
             let shown = match std::os::unix::fs::symlink(&p.path, &link) {
-                Ok(()) => format!("{}  →  {}", p.path, link.display()),
+                Ok(()) => {
+                    let shown = format!("{}  →  {}", p.path, link.display());
+                    links.push((link, p.path.clone()));
+                    shown
+                }
                 Err(_) => p.path.clone(),
             };
             names.push(shown);
+            external_ports.push(p.path.clone());
             eps.push(Box::new(p));
         }
-        Ok(Self::spawn(eps, names, ctx))
+        let mut vcom = Self::spawn(eps, external_ports, ctx);
+        vcom.names = names;
+        vcom.links = links;
+        Ok(vcom)
     }
 
     #[cfg_attr(unix, allow(dead_code))]
     /// 打开一个现有的串口（com0com 等虚拟串口对的一头）当作共享口
-    pub fn start_port(name: &str, baud: u32, ctx: egui::Context) -> Result<Vcom, String> {
-        let p = serialport::new(name, baud).timeout(Duration::from_millis(5)).open().map_err(|e| e.to_string())?;
+    pub fn start_port(bridge_end: &str, external_end: &str, baud: u32, ctx: egui::Context) -> Result<Vcom, String> {
+        let p = serialport::new(bridge_end, baud).timeout(Duration::from_millis(5)).open().map_err(|e| e.to_string())?;
         let ep: Box<dyn Endpoint> = Box::new(SerialEp(p));
-        Ok(Self::spawn(vec![ep], vec![name.to_string()], ctx))
+        Ok(Self::spawn(vec![ep], vec![external_end.to_owned()], ctx))
     }
 
-    fn spawn(eps: Vec<Box<dyn Endpoint>>, names: Vec<String>, ctx: egui::Context) -> Vcom {
+    fn spawn(eps: Vec<Box<dyn Endpoint>>, external_ports: Vec<String>, ctx: egui::Context) -> Vcom {
         let (to_ports, from_app) = mpsc::channel::<Vec<u8>>();
         let (tx, rx) = mpsc::channel();
         let _ = thread::Builder::new().name("vcom".into()).spawn(move || run(eps, from_app, tx, ctx));
-        Vcom { names, to_ports, rx }
+        Vcom {
+            names: external_ports.clone(),
+            external_ports,
+            to_ports,
+            rx,
+            #[cfg(unix)]
+            links: Vec::new(),
+        }
+    }
+
+    /// 外部软件打开的端口名，和界面展示文字分开保存。
+    pub fn external_ports(&self) -> &[String] {
+        &self.external_ports
+    }
+
+    pub fn owns_port(&self, name: &str) -> bool {
+        #[cfg(windows)]
+        let name = name.strip_prefix(r"\\.\").unwrap_or(name);
+        if self.external_ports.iter().any(|port| if cfg!(windows) { port.eq_ignore_ascii_case(name) } else { port == name }) {
+            return true;
+        }
+        #[cfg(unix)]
+        return self
+            .links
+            .iter()
+            .any(|(link, target)| link == std::path::Path::new(name) && std::fs::read_link(link).is_ok_and(|current| current == std::path::Path::new(target)));
+        #[cfg(not(unix))]
+        false
     }
 
     /// 真实串口收到的数据转发给各个虚拟口
@@ -78,8 +120,10 @@ impl Vcom {
 impl Drop for Vcom {
     fn drop(&mut self) {
         #[cfg(unix)]
-        for i in 0..self.names.len() {
-            let _ = std::fs::remove_file(crate::data_dir().join("vcom").join(format!("ttyQCCOM{i}")));
+        for (link, target) in &self.links {
+            if std::fs::read_link(link).is_ok_and(|current| current == std::path::Path::new(target)) {
+                let _ = std::fs::remove_file(link);
+            }
         }
     }
 }
@@ -154,16 +198,8 @@ pub struct Pair {
 pub fn pairs() -> Vec<Pair> {
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt;
-        let Ok(o) = std::process::Command::new("reg")
-            .args(["query", r"HKLM\HARDWARE\DEVICEMAP\SERIALCOMM"])
-            .creation_flags(0x0800_0000)
-            .output()
-        else {
-            return vec![];
-        };
         use qccom_tunnel::mapping::valid_com;
-        parse_serialcomm(&String::from_utf8_lossy(&o.stdout))
+        collect_pairs(serialcomm_values())
             .into_iter()
             .filter(|pair| valid_com(&pair.mine) && valid_com(&pair.other) && pair.mine != pair.other)
             .collect()
@@ -172,22 +208,66 @@ pub fn pairs() -> Vec<Pair> {
     vec![]
 }
 
-#[cfg_attr(unix, allow(dead_code))]
-pub fn parse_serialcomm(out: &str) -> Vec<Pair> {
+#[cfg(windows)]
+fn serialcomm_values() -> Vec<(String, String)> {
+    use std::ptr::{null, null_mut};
+    use windows_sys::Win32::{
+        Foundation::{ERROR_MORE_DATA, ERROR_SUCCESS},
+        System::Registry::{RegCloseKey, RegEnumValueW, RegOpenKeyExW, HKEY, HKEY_LOCAL_MACHINE, KEY_QUERY_VALUE, REG_SZ},
+    };
+
+    let mut key: HKEY = null_mut();
+    // SAFETY: The key name is NUL-terminated and `key` is writable.
+    let opened = unsafe { RegOpenKeyExW(HKEY_LOCAL_MACHINE, windows_sys::w!(r"HARDWARE\DEVICEMAP\SERIALCOMM"), 0, KEY_QUERY_VALUE, &mut key) };
+    if opened != ERROR_SUCCESS {
+        return Vec::new();
+    }
+
+    let mut values = Vec::new();
+    let mut name = [0u16; 512];
+    let mut data = [0u16; 64];
+    for index in 0..u32::MAX {
+        let mut name_len = name.len() as u32;
+        let mut data_len = std::mem::size_of_val(&data) as u32;
+        let mut kind = 0;
+        // SAFETY: `key` is open, and both buffers and their sizes are valid for the call.
+        let result = unsafe { RegEnumValueW(key, index, name.as_mut_ptr(), &mut name_len, null(), &mut kind, data.as_mut_ptr().cast(), &mut data_len) };
+        if result == ERROR_MORE_DATA {
+            // Legitimate com0com device and COM names fit in the buffers.
+            continue;
+        }
+        if result != ERROR_SUCCESS {
+            break;
+        }
+        if kind != REG_SZ || data_len % 2 != 0 {
+            continue;
+        }
+        let device = String::from_utf16_lossy(&name[..name_len as usize]);
+        let value = &data[..data_len as usize / 2];
+        let end = value.iter().position(|&unit| unit == 0).unwrap_or(value.len());
+        let port = String::from_utf16_lossy(&value[..end]);
+        values.push((device, port));
+    }
+    // SAFETY: Only this function owns the handle returned by RegOpenKeyExW.
+    unsafe { RegCloseKey(key) };
+    values
+}
+
+#[cfg(any(windows, test))]
+fn collect_pairs(values: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<str>)>) -> Vec<Pair> {
     let mut a = std::collections::BTreeMap::new();
     let mut b = std::collections::BTreeMap::new();
-    for l in out.lines() {
-        let mut it = l.split_whitespace();
-        let (Some(dev), Some(_), Some(port)) = (it.next(), it.next(), it.next()) else { continue };
-        let Some(rest) = dev.to_ascii_lowercase().strip_prefix(r"\device\com0com").map(|r| r.to_string()) else {
+    for (device, value) in values {
+        let device = device.as_ref().to_ascii_lowercase();
+        let Some(rest) = device.strip_prefix(r"\device\com0com") else { continue };
+        let Some(port) = value.as_ref().split_whitespace().next() else {
             continue;
         };
-        let (side, n) = rest.split_at(1.min(rest.len()));
-        match side {
-            "1" => a.insert(n.to_string(), port.to_string()),
-            "2" => b.insert(n.to_string(), port.to_string()),
-            _ => None,
-        };
+        if let Some(n) = rest.strip_prefix('1') {
+            a.insert(n.to_owned(), port.to_owned());
+        } else if let Some(n) = rest.strip_prefix('2') {
+            b.insert(n.to_owned(), port.to_owned());
+        }
     }
     a.into_iter().filter_map(|(n, mine)| b.get(&n).map(|other| Pair { mine, other: other.clone() })).collect()
 }
@@ -263,6 +343,42 @@ fn fetch_com0com() -> Result<Vec<u8>, String> {
     Ok(data)
 }
 
+#[cfg(windows)]
+fn setupc() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+    ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
+        .iter()
+        .filter_map(std::env::var_os)
+        .map(|dir| PathBuf::from(dir).join("com0com").join("setupc.exe"))
+        .find(|path| path.is_file())
+}
+
+#[cfg(windows)]
+fn create_pair(setup: std::path::PathBuf) -> Result<(), String> {
+    use std::{os::windows::process::CommandExt, path::PathBuf, process::Command};
+
+    check_com0com_signature()?;
+    let before = pairs();
+    let windows = std::env::var_os("SystemRoot").ok_or_else(|| "SystemRoot".to_owned())?;
+    let status = Command::new(PathBuf::from(windows).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
+        .creation_flags(0x0800_0000)
+        .env("QCCOM_PAIR_SETUP", setup)
+        .args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $p=Start-Process -FilePath $env:QCCOM_PAIR_SETUP -WorkingDirectory (Split-Path $env:QCCOM_PAIR_SETUP) -Verb RunAs -Wait -PassThru -ArgumentList 'install','PortName=COM#,ri=ropen','PortName=COM#,EmuBR=yes'; exit $p.ExitCode"])
+        .status().map_err(|e| e.to_string())?;
+    if !status.success() {
+        check_com0com_signature()?;
+        return Err(format!("com0com setup: {status}"));
+    }
+    for _ in 0..20 {
+        if pairs().iter().any(|pair| !before.contains(pair)) {
+            return Ok(());
+        }
+        thread::sleep(Duration::from_millis(250));
+    }
+    check_com0com_signature()?;
+    Err(crate::i18n::t("装好了但没找到虚拟串口").into())
+}
+
 /// Windows：一键安装 com0com（先下载官方安装包并校验），并建好一对 COM 口。会弹一次管理员确认。阻塞，放线程里跑
 #[cfg(windows)]
 pub fn install_com0com() -> Result<(), String> {
@@ -271,8 +387,8 @@ pub fn install_com0com() -> Result<(), String> {
     if !pairs().is_empty() {
         return Ok(());
     }
-    if crate::remote_com::setupc().is_some() {
-        return crate::remote_com::create_pair();
+    if let Some(setup) = setupc() {
+        return create_pair(setup);
     }
     check_com0com_signature()?;
     let bytes = fetch_com0com()?;
@@ -298,7 +414,8 @@ pub fn install_com0com() -> Result<(), String> {
     if !pairs().is_empty() {
         return Ok(());
     }
-    crate::remote_com::create_pair()
+    let setup = setupc().ok_or_else(|| crate::i18n::t("请先安装 com0com 驱动").to_owned())?;
+    create_pair(setup)
 }
 
 #[cfg(unix)]
@@ -397,8 +514,14 @@ mod pair_tests {
 
     #[test]
     fn serialcomm_pairs() {
-        let out = "\r\nHKEY_LOCAL_MACHINE\\HARDWARE\\DEVICEMAP\\SERIALCOMM\r\n    \\Device\\Serial0    REG_SZ    COM1\r\n    \\Device\\com0com10    REG_SZ    COM20\r\n    \\Device\\com0com20    REG_SZ    COM21\r\n    \\Device\\com0com11    REG_SZ    CNCA1\r\n";
-        let p = super::parse_serialcomm(out);
+        let values = [
+            (r"\Device\Serial0", "COM1"),
+            (r"\Device\com0com10", "COM20"),
+            (r"\Device\COM0COM20", "COM21"),
+            (r"\Device\com0com11", "CNCA1"),
+            (r"\Device\com0com串0", "COM22"),
+        ];
+        let p = super::collect_pairs(values);
         assert_eq!(
             p,
             vec![super::Pair {
@@ -416,9 +539,13 @@ mod tests {
 
     #[test]
     fn pty_passes_bytes_both_ways() {
-        let v = Vcom::start_pty(1, egui::Context::default()).unwrap();
-        let path = v.names[0].split_whitespace().next().unwrap().to_string();
-        let mut f = std::fs::OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY).open(&path).unwrap();
+        let v = Vcom::start_pty(1, 0, egui::Context::default()).unwrap();
+        let path = &v.external_ports()[0];
+        assert!(v.owns_port(path));
+        for (link, _) in &v.links {
+            assert!(v.owns_port(link.to_str().unwrap()));
+        }
+        let mut f = std::fs::OpenOptions::new().read(true).write(true).custom_flags(libc::O_NOCTTY).open(path).unwrap();
         v.forward(b"hello\r\n");
         let mut got = [0u8; 7];
         f.read_exact(&mut got).unwrap();
@@ -435,5 +562,6 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         assert_eq!(data, b"AT\r");
+        assert!(matches!(v.rx.recv_timeout(Duration::from_millis(25)), Err(mpsc::RecvTimeoutError::Timeout)));
     }
 }

@@ -1,10 +1,13 @@
 //! 主题：冷调深色、靠底色深浅和细分隔线分层，青色只用在焦点上。
-//! 字体内置 JetBrains Mono（日志）和 Inter（界面），中文回退到系统字体。
+//! 默认界面字体是 Inter，默认等宽字体是 JetBrains Mono，中文回退到系统字体。
 
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use eframe::egui::{self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Stroke, TextStyle};
+use serde::{Deserialize, Serialize};
 
 /// 一套界面配色。深色靠底色深浅和细分隔线分层，浅色反过来用白卡片 + 浅灰面板。
 pub struct Palette {
@@ -248,7 +251,162 @@ pub fn apply(ctx: &egui::Context, font_size: f32, light: bool) {
     });
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct FontSettings {
+    pub interface: String,
+    pub monospace: String,
+}
+
+impl Default for FontSettings {
+    fn default() -> Self {
+        Self {
+            interface: FontKind::Interface.bundled().into(),
+            monospace: FontKind::Monospace.bundled().into(),
+        }
+    }
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum FontKind {
+    Interface,
+    Monospace,
+}
+
+impl FontKind {
+    pub fn bundled(self) -> &'static str {
+        match self {
+            Self::Interface => "Inter",
+            Self::Monospace => "JetBrains Mono",
+        }
+    }
+}
+
+struct SystemFont {
+    name: &'static str,
+    kind: FontKind,
+    regular: PathBuf,
+    bold: PathBuf,
+}
+
+fn system_fonts() -> &'static [SystemFont] {
+    static FONTS: OnceLock<Vec<SystemFont>> = OnceLock::new();
+    FONTS.get_or_init(|| {
+        use FontKind::{Interface, Monospace};
+
+        #[cfg(windows)]
+        let (dirs, faces) = (
+            vec![PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into())).join("Fonts")],
+            [
+                ("Segoe UI", Interface, "segoeui.ttf", "segoeuib.ttf"),
+                ("Arial", Interface, "arial.ttf", "arialbd.ttf"),
+                ("SimHei", Interface, "simhei.ttf", "simhei.ttf"),
+                ("Consolas", Monospace, "consola.ttf", "consolab.ttf"),
+                ("Courier New", Monospace, "cour.ttf", "courbd.ttf"),
+            ],
+        );
+        #[cfg(target_os = "macos")]
+        let (dirs, faces) = (
+            vec![PathBuf::from("/System/Library/Fonts/Supplemental")],
+            [
+                ("Arial", Interface, "Arial.ttf", "Arial Bold.ttf"),
+                ("Verdana", Interface, "Verdana.ttf", "Verdana Bold.ttf"),
+                ("Courier New", Monospace, "Courier New.ttf", "Courier New Bold.ttf"),
+            ],
+        );
+        #[cfg(target_os = "linux")]
+        let (dirs, faces) = (
+            [
+                "/usr/share/fonts/truetype/dejavu",
+                "/usr/share/fonts/dejavu",
+                "/usr/share/fonts/dejavu-sans-fonts",
+                "/usr/share/fonts/dejavu-sans-mono-fonts",
+                "/usr/share/fonts/truetype/liberation",
+                "/usr/share/fonts/truetype/liberation2",
+                "/usr/share/fonts/liberation-fonts",
+                "/usr/share/fonts/truetype/noto",
+                "/usr/share/fonts/noto",
+                "/usr/share/fonts/TTF",
+            ]
+            .into_iter()
+            .map(PathBuf::from)
+            .collect::<Vec<_>>(),
+            [
+                ("DejaVu Sans", Interface, "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"),
+                ("Liberation Sans", Interface, "LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf"),
+                ("Noto Sans", Interface, "NotoSans-Regular.ttf", "NotoSans-Bold.ttf"),
+                ("DejaVu Sans Mono", Monospace, "DejaVuSansMono.ttf", "DejaVuSansMono-Bold.ttf"),
+                ("Liberation Mono", Monospace, "LiberationMono-Regular.ttf", "LiberationMono-Bold.ttf"),
+                ("Noto Sans Mono", Monospace, "NotoSansMono-Regular.ttf", "NotoSansMono-Bold.ttf"),
+            ],
+        );
+        #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
+        let (dirs, faces): (Vec<PathBuf>, [(&str, FontKind, &str, &str); 0]) = (Vec::new(), []);
+        faces
+            .into_iter()
+            .filter_map(|(name, kind, regular, bold)| {
+                let dir = dirs.iter().find(|dir| dir.join(regular).is_file())?;
+                Some(SystemFont {
+                    name,
+                    kind,
+                    regular: dir.join(regular),
+                    bold: dir.join(bold),
+                })
+            })
+            .collect()
+    })
+}
+
+pub fn font_names(kind: FontKind) -> impl Iterator<Item = &'static str> + Clone {
+    std::iter::once(kind.bundled()).chain(system_fonts().iter().filter(move |font| font.kind == kind).map(|font| font.name))
+}
+
+pub fn set_font_preferences(ctx: &egui::Context, prefs: &FontSettings) {
+    ctx.set_fonts(font_definitions(prefs));
+    ctx.request_repaint();
+}
+
+#[cfg(test)]
 pub fn load_fonts(ctx: &egui::Context) {
+    set_font_preferences(ctx, &FontSettings::default());
+}
+
+fn font_definitions(prefs: &FontSettings) -> FontDefinitions {
+    static DEFAULT_FONTS: OnceLock<FontDefinitions> = OnceLock::new();
+    let mut fonts = DEFAULT_FONTS.get_or_init(bundled_fonts).clone();
+    for (kind, name, families, keys) in [
+        (FontKind::Interface, &prefs.interface, [FontFamily::Proportional, bold()], ["interface-user", "interface-user-bold"]),
+        (FontKind::Monospace, &prefs.monospace, [FontFamily::Monospace, mono_bold()], ["monospace-user", "monospace-user-bold"]),
+    ] {
+        let Some(font) = system_fonts().iter().find(|font| font.kind == kind && font.name == name) else {
+            continue;
+        };
+        let Some(regular) = read_font(&font.regular) else { continue };
+        let strong = if font.bold == font.regular {
+            regular.clone()
+        } else {
+            read_font(&font.bold).unwrap_or_else(|| regular.clone())
+        };
+        for ((family, key), data) in families.into_iter().zip(keys).zip([regular, strong]) {
+            fonts.font_data.insert(key.into(), data);
+            fonts.families.entry(family).or_default().insert(0, key.into());
+        }
+    }
+    fonts
+}
+
+fn read_font(path: &Path) -> Option<Arc<FontData>> {
+    const MAX_FONT_BYTES: u64 = 16 * 1024 * 1024;
+    let file = std::fs::File::open(path).ok()?;
+    let mut bytes = Vec::new();
+    file.take(MAX_FONT_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    if bytes.len() as u64 > MAX_FONT_BYTES || ab_glyph::FontRef::try_from_slice(&bytes).is_err() {
+        return None;
+    }
+    Some(Arc::new(FontData::from_owned(bytes)))
+}
+
+fn bundled_fonts() -> FontDefinitions {
     let mut fonts = FontDefinitions::default();
     let mut add = |name: &str, bytes: &'static [u8]| {
         fonts.font_data.insert(name.into(), Arc::new(FontData::from_static(bytes)));
@@ -303,7 +461,7 @@ pub fn load_fonts(ctx: &egui::Context) {
             }
         }
     }
-    ctx.set_fonts(fonts);
+    fonts
 }
 
 /// 把字体文件映射进内存。映射在程序整个运行期间都要用，所以有意不释放。
@@ -348,5 +506,46 @@ pub fn logo_tint() -> Color32 {
         Color32::from_rgb(0x0a, 0x5c, 0x66)
     } else {
         Color32::WHITE
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn missing_font_choices_fall_back_to_bundled_defaults() {
+        let defaults: FontSettings = serde_json::from_str("{}").unwrap();
+        let base = font_definitions(&defaults);
+        let missing = FontSettings {
+            interface: "Missing interface face".into(),
+            monospace: "Missing monospace face".into(),
+        };
+        assert_eq!(font_definitions(&missing).families, base.families);
+        assert_eq!(base.families[&FontFamily::Proportional][0], "inter");
+        assert_eq!(base.families[&FontFamily::Monospace][0], "jbmono");
+    }
+
+    #[test]
+    fn selected_system_faces_keep_the_bundled_and_cjk_fallbacks() {
+        let defaults = FontSettings::default();
+        let base = font_definitions(&defaults);
+        for font in system_fonts().iter().filter(|font| read_font(&font.regular).is_some()) {
+            let mut prefs = defaults.clone();
+            let (regular, strong, first) = match font.kind {
+                FontKind::Interface => {
+                    prefs.interface = font.name.into();
+                    (FontFamily::Proportional, bold(), "interface-user")
+                }
+                FontKind::Monospace => {
+                    prefs.monospace = font.name.into();
+                    (FontFamily::Monospace, mono_bold(), "monospace-user")
+                }
+            };
+            let selected = font_definitions(&prefs);
+            assert_eq!(selected.families[&regular][0], first);
+            assert_eq!(selected.families[&regular][1..], base.families[&regular]);
+            assert_eq!(selected.families[&strong][1..], base.families[&strong]);
+        }
     }
 }

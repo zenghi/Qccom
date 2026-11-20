@@ -2,6 +2,7 @@
 
 mod api;
 mod app;
+mod askpass;
 mod atcmds;
 mod bgimg;
 mod binview;
@@ -39,13 +40,12 @@ mod pattern;
 mod portuse;
 mod record;
 mod remote;
-#[cfg(windows)]
-mod remote_com;
 mod script;
 mod serial;
 mod shell;
 mod shellint;
 mod snippets;
+mod ssh_files;
 mod term;
 mod termview;
 mod theme;
@@ -120,16 +120,11 @@ fn persistence_path() -> Option<std::path::PathBuf> {
 }
 
 fn main() -> eframe::Result {
+    if let Some(success) = askpass::run_helper() {
+        std::process::exit(i32::from(!success));
+    }
     // Files and comparisons reuse the first window; projects open a separate workspace.
     let args: Vec<String> = std::env::args().skip(1).collect();
-    #[cfg(windows)]
-    if let Some(result) = remote_com::helper_command(&args) {
-        if let Err(error) = result {
-            eprintln!("{error}");
-            std::process::exit(1);
-        }
-        return Ok(());
-    }
     let startup = shellint::parse_args(&args);
     if shellint::should_forward(&args, &startup) && shellint::forward(&startup) {
         return Ok(());
@@ -140,7 +135,7 @@ fn main() -> eframe::Result {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(title)
             .with_inner_size([1300.0, 803.0]) // 首次启动时再最大化（见 App::place_window）
-            .with_min_inner_size([900.0, 520.0])
+            .with_min_inner_size([480.0, 520.0])
             .with_icon(icon()),
         vsync: true,
         persistence_path: persistence_path(),

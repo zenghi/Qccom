@@ -78,6 +78,14 @@ pub(super) struct RuleRt {
     pub m: Matcher,
 }
 
+pub(super) fn log_preset_combo(ui: &mut egui::Ui, selected: &mut LogPreset) {
+    egui::ComboBox::from_id_salt("log-highlight-preset").selected_text(selected.name()).show_ui(ui, |ui| {
+        for preset in LogPreset::ALL {
+            ui.selectable_value(selected, preset, preset.name());
+        }
+    });
+}
+
 // ---------------------------------------------------------------- 分帧
 
 #[derive(Clone, PartialEq, Serialize, Deserialize, Debug)]
@@ -429,7 +437,7 @@ impl App {
                 })
             })
             .collect();
-        self.view_dirty = true;
+        self.invalidate_log_views();
     }
 
     pub(super) fn rules_filter(&self) -> bool {
@@ -740,6 +748,11 @@ impl App {
         let mut open = true;
         let mut changed = false;
         tool_window(ctx, t("过滤与高亮规则"), "rules", &mut open, 520.0, |ui| {
+            ui.horizontal(|ui| {
+                ui.label(t("高亮预设"));
+                log_preset_combo(ui, &mut self.s.log_preset);
+            });
+            ui.separator();
             ui.label(RichText::new(t("「只显示」规则之间是“或”；「隐藏」优先。规则只影响显示，不影响录制。")).small().color(TEXT3()));
             ui.add_space(4.0);
             let cols = kw_colors();

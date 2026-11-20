@@ -136,6 +136,7 @@ pub struct ToolboxCfg {
     pub hid_feature_len: u16,
     /// 收藏的工具，排在列表最上面
     pub favs: Vec<Tool>,
+    pub activity_pins: Vec<Tool>,
     /// 最近用过的工具（不含通信调试，最多 4 个）
     pub recent: Vec<Tool>,
     /// 展开的分组（通信调试之外同一时间只展开一个）
@@ -148,6 +149,8 @@ pub struct ToolboxCfg {
     pub z: super::toolbox3::Cfg3,
     /// SSH / Telnet 保存的主机
     pub ssh_hosts: Vec<crate::remote::Host>,
+    pub ssh_commands: Vec<crate::cmds::QuickCmd>,
+    pub ssh_commands_open: bool,
 }
 
 impl Default for ToolboxCfg {
@@ -177,12 +180,15 @@ impl Default for ToolboxCfg {
             hid_data: "00 01 02 03".into(),
             hid_feature_len: 64,
             favs: vec![],
+            activity_pins: vec![],
             recent: vec![],
             open_group: 0,
             opened: vec![],
             x: Default::default(),
             z: Default::default(),
             ssh_hosts: vec![],
+            ssh_commands: vec![],
+            ssh_commands_open: true,
         }
     }
 }
@@ -233,6 +239,14 @@ impl Default for ToolboxUi {
     }
 }
 
+impl ToolboxCfg {
+    pub(super) fn pin_activity(&mut self, tool: Tool) {
+        if !self.activity_pins.contains(&tool) {
+            self.activity_pins.push(tool);
+        }
+    }
+}
+
 pub(super) const MONO: fn(f32) -> FontId = |s| FontId::new(s, FontFamily::Monospace);
 
 impl App {
@@ -249,16 +263,26 @@ impl App {
             return;
         }
         if !compact {
-            egui::SidePanel::left("toolbox_nav")
-                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                    left: 14,
-                    right: 14,
-                    top: 16,
-                    bottom: 8,
-                }))
-                .exact_width(210.0)
-                .resizable(false)
-                .show_inside(ui, |ui| self.toolbox_nav(ui));
+            if self.s.tb.tool == Tool::Ssh && ui.available_width() < 650.0 {
+                egui::TopBottomPanel::top("compact_ssh_toolbox").show_inside(ui, |ui| {
+                    ui.menu_button(t("工具箱"), |ui| {
+                        ui.set_width(210.0);
+                        ui.set_max_height((ctx.screen_rect().height() - 85.0).clamp(140.0, 400.0));
+                        self.toolbox_nav(ui);
+                    });
+                });
+            } else {
+                egui::SidePanel::left("toolbox_nav")
+                    .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
+                        left: 14,
+                        right: 14,
+                        top: 16,
+                        bottom: 8,
+                    }))
+                    .exact_width(210.0)
+                    .resizable(false)
+                    .show_inside(ui, |ui| self.toolbox_nav(ui));
+            }
             self.tool_tabs(ui);
         }
         self.tick_toolbox2();
@@ -390,6 +414,7 @@ impl App {
                 for tool in tools {
                     let state = self.tool_state(tool);
                     let r = nav_row(ui, tool_text(tool).0, self.s.tb.tool == tool, state);
+                    tool_drag_source(&r, tool);
                     if r.clicked() {
                         pick = Some(tool);
                     }
@@ -404,6 +429,7 @@ impl App {
                             ui.close_menu();
                         }
                     });
+                    r.on_hover_text(t("拖到左侧活动栏固定"));
                 }
                 ui.add_space(8.0);
             }
@@ -423,7 +449,7 @@ impl App {
     }
 
     /// 列表上的状态点：0 无，1 运行 / 已连接，2 刚收到数据（闪一下）
-    fn tool_state(&self, tool: Tool) -> u8 {
+    pub(super) fn tool_state(&self, tool: Tool) -> u8 {
         if let Some(k) = comm_slot(tool) {
             return match (self.slot_online(k), self.slot_active(k)) {
                 (true, true) => 2,
@@ -1408,7 +1434,7 @@ pub(super) fn tool_text(t_: Tool) -> (&'static str, &'static str) {
         Tool::Udp => ("UDP", t("收发 UDP 数据包，每包一行并标出来源")),
         Tool::Mqtt => ("MQTT", t("连接 MQTT 服务器，订阅主题、发布消息")),
         Tool::Ble => (t("低功耗蓝牙"), t("扫描 BLE 设备，订阅通知、读写特征")),
-        Tool::Ssh => ("SSH / Telnet", t("远程登录开发板、网关和服务器：多个会话同时在线，拖文件就能上传")),
+        Tool::Ssh => ("SSH / Telnet", t("远程登录开发板、网关和服务器，浏览和传输远程文件")),
         Tool::Ws => ("WebSocket", t("连接 ws:// 或 wss:// 服务，收发文本 / 二进制消息")),
         Tool::Api => (t("HTTP 接口"), t("像 Postman 一样调试设备上的 REST 接口")),
         Tool::Tftp => (t("TFTP 服务器"), t("把一个文件夹通过 TFTP 共享出去，U-Boot、交换机、IP 电话用它下载固件")),
@@ -1452,7 +1478,7 @@ fn group_header(ui: &mut egui::Ui, title: &str, n: usize, open: bool) -> egui::R
 }
 
 fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, state: u8) -> egui::Response {
-    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click());
+    let (rect, resp) = ui.allocate_exact_size(vec2(ui.available_width(), 28.0), Sense::click_and_drag());
     let p = ui.painter();
     if on {
         p.rect_filled(rect, R_WIDGET, BG3());
@@ -1481,6 +1507,83 @@ fn nav_row(ui: &mut egui::Ui, text: &str, on: bool, state: u8) -> egui::Response
     }
     ui.add_space(2.0);
     resp
+}
+
+fn tool_drag_source(response: &egui::Response, tool: Tool) {
+    if response.drag_started_by(egui::PointerButton::Primary) {
+        egui::DragAndDrop::set_payload(&response.ctx, tool);
+    }
+}
+
+pub(super) fn activity_drop(ctx: &egui::Context, bar: Rect) -> Option<Tool> {
+    let tool = egui::DragAndDrop::payload::<Tool>(ctx)?;
+    let pointer = ctx.pointer_interact_pos()?;
+    let over_bar = bar.contains(pointer);
+    if ctx.input(|i| i.pointer.button_released(egui::PointerButton::Primary)) {
+        if over_bar {
+            return egui::DragAndDrop::take_payload::<Tool>(ctx).map(|tool| *tool);
+        }
+        return None;
+    }
+    let painter = ctx.layer_painter(egui::LayerId::new(egui::Order::Foreground, egui::Id::new("tool-activity-drag")));
+    if over_bar {
+        painter.rect(bar.shrink(2.0), R_WIDGET, ACCENT().gamma_multiply(0.09), st(1.5, ACCENT()), egui::StrokeKind::Inside);
+    }
+    ctx.set_cursor_icon(if over_bar { egui::CursorIcon::Copy } else { egui::CursorIcon::Grabbing });
+    let name = tool_text(*tool).0;
+    let label = if over_bar { format!("{} · {name}", t("固定到活动栏")) } else { name.into() };
+    let galley = painter.layout_no_wrap(label, FontId::proportional(12.5), TEXT());
+    let card = Rect::from_min_size(pointer + vec2(14.0, 12.0), vec2(galley.size().x + 18.0, 26.0));
+    painter.rect(card, R_WIDGET, BG2(), st(1.0, LINE_HI()), egui::StrokeKind::Inside);
+    painter.galley(pos2(card.left() + 9.0, card.center().y - galley.size().y / 2.0), galley, TEXT());
+    None
+}
+
+pub(super) fn tool_mark(tool: Tool) -> &'static str {
+    match tool {
+        Tool::Tcp => "TCP",
+        Tool::Udp => "UDP",
+        Tool::Mqtt => "MQTT",
+        Tool::Ble => "BLE",
+        Tool::Ws => "WS",
+        Tool::Ssh => "SSH",
+        Tool::Api => "API",
+        Tool::MbSlave => "MB",
+        Tool::Tftp => "TFTP",
+        Tool::Http => "HTTP",
+        Tool::Syslog => "LOG",
+        Tool::Discover => "LAN",
+        Tool::Ping => "PING",
+        Tool::Subnet => "CIDR",
+        Tool::Broker => "BRKR",
+        Tool::Convert => "CONV",
+        Tool::Baud => "BAUD",
+        Tool::Checksum => "CRC",
+        Tool::Timestamp => "TIME",
+        Tool::Regex => ".*",
+        Tool::Font => "FONT",
+        Tool::Color => "RGB",
+        Tool::Ascii => "ASCII",
+        Tool::Can => "CAN",
+        Tool::Hid => "HID",
+        Tool::FwConv => "FW",
+        Tool::FwPack => "PACK",
+        Tool::SizeDiff => "SIZE",
+        Tool::Stack => "STK",
+        Tool::Vectors => "IVT",
+        Tool::Svd => "SVD",
+        Tool::Project => "PRJ",
+        Tool::Ioc => "IOC",
+        Tool::Resistor => "Ω",
+        Tool::Adc => "ADC",
+        Tool::Pwm => "PWM",
+        Tool::I2cPull => "I²C",
+        Tool::Struct => "STRUCT",
+        Tool::Decode => "DEC",
+        Tool::Vcd => "VCD",
+        Tool::Qr => "QR",
+        Tool::Circuit => "SIM",
+    }
 }
 
 pub(super) fn settings_card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
@@ -1728,4 +1831,65 @@ fn hid_card(ui: &mut egui::Ui, d: &hid::Info, sel: bool, live: bool) -> egui::Re
     }
     ui.add_space(2.0);
     resp.on_hover_text(&d.path)
+}
+
+#[cfg(test)]
+mod activity_tests {
+    use super::*;
+
+    fn frame(ctx: &egui::Context, events: Vec<egui::Event>) -> (egui::Pos2, egui::Pos2, bool, Option<Tool>) {
+        let mut result = (egui::Pos2::ZERO, egui::Pos2::ZERO, false, None);
+        let input = egui::RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(480.0, 320.0))),
+            events,
+            ..Default::default()
+        };
+        let _ = ctx.run(input, |ctx| {
+            let bar = egui::SidePanel::left("activity-test").exact_width(48.0).show(ctx, |_| {});
+            result.0 = bar.response.rect.center();
+            result.3 = activity_drop(ctx, bar.response.rect);
+            egui::CentralPanel::default().show(ctx, |ui| {
+                let row = nav_row(ui, "UDP", false, 0);
+                tool_drag_source(&row, Tool::Udp);
+                result.1 = row.rect.center();
+                result.2 = row.clicked();
+            });
+        });
+        result
+    }
+
+    #[test]
+    fn toolbox_row_drag_accepts_the_activity_bar_only() {
+        for on_bar in [true, false] {
+            let ctx = egui::Context::default();
+            crate::theme::load_fonts(&ctx);
+            let (bar, row, _, _) = frame(&ctx, vec![]);
+            let target = if on_bar { bar } else { pos2(row.x, row.y + 120.0) };
+            let button = |pos, pressed| egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            frame(&ctx, vec![egui::Event::PointerMoved(row)]);
+            frame(&ctx, vec![button(row, true)]);
+            frame(&ctx, vec![egui::Event::PointerMoved(row + (target - row) * 0.5)]);
+            frame(&ctx, vec![egui::Event::PointerMoved(target)]);
+            let (_, _, clicked, pinned) = frame(&ctx, vec![button(target, false)]);
+            assert!(!clicked);
+            assert_eq!(pinned, on_bar.then_some(Tool::Udp));
+        }
+    }
+
+    #[test]
+    fn pinned_tools_round_trip_in_drop_order_without_duplicates() {
+        let mut settings: ToolboxCfg = serde_json::from_str("{}").unwrap();
+        assert!(settings.activity_pins.is_empty());
+        settings.pin_activity(Tool::Mqtt);
+        settings.pin_activity(Tool::Udp);
+        settings.pin_activity(Tool::Mqtt);
+        let saved = serde_json::to_string(&settings).unwrap();
+        let restored: ToolboxCfg = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.activity_pins, [Tool::Mqtt, Tool::Udp]);
+    }
 }

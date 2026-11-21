@@ -137,10 +137,12 @@ impl CircuitView {
             .frame(egui::Frame::new().fill(BG1()).stroke(st(1.0, LINE())).inner_margin(egui::Margin::symmetric(11, 3)))
             .show_inside(ui, |ui| self.workspace_status(ui));
         if self.bottom {
+            let max_height = (ui.available_height() * 0.49).clamp(95.0, 520.0);
+            let min_height = if self.btab == BTab::Scope { 195.0_f32.min(max_height) } else { 95.0 };
             egui::TopBottomPanel::bottom("cv-bottom")
                 .frame(frame)
                 .default_height(if self.btab == BTab::Log { 150.0 } else { 210.0 })
-                .height_range(95.0..=(ui.available_height() * 0.49).clamp(95.0, 520.0))
+                .height_range(min_height..=max_height)
                 .resizable(true)
                 .show_inside(ui, |ui| self.bottom_ui(ui));
         }
@@ -490,7 +492,7 @@ impl CircuitView {
             return;
         }
         let Some(ex) = crate::circuit::examples::find("A2") else { return };
-        let mut circuit = match ex.build() {
+        let mut circuit = match ex.build_practice() {
             Ok(c) => c,
             Err(err) => {
                 self.toast(err, ERR());

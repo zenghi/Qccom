@@ -242,6 +242,17 @@ impl CircuitView {
             self.run_led_serial_example(ui.ctx());
         }
         ui.add_space(8.0);
+        card(ui, |ui| {
+            ui.label(RichText::new(t("示波器测点")).size(12.5).strong().color(TEXT()));
+            for (channel, pin) in e.scope_targets() {
+                let ch = channel.to_string();
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(format!("CH{ch}")).font(FontId::monospace(11.5)).color(ink(draw::probe_color(&ch))));
+                    ui.label(RichText::new(pin.replace('.', " · ")).size(11.5).color(TEXT2()));
+                });
+            }
+        });
+        ui.add_space(9.0);
         let section = |ui: &mut egui::Ui, title: &str, body: &str| {
             if body.is_empty() {
                 return;

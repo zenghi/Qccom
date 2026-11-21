@@ -5,12 +5,14 @@
 //! ```text
 //! == A1 | 欧姆定律 | Ohm's law | 1          编号 | 中文标题 | 英文标题 | 难度 1..3
 //! part B1 battery 0 0 type=9v               标签 种类 x y [rot=1] [属性=值 …]
-//! w B1.+ R1.1 [red]                         连线（颜色可省，按引脚名自动：电源红、地黑）
+//! w B1.+ R1.1 [red]                         连线（颜色可省，按网络配色：电源红、地黑）
+//! scope B1.+ R1.2 B1.-                      依次将 CH1、CH2、CH3 接到这些引脚上
 //! mcu U1 {"pins":[…],"rules":[…]}           单片机的引脚和规则（JSON）
 //! power on                                  打开就通电
 //! ```
 
-use std::collections::HashMap;
+use std::cmp::Reverse;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::OnceLock;
 
 use super::net::Netlist;
@@ -104,8 +106,25 @@ impl Example {
         super::content::get(&format!("ex.{}.{field}", self.id))
     }
 
+    pub fn scope_targets(&self) -> impl Iterator<Item = (usize, &str)> {
+        self.lines
+            .iter()
+            .filter_map(|line| line.strip_prefix("scope "))
+            .flat_map(str::split_whitespace)
+            .enumerate()
+            .map(|(i, pin)| (i + 1, pin))
+    }
+
     /// 搭好的电路
     pub fn build(&self) -> Result<Circuit, String> {
+        self.build_circuit(true)
+    }
+
+    pub(crate) fn build_practice(&self) -> Result<Circuit, String> {
+        self.build_circuit(false)
+    }
+
+    fn build_circuit(&self, with_scope: bool) -> Result<Circuit, String> {
         let mut c = Circuit {
             title: self.title(),
             ..Default::default()
@@ -142,6 +161,7 @@ impl Example {
                     let color = it.next().and_then(color_of);
                     links.push((pa, pb, color));
                 }
+                Some("scope") => {}
                 Some("mcu") => {
                     let (Some(label), json) = (it.next(), it.collect::<Vec<_>>().join(" ")) else { continue };
                     let id = *ids.get(label).ok_or_else(|| format!("{}: {label}", self.id))?;
@@ -163,14 +183,46 @@ impl Example {
             }
         }
         route_all(&mut c, &links).map_err(|e| format!("{}: {e}", self.id))?;
+        if with_scope {
+            self.attach_probes(&mut c, &ids)?;
+        }
         Ok(c)
+    }
+
+    fn attach_probes(&self, c: &mut Circuit, ids: &HashMap<String, u32>) -> Result<(), String> {
+        let netlist = Netlist::build(c);
+        let mut measured = HashSet::new();
+        for (ch, name) in self.scope_targets() {
+            let (id, pin) = pin_ref(c, ids, name).ok_or_else(|| format!("{}: unknown scope pin {name}", self.id))?;
+            let net = netlist
+                .net_of(id, pin)
+                .filter(|&n| netlist.members[n].len() >= 2)
+                .ok_or_else(|| format!("{}: scope pin {name} is unconnected", self.id))?;
+            if ch > 8 || !measured.insert(net) {
+                return Err(format!("{}: duplicate scope net or too many channels at {name}", self.id));
+            }
+            let at = c.part(id).unwrap().pins()[pin];
+            let (rot, reach) = probe_placement(c, at);
+            let probe = c.add_part("probe", at.0, at.1);
+            let part = c.part_mut(probe).unwrap();
+            part.rot = rot;
+            part.label = format!("CH{ch}");
+            part.set("ch", ch.to_string());
+            part.set("reach", reach.to_string());
+        }
+        Ok(())
     }
 
     /// 搭建步骤：先放元件，再按顺序接线
     pub fn steps(&self, c: &Circuit) -> Vec<String> {
         use crate::i18n::{t, tf};
         let mut v = vec![];
-        let names: Vec<String> = c.parts.iter().map(|p| format!("{} {}", p.label, t(lib::def(&p.kind).map_or("", |d| d.zh)))).collect();
+        let names: Vec<String> = c
+            .parts
+            .iter()
+            .filter(|p| p.kind != "probe")
+            .map(|p| format!("{} {}", p.label, t(lib::def(&p.kind).map_or("", |d| d.zh))))
+            .collect();
         v.push(tf("放好元件：{}", &[&names.join("、")]));
         for l in &self.lines {
             let mut it = l.split_whitespace();
@@ -215,18 +267,24 @@ fn color_of(s: &str) -> Option<u8> {
     })
 }
 
-fn auto_color(name: &str, k: usize) -> u8 {
-    let n = name.to_ascii_uppercase();
-    if matches!(
-        n.as_str(),
-        "+" | "VCC" | "5V" | "3V3" | "VBAT" | "VIN" | "VIN+" | "IN+" | "VM" | "VDD" | "12V" | "B+" | "OUT+" | "VSYS" | "VBUS" | "VOUT+" | "P+"
-    ) {
-        0
-    } else if n == "GND" || n == "-" || n.ends_with('-') && !n.contains("IN") && !n.starts_with("CLK") && !n.starts_with('D') {
-        1
-    } else {
-        [2, 3, 4, 5, 7, 6][k % 6]
+const SIGNAL_COLORS: [u8; 6] = [2, 3, 4, 5, 7, 6];
+
+fn net_color(c: &Circuit, members: &[(u32, usize)]) -> Option<u8> {
+    use lib::cap;
+    let mut supply = false;
+    for &(id, pin) in members {
+        let Some(part) = c.part(id) else { continue };
+        let Some(def) = lib::def(&part.kind) else { continue };
+        let pd = &def.pins[pin];
+        let source = matches!(def.key, "usb5v" | "psu" | "battery" | "siggen");
+        if pd.caps & cap::GND != 0 || pd.name == "GND" || source && pd.name == "-" || matches!(pd.name.as_str(), "IN-" | "OUT-" | "B-") && matches!(def.key, "buck" | "boost" | "tp4056") {
+            return Some(1);
+        }
+        supply |= pd.caps & (cap::V5 | cap::V33) != 0
+            || source && pd.name == "+"
+            || matches!(pd.name.as_str(), "VCC" | "VDD" | "VBAT" | "VBUS" | "VSYS" | "VIN" | "5V" | "3V3" | "VM" | "12V" | "B+" | "IN+" | "OUT+");
     }
+    supply.then_some(0)
 }
 
 /// 元件外形在画布上的范围（格）
@@ -234,10 +292,7 @@ fn bounds(c: &Circuit, id: u32) -> (f32, f32, f32, f32) {
     let p = c.part(id).unwrap();
     let d = lib::def(&p.kind).unwrap();
     let [x0, y0, x1, y1] = d.body;
-    let pts = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].map(|(x, y)| {
-        let (a, b) = super::rot_pt((x.round() as i32, y.round() as i32), p.rot);
-        (p.x as f32 + a as f32, p.y as f32 + b as f32)
-    });
+    let pts = [(x0, y0), (x1, y0), (x0, y1), (x1, y1)].map(|corner| p.to_worldf(corner));
     let xs = pts.map(|p| p.0);
     let ys = pts.map(|p| p.1);
     (
@@ -246,6 +301,32 @@ fn bounds(c: &Circuit, id: u32) -> (f32, f32, f32, f32) {
         xs.iter().cloned().fold(f32::MIN, f32::max),
         ys.iter().cloned().fold(f32::MIN, f32::max),
     )
+}
+
+fn probe_placement(c: &Circuit, at: Pt) -> (u8, u8) {
+    let bodies: Vec<_> = c.parts.iter().filter(|p| p.kind != "probe").map(|p| bounds(c, p.id)).collect();
+    let badges: Vec<_> = c.parts.iter().filter(|p| p.kind == "probe").map(|p| p.to_worldf((0.0, -p.num("reach") as f32))).collect();
+    let pins: HashSet<_> = c.parts.iter().flat_map(|p| p.pins()).collect();
+    let score = |rot, reach: u8| {
+        let mut cost = usize::from(reach - 1) * 2;
+        for step in 1..=reach {
+            let (dx, dy) = super::rot_pt((0, -i32::from(step)), rot);
+            let (x, y) = (at.0 + dx, at.1 + dy);
+            let (fx, fy) = (x as f32, y as f32);
+            let covered = bodies.iter().filter(|&&(l, t, r, b)| (l - 0.3..=r + 0.3).contains(&fx) && (t - 0.3..=b + 0.3).contains(&fy)).count();
+            let crosses = c.wires.iter().any(|w| w.pts.windows(2).any(|s| super::net::on_segment((x, y), s[0], s[1])));
+            cost += 12 * covered + 10 * usize::from(pins.contains(&(x, y))) + 5 * usize::from(crosses);
+            if step == reach && badges.iter().any(|&(bx, by)| (fx - bx).abs() < 1.65 && (fy - by).abs() < 0.95) {
+                cost += 60;
+            }
+        }
+        cost
+    };
+    [2, 1, 3]
+        .into_iter()
+        .flat_map(|reach| [0, 2, 1, 3].into_iter().map(move |rot| (rot, reach)))
+        .min_by_key(|&(rot, reach)| score(rot, reach))
+        .unwrap()
 }
 
 /// 引脚朝向：1 = 朝下（在外形底边），-1 = 朝上，0 = 两侧
@@ -296,7 +377,7 @@ fn route_all(c: &mut Circuit, links: &[((u32, usize), (u32, usize), Option<u8>)]
     let ymax = c.parts.iter().map(|p| bounds(c, p.id).3).fold(f32::MIN, f32::max).ceil() as i32;
     let ymin = c.parts.iter().map(|p| bounds(c, p.id).1).fold(f32::MAX, f32::min).floor() as i32;
     let (mut below, mut above) = (0, 0);
-    for (k, (a, b, color)) in links.iter().enumerate() {
+    for (a, b, color) in links {
         join(&mut parent, *a, *b);
         let pa = c.part(a.0).unwrap().pins()[a.1];
         let pb = c.part(b.0).unwrap().pins()[b.1];
@@ -304,14 +385,7 @@ fn route_all(c: &mut Circuit, links: &[((u32, usize), (u32, usize), Option<u8>)]
         let fb = facing(c, b.0, pb);
         let name = lib::def(&c.part(a.0).unwrap().kind).unwrap().pins[a.1].name.clone();
         let name_b = lib::def(&c.part(b.0).unwrap().kind).unwrap().pins[b.1].name.clone();
-        let col = color.unwrap_or_else(|| {
-            let ca = auto_color(&name, k);
-            if ca <= 1 {
-                ca
-            } else {
-                auto_color(&name_b, k)
-            }
-        });
+        let col = color.unwrap_or(0);
         let mut cands: Vec<Vec<Pt>> = vec![];
         let lane_dn = |n: i32| ymax + 2 + n;
         let lane_up = |n: i32| ymin - 2 - n;
@@ -351,20 +425,24 @@ fn route_all(c: &mut Circuit, links: &[((u32, usize), (u32, usize), Option<u8>)]
                 }
             }
         }
-        if let Some(m) = maze(c, pa, &targets) {
-            let at = if cands.first().is_some_and(|v| v.len() == 2) { 1 } else { 0 };
-            cands.insert(at, m);
+        let grid = RouteGrid::new(c);
+        if let Some(m) = grid.maze(pa, &targets) {
+            cands.push(m);
         }
+        for pts in &mut cands {
+            simplify(pts);
+        }
+        cands.sort_by_key(|pts| grid.cost(pts));
         let mut ok = false;
         for pts in cands {
-            let mut pts = pts;
-            pts.dedup();
-            // 两个点之间是直角折线：去掉共线的中间点
+            if pts.len() < 2 {
+                continue;
+            }
             let id = c.add_wire(pts.clone(), col);
             if std::env::var("EXDBG").is_ok() {
                 eprintln!("try {pts:?}");
             }
-            if check(c, &mut parent) {
+            if check(c, &parent) {
                 if pts.len() == 4 && pts[1].1 == pts[2].1 {
                     if pts[1].1 > ymax {
                         below = below.max(pts[1].1 - ymax - 1);
@@ -381,11 +459,59 @@ fn route_all(c: &mut Circuit, links: &[((u32, usize), (u32, usize), Option<u8>)]
             return Err(format!("can't route {}.{} → {}.{}", c.part(a.0).unwrap().label, name, c.part(b.0).unwrap().label, name_b));
         }
     }
+    improve_routes(c, &parent);
+    if std::env::var_os("EXDBG").is_some() {
+        for wire in &c.wires {
+            eprintln!("wire {:?}", wire.pts);
+        }
+    }
+    let netlist = Netlist::build(c);
+    let rail_colors: Vec<_> = netlist.members.iter().map(|members| net_color(c, members)).collect();
+    let mut assigned = HashMap::new();
+    let mut next_signal = 0;
+    for (wire, (_, _, explicit)) in c.wires.iter_mut().zip(links) {
+        if let Some(color) = explicit {
+            wire.color = *color;
+        } else {
+            let n = netlist.wire[&wire.id];
+            wire.color = *assigned.entry(n).or_insert_with(|| {
+                rail_colors[n].unwrap_or_else(|| {
+                    let color = SIGNAL_COLORS[next_signal % SIGNAL_COLORS.len()];
+                    next_signal += 1;
+                    color
+                })
+            });
+        }
+    }
     Ok(())
 }
 
+/// Once all nets exist, remove avoidable detours around wires that were placed later.
+fn improve_routes(c: &mut Circuit, parent: &HashMap<(u32, usize), (u32, usize)>) {
+    for index in 0..c.wires.len() {
+        let wire = c.wires.remove(index);
+        let start = wire.pts[0];
+        let end = *wire.pts.last().unwrap();
+        let grid = RouteGrid::new(c);
+        let current_cost = grid.cost(&wire.pts);
+        let direct_cost = start.0.abs_diff(end.0) + start.1.abs_diff(end.1) + if start.0 != end.0 && start.1 != end.1 { TURN_COST } else { 0 };
+        if current_cost <= direct_cost {
+            c.wires.insert(index, wire);
+            continue;
+        }
+        if let Some(points) = grid.maze(start, &[end]).filter(|points| grid.cost(points) < current_cost) {
+            c.wires.push(super::Wire { pts: points, ..wire.clone() });
+            let valid = check(c, parent);
+            let revised = c.wires.pop().unwrap();
+            c.wires.insert(index, if valid { revised } else { wire });
+        } else {
+            c.wires.insert(index, wire);
+        }
+    }
+}
+
 /// 网表里每个网络的引脚都属于同一个「应该连在一起」的组，且每根线的两头都接通了
-fn check(c: &Circuit, parent: &mut HashMap<(u32, usize), (u32, usize)>) -> bool {
+fn check(c: &Circuit, parent: &HashMap<(u32, usize), (u32, usize)>) -> bool {
     fn find(p: &HashMap<(u32, usize), (u32, usize)>, x: (u32, usize)) -> (u32, usize) {
         let mut r = x;
         while let Some(&n) = p.get(&r) {
@@ -436,7 +562,7 @@ fn check(c: &Circuit, parent: &mut HashMap<(u32, usize), (u32, usize)>) -> bool 
     }
     // 每组应该连通的都在同一个网络
     let mut seen: HashMap<(u32, usize), usize> = HashMap::new();
-    for (k, _) in parent.clone() {
+    for &k in parent.keys() {
         let r = find(parent, k);
         let Some(n) = nl.net_of(k.0, k.1) else { return false };
         if let Some(&n0) = seen.get(&r) {
@@ -451,98 +577,158 @@ fn check(c: &Circuit, parent: &mut HashMap<(u32, usize), (u32, usize)>) -> bool 
     true
 }
 
-fn maze(c: &Circuit, a: Pt, targets: &[Pt]) -> Option<Vec<Pt>> {
-    let b = targets[0];
-    use std::cmp::Reverse;
-    use std::collections::{BinaryHeap, HashSet};
-    let pins: HashSet<Pt> = c.parts.iter().flat_map(|p| p.pins()).filter(|p| *p != a && !targets.contains(p)).collect();
-    let boxes: Vec<(i32, i32, i32, i32)> = c
-        .parts
-        .iter()
-        .map(|p| {
+fn simplify(points: &mut Vec<Pt>) {
+    points.dedup();
+    let mut out = Vec::with_capacity(points.len());
+    for &point in points.iter() {
+        if let [.., a, b] = out.as_slice() {
+            if super::net::on_segment(*b, *a, point) {
+                out.pop();
+            }
+        }
+        out.push(point);
+    }
+    *points = out;
+}
+
+const TURN_COST: u32 = 8;
+const CROSSING_COST: u32 = 17;
+const BODY_COST: u32 = 10;
+const DIRECTIONS: [Pt; 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+struct RouteGrid {
+    pins: HashSet<Pt>,
+    body: HashSet<Pt>,
+    occupied: HashSet<(Pt, Pt)>,
+    wire_axes: HashMap<Pt, u8>,
+    area: (i32, i32, i32, i32),
+}
+
+fn cells(a: Pt, b: Pt) -> impl Iterator<Item = Pt> {
+    let (dx, dy) = ((b.0 - a.0).signum(), (b.1 - a.1).signum());
+    let len = a.0.abs_diff(b.0).max(a.1.abs_diff(b.1)) as i32;
+    (0..=len).map(move |i| (a.0 + i * dx, a.1 + i * dy))
+}
+
+fn axis(a: Pt, b: Pt) -> u8 {
+    if a.1 == b.1 {
+        1
+    } else {
+        2
+    }
+}
+
+impl RouteGrid {
+    fn new(c: &Circuit) -> Self {
+        let mut grid = Self {
+            pins: c.parts.iter().flat_map(|p| p.pins()).collect(),
+            body: HashSet::new(),
+            occupied: HashSet::new(),
+            wire_axes: HashMap::new(),
+            area: (i32::MAX, i32::MAX, i32::MIN, i32::MIN),
+        };
+        for p in &c.parts {
             let (x0, y0, x1, y1) = bounds(c, p.id);
-            (x0.ceil() as i32, y0.ceil() as i32, x1.floor() as i32, y1.floor() as i32)
-        })
-        .collect();
-    let mut used: HashSet<(Pt, Pt)> = HashSet::new();
-    for w in &c.wires {
-        for s in w.pts.windows(2) {
-            let (mut x, mut y) = s[0];
-            let (dx, dy) = ((s[1].0 - x).signum(), (s[1].1 - y).signum());
-            while (x, y) != s[1] {
-                let n = (x + dx, y + dy);
-                used.insert(((x, y).min(n), (x, y).max(n)));
-                (x, y) = n;
+            let (l, t, r, b) = (x0.floor() as i32, y0.floor() as i32, x1.ceil() as i32, y1.ceil() as i32);
+            grid.area = (grid.area.0.min(l), grid.area.1.min(t), grid.area.2.max(r), grid.area.3.max(b));
+            if !matches!(lib::def(&p.kind).unwrap().look, lib::Look::Breadboard { .. }) {
+                for x in l + 1..r {
+                    for y in t + 1..b {
+                        if x as f32 > x0 && (x as f32) < x1 && y as f32 > y0 && (y as f32) < y1 {
+                            grid.body.insert((x, y));
+                        }
+                    }
+                }
             }
         }
-    }
-    let mut x0 = targets.iter().map(|t| t.0).min().unwrap().min(a.0);
-    let mut x1 = targets.iter().map(|t| t.0).max().unwrap().max(a.0);
-    let mut y0 = targets.iter().map(|t| t.1).min().unwrap().min(a.1);
-    let mut y1 = targets.iter().map(|t| t.1).max().unwrap().max(a.1);
-    for &(bx0, by0, bx1, by1) in &boxes {
-        x0 = x0.min(bx0);
-        y0 = y0.min(by0);
-        x1 = x1.max(bx1);
-        y1 = y1.max(by1);
-    }
-    let (x0, y0, x1, y1) = (x0 - 6, y0 - 6, x1 + 6, y1 + 6);
-    let inside = |p: Pt| boxes.iter().filter(|&&(bx0, by0, bx1, by1)| p.0 > bx0 && p.0 < bx1 && p.1 > by0 && p.1 < by1).count() as u32;
-    const D: [(i32, i32); 4] = [(1, 0), (-1, 0), (0, 1), (0, -1)];
-    let mut dist: HashMap<(Pt, u8), u32> = HashMap::new();
-    let mut prev: HashMap<(Pt, u8), (Pt, u8)> = HashMap::new();
-    let mut q = BinaryHeap::new();
-    for d in 0..4u8 {
-        dist.insert((a, d), 0);
-        q.push(Reverse((0u32, a, d)));
-    }
-    let mut end = None;
-    while let Some(Reverse((cost, p, d))) = q.pop() {
-        if dist.get(&(p, d)).is_some_and(|&x| x < cost) {
-            continue;
+        for w in &c.wires {
+            for s in w.pts.windows(2) {
+                let (a, b) = (s[0], s[1]);
+                let mut previous = a;
+                for p in cells(a, b).skip(1) {
+                    grid.occupied.insert((p.min(previous), p.max(previous)));
+                    *grid.wire_axes.entry(previous).or_default() |= axis(a, b);
+                    *grid.wire_axes.entry(p).or_default() |= axis(a, b);
+                    previous = p;
+                }
+            }
         }
-        if targets.contains(&p) {
-            end = Some((p, d));
-            break;
+        grid
+    }
+
+    fn step_cost(&self, from: Pt, to: Pt, at_target: bool) -> u32 {
+        let touches_wire = self.wire_axes.get(&to).is_some_and(|&axes| axes & (3 - axis(from, to)) != 0);
+        1 + u32::from(!at_target && self.body.contains(&to)) * BODY_COST + u32::from(!at_target && touches_wire) * CROSSING_COST
+    }
+
+    fn cost(&self, points: &[Pt]) -> u32 {
+        let mut cost = points.len().saturating_sub(2) as u32 * TURN_COST;
+        let target = points.last().copied();
+        for pair in points.windows(2) {
+            let mut from = pair[0];
+            for to in cells(from, pair[1]).skip(1) {
+                if self.occupied.contains(&(from.min(to), from.max(to))) || Some(to) != target && self.pins.contains(&to) {
+                    return u32::MAX;
+                }
+                cost += self.step_cost(from, to, Some(to) == target);
+                from = to;
+            }
         }
-        if cost > 4000 {
-            break;
+        cost
+    }
+
+    fn maze(&self, a: Pt, targets: &[Pt]) -> Option<Vec<Pt>> {
+        let (mut x0, mut y0, mut x1, mut y1) = self.area;
+        for &(x, y) in targets.iter().chain(std::iter::once(&a)) {
+            (x0, y0, x1, y1) = (x0.min(x), y0.min(y), x1.max(x), y1.max(y));
         }
-        for (nd, (dx, dy)) in D.iter().enumerate() {
-            let n = (p.0 + dx, p.1 + dy);
-            if n.0 < x0 || n.0 > x1 || n.1 < y0 || n.1 > y1 || pins.contains(&n) {
+        let (x0, y0, x1, y1) = (x0 - 6, y0 - 6, x1 + 6, y1 + 6);
+        let estimate = |(x, y): Pt| targets.iter().map(|&(tx, ty)| x.abs_diff(tx) + y.abs_diff(ty)).min().unwrap_or(0);
+        let mut dist: HashMap<(Pt, u8), u32> = HashMap::new();
+        let mut prev: HashMap<(Pt, u8), (Pt, u8)> = HashMap::new();
+        let mut q = BinaryHeap::new();
+        for d in 0..4u8 {
+            dist.insert((a, d), 0);
+            q.push(Reverse((estimate(a), 0u32, a, d)));
+        }
+        let mut end = None;
+        while let Some(Reverse((_, cost, p, d))) = q.pop() {
+            if dist.get(&(p, d)).is_some_and(|&x| x < cost) {
                 continue;
             }
-            if used.contains(&(p.min(n), p.max(n))) {
+            if targets.contains(&p) {
+                end = Some((p, d));
+                break;
+            }
+            if cost > 4000 {
                 continue;
             }
-            let turn = if p == a || nd as u8 == d { 0 } else { 6 };
-            let nc = cost + 1 + turn + 3 * inside(n);
-            let key = (n, nd as u8);
-            if dist.get(&key).is_none_or(|&x| nc < x) {
-                dist.insert(key, nc);
-                prev.insert(key, (p, d));
-                q.push(Reverse((nc, n, nd as u8)));
+            for (nd, (dx, dy)) in DIRECTIONS.iter().enumerate() {
+                let n = (p.0 + dx, p.1 + dy);
+                let target = targets.contains(&n);
+                if n.0 < x0 || n.0 > x1 || n.1 < y0 || n.1 > y1 || n == a || self.pins.contains(&n) && !target || self.occupied.contains(&(p.min(n), p.max(n))) {
+                    continue;
+                }
+                let turn = if nd as u8 == d { 0 } else { TURN_COST };
+                let nc = cost + self.step_cost(p, n, target) + turn;
+                let key = (n, nd as u8);
+                if dist.get(&key).is_none_or(|&x| nc < x) {
+                    dist.insert(key, nc);
+                    prev.insert(key, (p, d));
+                    q.push(Reverse((nc + estimate(n), nc, n, nd as u8)));
+                }
             }
         }
-    }
-    let mut k = end?;
-    let mut path = vec![k.0];
-    while let Some(&pk) = prev.get(&k) {
-        path.push(pk.0);
-        k = pk;
-    }
-    path.reverse();
-    // 只留拐点
-    let mut out: Vec<Pt> = vec![path[0]];
-    for i in 1..path.len() - 1 {
-        let (p, q2, r) = (path[i - 1], path[i], path[i + 1]);
-        if (q2.0 - p.0, q2.1 - p.1) != (r.0 - q2.0, r.1 - q2.1) {
-            out.push(q2);
+        let mut key = end?;
+        let mut path = vec![key.0];
+        while let Some(&previous) = prev.get(&key) {
+            path.push(previous.0);
+            key = previous;
         }
+        path.reverse();
+        simplify(&mut path);
+        Some(path)
     }
-    out.push(*path.last().unwrap());
-    Some(out)
 }
 
 /// 两段水平 / 竖直线段共线且重叠（不只是碰到一个点）
@@ -598,6 +784,30 @@ mod tests {
 
 #[cfg(test)]
 mod run_tests {
+    /// Every authored point is on a distinct net and survives serialization.
+    #[test]
+    fn every_example_has_scope_probes_on_the_declared_nets() {
+        for e in super::all() {
+            let built = e.build().unwrap();
+            let c = super::Circuit::from_json(&built.to_json()).unwrap();
+            let nl = super::Netlist::build(&c);
+            let ids = c.parts.iter().map(|p| (p.label.clone(), p.id)).collect();
+            let probes: Vec<_> = c.parts.iter().filter(|p| p.kind == "probe").collect();
+            assert!((2..=4).contains(&probes.len()), "{}", e.id);
+            assert_eq!(probes.len(), e.scope_targets().count(), "{}", e.id);
+            let mut unmeasured = c.clone();
+            unmeasured.parts.retain(|p| p.kind != "probe");
+            let original = super::Netlist::build(&unmeasured);
+            assert_eq!(nl.count, original.count, "{}", e.id);
+            assert!(original.pin.iter().all(|(pin, net)| nl.pin.get(pin) == Some(net)), "{}", e.id);
+            for (probe, (channel, reference)) in probes.into_iter().zip(e.scope_targets()) {
+                assert_eq!(probe.prop("ch"), channel.to_string(), "{}", e.id);
+                let target = super::pin_ref(&c, &ids, reference).unwrap();
+                assert!(nl.same((probe.id, 0), target), "{} CH{channel} {reference}", e.id);
+            }
+        }
+    }
+
     /// 每个示例通电跑一小会儿（像界面一样每帧有时间预算，不会卡住）不崩溃
     #[test]
     fn every_example_runs() {
@@ -608,6 +818,21 @@ mod run_tests {
                 s.advance(&c, 1.0 / 60.0, 1.0);
             }
             assert!(s.t > 0.0, "{} 没有往前走", e.id);
+            for probe in c.parts.iter().filter(|p| p.kind == "probe") {
+                let trace = s.traces.iter().find(|tr| tr.part == probe.id && tr.pin == 0).unwrap();
+                assert!(s.pin_v(probe.id, 0).is_some_and(f64::is_finite), "{} {}", e.id, probe.label);
+                assert!(trace.at(s.t).is_some_and(f32::is_finite), "{} {}", e.id, probe.label);
+            }
+            if e.id == "C5" {
+                let swing = |ch: &str| {
+                    let probe = c.parts.iter().find(|p| p.kind == "probe" && p.prop("ch") == ch).unwrap();
+                    let trace = s.traces.iter().find(|tr| tr.part == probe.id).unwrap();
+                    let (lo, hi) = trace.range((s.t - 0.02).max(0.0), s.t).unwrap();
+                    hi - lo
+                };
+                assert!(swing("1") > 4.0, "CH1 should see the PWM amplitude");
+                assert!(swing("2") < swing("1"), "CH2 should see the filtered output");
+            }
         }
     }
 }

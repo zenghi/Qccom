@@ -476,13 +476,7 @@ pub fn draw_part(c: &Ctx) {
                 c.leg(3.0, -0.5, 3.0, 0.0);
             }
         }
-        Look::Probe => {
-            let ch = c.part.prop("ch");
-            let col = probe_color(ch);
-            c.rrect(-0.45, -3.0, 0.45, -0.6, 0.3, col, s1);
-            c.leg(0.0, -0.6, 0.0, 0.0);
-            c.text(0.0, -1.8, &format!("CH{ch}"), 0.3, Color32::BLACK);
-        }
+        Look::Probe => draw_measurement_marker(c),
         Look::Logic => {
             c.rrect(-0.5, -3.8, 8.5, -0.6, 0.3, Color32::from_rgb(0x2a, 0x2e, 0x36), s1);
             c.text(4.0, -2.4, "Logic 8CH", 0.5, Color32::WHITE);
@@ -501,6 +495,21 @@ fn lerp_col(a: Color32, b: Color32, t: f32) -> Color32 {
     let t = t.clamp(0.0, 1.0);
     let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t) as u8;
     Color32::from_rgba_unmultiplied(m(a.r(), b.r()), m(a.g(), b.g()), m(a.b(), b.b()), m(a.a(), b.a()))
+}
+
+fn draw_measurement_marker(c: &Ctx) {
+    let ch = c.part.prop("ch");
+    let color = crate::theme::ink(probe_color(ch));
+    let contact = c.l(0.0, 0.0);
+    let reach = c.part.num("reach");
+    let badge = c.l(0.0, -(if reach > 0.0 { reach as f32 } else { 1.35 }));
+    let size = (c.v.s * 1.55).clamp(20.0, 31.0);
+    let rect = egui::Rect::from_center_size(badge, vec2(size, size * 0.53));
+    c.p.line_segment([contact, badge], Stroke::new(1.25, color));
+    c.p.circle(contact, 3.0, BG0(), Stroke::new(1.4, color));
+    c.p.rect(rect, egui::CornerRadius::same(4), BG2(), Stroke::new(1.0, color), egui::StrokeKind::Inside);
+    let label = if size < 25.0 { ch.to_string() } else { format!("CH{ch}") };
+    c.p.text(badge, Align2::CENTER_CENTER, label, FontId::monospace(9.5), color);
 }
 
 pub fn probe_color(ch: &str) -> Color32 {
@@ -931,15 +940,7 @@ pub fn draw_symbol(c: &Ctx) {
     match &c.def.look {
         Look::Breadboard { .. } => {}
         Look::Probe => {
-            let ch = c.part.prop("ch");
-            let color = crate::theme::ink(probe_color(ch));
-            let contact = c.l(pins[0].0, pins[0].1);
-            let badge = c.l(pins[0].0, pins[0].1 - 0.72);
-            let rect = egui::Rect::from_center_size(badge, vec2(31.0, 17.0));
-            c.p.line_segment([contact, badge], Stroke::new(1.2, color));
-            c.p.circle(contact, 3.0, BG0(), Stroke::new(1.4, color));
-            c.p.rect(rect, egui::CornerRadius::same(4), BG2(), Stroke::new(1.0, color), egui::StrokeKind::Inside);
-            c.p.text(badge, Align2::CENTER_CENTER, format!("CH{ch}"), FontId::monospace(9.5), color);
+            draw_measurement_marker(c);
             return;
         }
         Look::Resistor | Look::Inductor | Look::Fuse | Look::Bead | Look::Diode | Look::Zener => {

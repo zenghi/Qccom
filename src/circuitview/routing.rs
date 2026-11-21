@@ -61,14 +61,12 @@ pub(super) fn snap(c: &Circuit, w: (f32, f32), scale: f32, schematic: bool, skip
         }
     };
     let is_board = |kind: &str| crate::circuit::lib::def(kind).is_some_and(|d| matches!(d.look, crate::circuit::lib::Look::Breadboard { .. }));
-    for breadboard in [false, true] {
-        if breadboard && schematic {
-            continue;
-        }
-        for part in c.parts.iter().rev().filter(|p| is_board(&p.kind) == breadboard) {
-            for (i, at) in part.pins().into_iter().enumerate() {
-                consider(at, Contact::Pin(part.id, i), (8.0 / scale).min(0.76));
-            }
+    let normal = c.parts.iter().rev().filter(|p| p.kind != "probe" && !is_board(&p.kind));
+    let holes = c.parts.iter().rev().filter(|p| !schematic && is_board(&p.kind));
+    let probes = c.parts.iter().rev().filter(|p| p.kind == "probe");
+    for part in normal.chain(holes).chain(probes) {
+        for (i, at) in part.pins().into_iter().enumerate() {
+            consider(at, Contact::Pin(part.id, i), (8.0 / scale).min(0.76));
         }
     }
     for wire in c.wires.iter().rev().filter(|wire| Some(wire.id) != skip_wire) {
@@ -324,7 +322,7 @@ mod tests {
     #[test]
     fn tutorial_return_wire_routes_around_the_positive_supply() {
         use crate::circuit::examples;
-        let mut c = examples::find("A2").unwrap().build().unwrap();
+        let mut c = examples::find("A2").unwrap().build_practice().unwrap();
         let led = c.parts.iter().find(|p| p.kind == "led").unwrap();
         let power = c.parts.iter().find(|p| p.kind == "usb5v").unwrap();
         let (from, to) = (led.pins()[1], power.pins()[1]);

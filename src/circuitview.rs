@@ -383,6 +383,7 @@ impl CircuitView {
                 self.load(c, None);
                 self.example = Some(id.to_string());
                 self.tab = RTab::Example;
+                self.show_scope();
                 self.set_power(false);
                 if e.power {
                     self.set_power(true);

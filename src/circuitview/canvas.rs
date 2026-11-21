@@ -858,7 +858,7 @@ impl CircuitView {
         if self.schematic {
             self.paint_wires(p, rect);
         }
-        for part in self.c.parts.iter().filter(|q| !is_bb(q)) {
+        for part in self.c.parts.iter().filter(|q| !is_bb(q) && q.kind != "probe") {
             draw_part(part, self.sel.contains(&Sel::Part(part.id)), lab(part.id), p);
         }
         if !self.schematic {
@@ -866,6 +866,9 @@ impl CircuitView {
         }
         if self.sim.is_some() && self.show_flow {
             self.paint_flow(p, t_anim);
+        }
+        for part in self.c.parts.iter().filter(|q| q.kind == "probe") {
+            draw_part(part, self.sel.contains(&Sel::Part(part.id)), lab(part.id), p);
         }
         // 文字说明
         for n in &self.c.notes {

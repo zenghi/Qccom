@@ -930,6 +930,18 @@ pub fn draw_symbol(c: &Ctx) {
     let col = if burnt { ERR() } else { ink };
     match &c.def.look {
         Look::Breadboard { .. } => {}
+        Look::Probe => {
+            let ch = c.part.prop("ch");
+            let color = crate::theme::ink(probe_color(ch));
+            let contact = c.l(pins[0].0, pins[0].1);
+            let badge = c.l(pins[0].0, pins[0].1 - 0.72);
+            let rect = egui::Rect::from_center_size(badge, vec2(31.0, 17.0));
+            c.p.line_segment([contact, badge], Stroke::new(1.2, color));
+            c.p.circle(contact, 3.0, BG0(), Stroke::new(1.4, color));
+            c.p.rect(rect, egui::CornerRadius::same(4), BG2(), Stroke::new(1.0, color), egui::StrokeKind::Inside);
+            c.p.text(badge, Align2::CENTER_CENTER, format!("CH{ch}"), FontId::monospace(9.5), color);
+            return;
+        }
         Look::Resistor | Look::Inductor | Look::Fuse | Look::Bead | Look::Diode | Look::Zener => {
             let (a, b) = (pins[0], pins[1]);
             let (dx, dy) = (b.0 - a.0, b.1 - a.1);

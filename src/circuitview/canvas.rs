@@ -5,7 +5,8 @@ use std::collections::HashMap;
 use eframe::egui::{self, pos2, vec2, Align2, Color32, CornerRadius, FontId, PointerButton, Pos2, Rect, Sense, Shape, Stroke};
 
 use super::draw::{self, Ctx, View};
-use super::{CircuitView, Draft, Drag, Sel};
+use super::routing::{self, distance as dist, grid as snap, Contact};
+use super::{CircuitView, Draft, Drag, RTab, Sel, Tool};
 use crate::circuit::lib::{self, Look};
 use crate::circuit::net::on_segment;
 use crate::circuit::{fmt_si, rot_pt, Circuit, Part, Pt, WIRE_COLORS};
@@ -27,14 +28,6 @@ enum Hit {
     Wire(u32),
     Part(u32),
     Note(u32),
-}
-
-fn snap(w: (f32, f32)) -> Pt {
-    (w.0.round() as i32, w.1.round() as i32)
-}
-
-fn dist(a: (f32, f32), b: Pt) -> f32 {
-    ((a.0 - b.0 as f32).powi(2) + (a.1 - b.1 as f32).powi(2)).sqrt()
 }
 
 fn seg_dist(p: (f32, f32), a: Pt, b: Pt) -> f32 {
@@ -65,15 +58,6 @@ pub(super) fn part_bounds(p: &Part) -> Option<(f32, f32, f32, f32)> {
         }
     }
     Some(b)
-}
-
-/// 两点之间的走线：原理图里走直角，实物里直接拉过去
-fn route(a: Pt, b: Pt, schematic: bool) -> Vec<Pt> {
-    if schematic && a.0 != b.0 && a.1 != b.1 {
-        vec![a, (b.0, a.1), b]
-    } else {
-        vec![a, b]
-    }
 }
 
 /// 世界方向 → 元件局部方向（旋转、翻转的逆变换）
@@ -189,48 +173,32 @@ impl CircuitView {
 
     /// 开始拖动选中的东西（面包板带着插在上面的元件和导线一起走）
     fn begin_move(&mut self, w: (f32, f32)) {
-        let mut parts = vec![];
-        let mut wires = vec![];
-        let mut notes = vec![];
-        let mut ids: Vec<u32> = self.sel.iter().filter_map(|s| if let Sel::Part(id) = s { Some(*id) } else { None }).collect();
-        let mut wids: Vec<u32> = self.sel.iter().filter_map(|s| if let Sel::Wire(id) = s { Some(*id) } else { None }).collect();
-        // 面包板上插着的东西
-        let bbs: Vec<u32> = self.c.parts.iter().filter(|p| ids.contains(&p.id) && is_bb(p)).map(|p| p.id).collect();
-        for bb in bbs.iter().filter_map(|id| self.c.part(*id)) {
-            let holes: std::collections::HashSet<Pt> = bb.pins().into_iter().collect();
-            let on_board: Vec<u32> = self
-                .c
-                .parts
-                .iter()
-                .filter(|p| !is_bb(p) && !ids.contains(&p.id) && p.pins().iter().any(|q| holes.contains(q)))
-                .map(|p| p.id)
-                .collect();
-            ids.extend(on_board);
-            for wr in &self.c.wires {
-                if !wids.contains(&wr.id) && wr.pts.first().is_some_and(|q| holes.contains(q)) && wr.pts.last().is_some_and(|q| holes.contains(q)) {
-                    wids.push(wr.id);
-                }
-            }
-        }
-        for p in self.c.parts.iter().filter(|p| ids.contains(&p.id)) {
-            parts.push((p.id, p.x, p.y));
-        }
-        for wr in self.c.wires.iter().filter(|x| wids.contains(&x.id)) {
-            wires.push((wr.id, wr.pts.clone()));
-        }
-        for s in &self.sel {
-            if let Sel::Note(id) = s {
-                if let Some(n) = self.c.notes.iter().find(|n| n.id == *id) {
-                    notes.push((n.id, n.x, n.y));
-                }
-            }
+        let mut parts: std::collections::HashSet<_> = self.sel.iter().filter_map(|s| match s {
+            Sel::Part(id) => Some(*id),
+            _ => None,
+        }).collect();
+        let mut wires: std::collections::HashSet<_> = self.sel.iter().filter_map(|s| match s {
+            Sel::Wire(id) => Some(*id),
+            _ => None,
+        }).collect();
+        let notes = self.sel.iter().filter_map(|s| match s {
+            Sel::Note(id) => Some(*id),
+            _ => None,
+        }).collect();
+        for board in self.c.parts.iter().filter(|p| is_bb(p) && self.sel.contains(&Sel::Part(p.id))) {
+            let holes: std::collections::HashSet<_> = board.pins().into_iter().collect();
+            parts.extend(self.c.parts.iter().filter(|p| !is_bb(p) && p.pins().iter().any(|pin| holes.contains(pin))).map(|p| p.id));
+            wires.extend(self.c.wires.iter().filter(|w| {
+                w.pts.first().is_some_and(|q| holes.contains(q)) && w.pts.last().is_some_and(|q| holes.contains(q))
+            }).map(|w| w.id));
         }
         self.drag = Drag::Move {
             start: w,
+            original: Box::new(self.c.clone()),
             parts,
             wires,
             notes,
-            moved: false,
+            delta: (0, 0),
         };
     }
 
@@ -241,6 +209,10 @@ impl CircuitView {
         } else {
             None
         };
+        self.place_part(kind, at, channel);
+    }
+
+    fn place_part(&mut self, kind: &str, at: Pt, channel: Option<String>) -> u32 {
         let id = self.c.add_part(kind, at.0, at.1);
         if let Some(p) = self.c.part_mut(id) {
             p.rot = self.place_rot;
@@ -249,15 +221,74 @@ impl CircuitView {
             }
         }
         self.sel = vec![Sel::Part(id)];
+        id
     }
 
-    fn finish_draft(&mut self) {
-        let Some(d) = self.draft.take() else { return };
-        let mut pts = d.pts;
-        pts.dedup();
-        if pts.len() >= 2 {
-            self.checkpoint();
-            self.c.add_wire(pts, self.wire_color);
+    fn probe_at(&mut self, target: routing::Snap) {
+        let Some(contact) = target.contact else { return };
+        let Some(channel) = (1..=8).map(|n| n.to_string())
+            .find(|ch| !self.c.parts.iter().any(|p| p.kind == "probe" && p.prop("ch") == ch)) else {
+            self.toast(t("八个测量通道已用完"), WARN());
+            return;
+        };
+        self.checkpoint();
+        if let Contact::Wire(id) = contact {
+            // A wire endpoint is electrically visible to a probe on an existing segment.
+            if let Some(wire) = self.c.wires.iter_mut().find(|w| w.id == id) {
+                if wire.pts.first() != Some(&target.at) && wire.pts.last() != Some(&target.at) {
+                    if let Some(k) = wire.pts.windows(2).position(|s| on_segment(target.at, s[0], s[1])) {
+                        let mut tail = wire.pts.split_off(k + 1);
+                        if wire.pts.last() != Some(&target.at) { wire.pts.push(target.at); }
+                        if tail.first() != Some(&target.at) { tail.insert(0, target.at); }
+                        let color = wire.color;
+                        self.c.add_wire(tail, color);
+                    }
+                }
+            }
+        }
+        self.place_rot = if self.schematic { 2 } else { 0 };
+        let id = self.place_part("probe", target.at, Some(channel));
+        self.sel.clear();
+        self.net_origin = Some(Contact::Pin(id, 0));
+        self.scope.current = false;
+        self.show_scope();
+    }
+
+    fn draft_points(&self, target: routing::Snap) -> Option<Vec<Pt>> {
+        let draft = self.draft.as_ref()?;
+        let mut points = draft.pts.clone();
+        let from = *points.last()?;
+        let next = routing::draft_path(&self.c, &self.netlist, from, draft.start, target, self.schematic, self.vertical_first);
+        points.extend(next.into_iter().skip(1));
+        Some(points)
+    }
+
+    fn finish_draft(&mut self, target: Option<routing::Snap>) {
+        let Some(draft) = self.draft.as_ref() else { return };
+        let points = target.and_then(|at| self.draft_points(at)).unwrap_or_else(|| draft.pts.clone());
+        if points.len() < 2 || points.first() == points.last() {
+            self.draft = None;
+            return;
+        }
+        let end = target.and_then(|target| target.contact);
+        let allowed: Vec<_> = [Some(draft.start), end].into_iter().flatten().filter_map(|contact| contact.net(&self.netlist)).collect();
+        if !routing::connects_only(&self.c, &self.netlist, &points, &allowed) {
+            self.toast(t("走线会接到其它网络，请移动落点或添加拐点"), WARN());
+            return;
+        }
+        self.draft = None;
+        self.checkpoint();
+        let id = self.c.add_wire(points, self.wire_color);
+        self.net_origin = Some(Contact::Wire(id));
+    }
+
+    fn extend_draft(&mut self, target: routing::Snap) {
+        if let Some(points) = self.draft_points(target) {
+            let draft = self.draft.as_mut().unwrap();
+            if points.len() != draft.pts.len() {
+                draft.marks.push(draft.pts.len());
+                draft.pts = points;
+            }
         }
     }
 
@@ -321,8 +352,15 @@ impl CircuitView {
 
     pub(super) fn canvas(&mut self, ui: &mut egui::Ui) {
         let (rect, resp) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+        if let Some(previous) = self.canvas_rect.replace(rect) {
+            self.view.org += rect.center() - previous.center();
+            if self.auto_frame && (rect.size() - previous.size()).length() > 2.0 {
+                self.fit = true;
+            }
+        }
         if self.fit {
-            self.fit_view(rect);
+            self.auto_frame = true;
+            self.fit_view(rect.shrink2(vec2(14.0, 18.0)));
             self.fit = false;
         }
         let painter = ui.painter_at(rect);
@@ -348,12 +386,14 @@ impl CircuitView {
                 }
             }
             if !used {
-                if input.modifiers.shift {
+                if input.modifiers.shift && scroll != egui::Vec2::ZERO {
+                    self.auto_frame = false;
                     self.view.org += scroll;
                 } else if scroll.y != 0.0 {
                     z *= (scroll.y * 0.0018).exp();
                 }
                 if (z - 1.0).abs() > 1e-4 {
+                    self.auto_frame = false;
                     let ns = (self.view.s * z).clamp(3.0, 60.0);
                     let k = ns / self.view.s;
                     self.view.org = hp - (hp - self.view.org) * k;
@@ -361,9 +401,19 @@ impl CircuitView {
                 }
             }
         }
+        if input.pointer.button_released(PointerButton::Middle) && matches!(self.drag, Drag::Pan) {
+            self.drag = Drag::None;
+        }
         if resp.dragged_by(PointerButton::Middle) || (resp.dragged_by(PointerButton::Primary) && input.key_down(egui::Key::Space)) {
+            self.auto_frame = false;
             self.view.org += resp.drag_delta();
             self.drag = Drag::Pan;
+        }
+
+        let w = hover_pos.map(|p| self.view.s2w(p));
+        let target = w.map(|at| routing::snap(&self.c, at, self.view.s, self.schematic, None));
+        if self.draft.is_some() && !ui.ctx().wants_keyboard_input() && input.key_pressed(egui::Key::Enter) {
+            self.finish_draft(target);
         }
 
         // ── 鼠标按下
@@ -375,45 +425,39 @@ impl CircuitView {
                 if !input.modifiers.shift {
                     self.placing = None;
                 }
-            } else if let Some(d) = &mut self.draft {
-                // 一下一下点着画：点到引脚 / 导线就结束
-                let last = *d.pts.last().unwrap();
-                let schem = self.schematic;
-                if at != last {
-                    let r = route(last, at, schem);
-                    d.pts.extend(r.into_iter().skip(1));
+            } else if let Some(target) = target.filter(|_| self.draft.is_some()) {
+                if target.contact.is_some() {
+                    self.finish_draft(Some(target));
+                } else {
+                    self.extend_draft(target);
                 }
-                let end = matches!(self.hit(w, false), Hit::Pin(..) | Hit::WirePt(..) | Hit::Wire(..));
-                if end || input.pointer.button_double_clicked(PointerButton::Primary) {
-                    self.finish_draft();
+            } else if self.tool == Tool::Probe {
+                if let Some(target) = target { self.probe_at(target); }
+            } else if self.tool == Tool::Wire {
+                if let Some(target) = target.filter(|target| target.contact.is_some()) {
+                    self.start_wire(target);
                 }
             } else {
                 let h = self.hit(w, false);
                 let shift = input.modifiers.shift || input.modifiers.command;
                 let handled = match h {
-                    Hit::Part(id) | Hit::Pin(id, _) if self.powered() && !is_bb(self.c.part(id).unwrap()) => self.interact(id, w),
+                    Hit::Part(id) | Hit::Pin(id, _) if self.powered() && !self.paused && !is_bb(self.c.part(id).unwrap()) => self.interact(id, w),
                     _ => false,
                 };
                 if !handled {
                     match h {
                         Hit::WirePt(id, k) if self.sel.contains(&Sel::Wire(id)) => {
-                            self.undo.push(self.c.to_json());
-                            self.redo.clear();
-                            self.drag = Drag::WirePt { id, k, moved: false };
+                            if let Some(wire) = self.c.wires.iter().find(|w| w.id == id) {
+                                self.drag = Drag::WirePt { id, k, original: wire.pts.clone(), moved: false };
+                            }
                         }
                         Hit::Pin(id, i) if self.sel.contains(&Sel::Part(id)) && i == 1 && lib::def(&self.c.part(id).unwrap().kind).is_some_and(|d| d.stretch) => {
-                            self.undo.push(self.c.to_json());
-                            self.redo.clear();
                             self.drag = Drag::Stretch { id, moved: false };
                         }
                         Hit::Pin(..) | Hit::WirePt(..) => {
-                            let p = match h {
-                                Hit::Pin(id, i) => self.c.part(id).unwrap().pins()[i],
-                                Hit::WirePt(id, k) => self.c.wires.iter().find(|x| x.id == id).unwrap().pts[k],
-                                _ => at,
-                            };
-                            self.sel.clear();
-                            self.draft = Some(Draft { pts: vec![p], dragging: true });
+                            if let Some(target) = target.filter(|target| target.contact.is_some()) {
+                                self.start_wire(target);
+                            }
                         }
                         Hit::Wire(id) | Hit::Part(id) | Hit::Note(id) => {
                             let s = match h {
@@ -430,6 +474,7 @@ impl CircuitView {
                             } else if !self.sel.contains(&s) {
                                 self.sel = vec![s];
                             }
+                            self.net_origin = if let Sel::Wire(id) = s { Some(Contact::Wire(id)) } else { None };
                             if self.sel.contains(&s) {
                                 self.begin_move(w);
                             }
@@ -437,10 +482,11 @@ impl CircuitView {
                         Hit::None => {
                             if !shift {
                                 self.sel.clear();
+                                self.net_origin = None;
+                                self.focus_points.clear();
                             }
                             self.drag = Drag::Box { start: hover_pos.unwrap() };
                         }
-                        _ => {}
                     }
                 }
             }
@@ -451,54 +497,55 @@ impl CircuitView {
             if let Some(w) = input.pointer.hover_pos().map(|p| self.view.s2w(p)) {
                 let at = snap(w);
                 match &mut self.drag {
-                    Drag::Move { start, parts, wires, notes, moved } => {
-                        let d = ((w.0 - start.0).round() as i32, (w.1 - start.1).round() as i32);
-                        if d != (0, 0) && !*moved {
-                            *moved = true;
-                            let snapshot = self.c.to_json();
-                            self.undo.push(snapshot);
-                            self.redo.clear();
-                        }
-                        if *moved {
-                            let (parts, wires, notes) = (parts.clone(), wires.clone(), notes.clone());
-                            for (id, x, y) in parts {
-                                if let Some(p) = self.c.part_mut(id) {
-                                    p.x = x + d.0;
-                                    p.y = y + d.1;
-                                }
+                    Drag::Move { start, original, parts, wires, notes, delta } => {
+                        let next = snap((w.0 - start.0, w.1 - start.1));
+                        if next != *delta {
+                            *delta = next;
+                            let mut edited = (**original).clone();
+                            for p in edited.parts.iter_mut().filter(|p| parts.contains(&p.id)) {
+                                p.x += next.0;
+                                p.y += next.1;
                             }
-                            for (id, pts) in wires {
-                                if let Some(wr) = self.c.wires.iter_mut().find(|x| x.id == id) {
-                                    wr.pts = pts.iter().map(|q| (q.0 + d.0, q.1 + d.1)).collect();
-                                }
+                            for n in edited.notes.iter_mut().filter(|n| notes.contains(&n.id)) {
+                                n.x += next.0;
+                                n.y += next.1;
                             }
-                            for (id, x, y) in notes {
-                                if let Some(n) = self.c.notes.iter_mut().find(|n| n.id == id) {
-                                    n.x = x + d.0;
-                                    n.y = y + d.1;
-                                }
-                            }
-                            self.changed();
+                            routing::carry_wires(original, &mut edited, wires, next, self.schematic);
+                            self.c = edited;
+                            self.paused = self.powered();
                         }
                     }
-                    Drag::WirePt { id, k, moved } => {
+                    Drag::WirePt { id, k, original, moved } if resp.dragged() => {
                         let (id, k) = (*id, *k);
-                        *moved = true;
-                        if let Some(wr) = self.c.wires.iter_mut().find(|x| x.id == id) {
-                            if wr.pts[k] != at {
-                                wr.pts[k] = at;
-                                self.changed();
+                        let at = if k == 0 || k + 1 == original.len() {
+                            routing::snap(&self.c, w, self.view.s, self.schematic, Some(id)).at
+                        } else { at };
+                        if let Some(points) = routing::reshape_wire(&self.c, id, original, k, at, self.schematic) {
+                            if self.c.wires.iter().any(|wire| wire.id == id && wire.pts != points) {
+                                if !*moved {
+                                    self.undo.push(self.c.to_json());
+                                    self.redo.clear();
+                                    *moved = true;
+                                }
+                                if let Some(wire) = self.c.wires.iter_mut().find(|w| w.id == id) {
+                                    wire.pts = points;
+                                }
+                                self.paused = self.powered();
                             }
                         }
                     }
-                    Drag::Stretch { id, moved } => {
+                    Drag::Stretch { id, moved } if resp.dragged() => {
                         let id = *id;
-                        *moved = true;
                         if let Some(p) = self.c.part(id) {
                             let l = to_local(p, (at.0 - p.x, at.1 - p.y));
                             if l != (0, 0) && l != p.span() {
+                                if !*moved {
+                                    self.undo.push(self.c.to_json());
+                                    self.redo.clear();
+                                    *moved = true;
+                                }
                                 self.c.part_mut(id).unwrap().set("span", format!("{},{}", l.0, l.1));
-                                self.changed();
+                                self.paused = self.powered();
                             }
                         }
                     }
@@ -542,38 +589,35 @@ impl CircuitView {
                         s.pressed.remove(&id);
                     }
                 }
-                Drag::WirePt { id, moved, .. } => {
-                    if !moved {
-                        self.undo.pop();
+                Drag::Move { original, delta, .. } => {
+                    if delta != (0, 0) {
+                        self.undo.push(original.to_json());
+                        self.redo.clear();
+                        self.changed();
                     }
-                    // 端点拖回到起点 → 删掉这根线
+                }
+                Drag::WirePt { id, moved: true, .. } => {
                     if let Some(wr) = self.c.wires.iter_mut().find(|x| x.id == id) {
                         wr.pts.dedup();
                     }
                     self.c.wires.retain(|x| x.pts.len() >= 2);
+                    self.changed();
                 }
-                Drag::Stretch { moved, .. } => {
-                    if !moved {
-                        self.undo.pop();
-                    }
-                }
+                Drag::Stretch { moved: true, .. } => self.changed(),
                 _ => {}
             }
-            if let Some(d) = &mut self.draft {
-                if d.dragging {
-                    if let Some(w) = rel_w {
-                        let at = snap(w);
-                        let first = d.pts[0];
-                        if at == first {
-                            // 没拖动：变成一下一下点的模式
-                            d.dragging = false;
-                        } else {
-                            d.pts = route(first, at, self.schematic);
-                            self.finish_draft();
-                        }
-                    } else {
-                        self.draft = None;
+            if self.draft.as_ref().is_some_and(|d| d.dragging) {
+                if let Some(w) = rel_w.filter(|_| input.pointer.hover_pos().is_some_and(|p| rect.contains(p))) {
+                    let target = routing::snap(&self.c, w, self.view.s, self.schematic, None);
+                    let first = self.draft.as_ref().unwrap().pts[0];
+                    if target.contact.is_some() && target.at != first {
+                        self.finish_draft(Some(target));
+                        if let Some(d) = &mut self.draft { d.dragging = false; }
+                    } else if let Some(d) = &mut self.draft {
+                        d.dragging = false;
                     }
+                } else {
+                    self.draft = None;
                 }
             }
             // 从库里拖出来的元件：松开在画布上就放下
@@ -584,16 +628,24 @@ impl CircuitView {
                 self.placing = None;
             }
         }
-        if resp.double_clicked() {
+        if self.tool == Tool::Select && self.draft.is_none() && resp.double_clicked() {
+            let width = ui.ctx().screen_rect().width();
             if let Some(Hit::Note(id)) = w.map(|w| self.hit(w, true)) {
                 self.sel = vec![Sel::Note(id)];
-                self.tab = super::RTab::Props;
+                self.open_inspector(RTab::Props, width);
+            } else if let Some(Hit::Part(id)) = w.map(|w| self.hit(w, true)) {
+                self.sel = vec![Sel::Part(id)];
+                self.open_inspector(RTab::Props, width);
+            } else if let Some(contact) = target.and_then(|target| target.contact) {
+                self.net_origin = Some(contact);
+                self.open_inspector(RTab::Nets, width);
             }
         }
 
         // 右键菜单：记下右键点在什么上
         if resp.secondary_clicked() {
             if let Some(w) = w {
+                self.net_origin = target.and_then(|target| target.contact);
                 let h = self.hit(w, true);
                 let s = match h {
                     Hit::Part(id) => Some(Sel::Part(id)),
@@ -606,16 +658,45 @@ impl CircuitView {
                     None => self.sel.clear(),
                     _ => {}
                 }
-                ui.memory_mut(|m| m.data.insert_temp(egui::Id::new("cv-ctx-at"), snap(w)));
+                ui.memory_mut(|m| m.data.insert_temp(egui::Id::new("cv-ctx-at"), target.map_or_else(|| snap(w), |snap| snap.at)));
             }
         }
         resp.context_menu(|ui| self.context_menu(ui));
 
         // ── 绘制
-        self.paint(&painter, rect, w, &input);
+        if self.tool != Tool::Select && resp.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+        }
+        self.paint(&painter, rect, w, target, &input);
+    }
+
+    fn start_wire(&mut self, target: routing::Snap) {
+        self.sel.clear();
+        self.focus_points.clear();
+        self.paused = self.powered();
+        if let Some(start) = target.contact {
+            self.draft = Some(Draft { start, pts: vec![target.at], marks: vec![], dragging: true });
+        }
     }
 
     fn context_menu(&mut self, ui: &mut egui::Ui) {
+        if !self.sel.is_empty() && crate::app::menu_item(ui, t("属性"), "") {
+            self.open_inspector(RTab::Props, ui.ctx().screen_rect().width());
+            ui.close_menu();
+        }
+        if self.net_origin.is_some() {
+            if crate::app::menu_item(ui, t("查看连接网络"), "") {
+                self.open_inspector(RTab::Nets, ui.ctx().screen_rect().width());
+                ui.close_menu();
+            }
+            if crate::app::menu_item(ui, t("在此测量"), "") {
+                if let Some(at) = ui.memory(|m| m.data.get_temp::<Pt>(egui::Id::new("cv-ctx-at"))) {
+                    self.probe_at(routing::Snap { at, contact: self.net_origin });
+                }
+                ui.close_menu();
+            }
+            ui.separator();
+        }
         ui.set_min_width(190.0);
         let at: Pt = ui.memory(|m| m.data.get_temp(egui::Id::new("cv-ctx-at"))).unwrap_or((0, 0));
         let one_part = match self.sel.as_slice() {
@@ -692,24 +773,22 @@ impl CircuitView {
         }
     }
 
-    fn paint(&mut self, p: &egui::Painter, rect: Rect, w: Option<(f32, f32)>, input: &egui::InputState) {
+    fn paint(&mut self, p: &egui::Painter, rect: Rect, w: Option<(f32, f32)>, target: Option<routing::Snap>, input: &egui::InputState) {
         let v = self.view;
-        p.rect_filled(rect, 0.0, BG0());
-        // 格点
-        if v.s >= 7.0 {
-            let (a, b) = (v.s2w(rect.min), v.s2w(rect.max));
-            let step = if v.s >= 12.0 { 1 } else { 2 };
-            let dot = tint(if is_light() { 40 } else { 22 });
-            let mut x = (a.0.floor() as i32) / step * step;
-            while (x as f32) <= b.0 {
-                let mut y = (a.1.floor() as i32) / step * step;
-                while (y as f32) <= b.1 {
-                    let big = x % 10 == 0 && y % 10 == 0;
-                    p.circle_filled(v.w2s(x as f32, y as f32), if big { 1.5 } else { 0.9 }, dot);
-                    y += step;
-                }
-                x += step;
+        p.rect_filled(rect, 0.0, super::workbench::canvas_color());
+        let (a, b) = (v.s2w(rect.min), v.s2w(rect.max));
+        let step = if v.s >= 19.0 { 1 } else if v.s >= 9.0 { 2 } else { 5 };
+        let dot = if is_light() { Color32::from_rgb(208, 217, 229) } else { Color32::from_rgb(40, 53, 69) };
+        let major = if is_light() { Color32::from_rgb(176, 192, 211) } else { Color32::from_rgb(61, 81, 103) };
+        let mut x = (a.0.floor() as i32).div_euclid(step) * step;
+        while (x as f32) <= b.0 {
+            let mut y = (a.1.floor() as i32).div_euclid(step) * step;
+            while (y as f32) <= b.1 {
+                let big = x % 10 == 0 && y % 10 == 0;
+                p.circle_filled(v.w2s(x as f32, y as f32), if big { 1.0 } else { 0.6 }, if big { major } else { dot });
+                y += step;
             }
+            x += step;
         }
         let t_anim = input.time;
         let idx: HashMap<u32, usize> = self.sim.as_ref().map(|s| s.ps.iter().enumerate().map(|(i, st)| (st.id, i)).collect()).unwrap_or_default();
@@ -763,7 +842,10 @@ impl CircuitView {
             self.paint_bb_links(p);
         }
         // 悬停的面包板孔：整条连通的孔高亮
-        let hover = w.map(|w| self.hit(w, false)).unwrap_or(Hit::None);
+        let hover = match target.and_then(|target| target.contact) {
+            Some(Contact::Pin(id, pin)) => Hit::Pin(id, pin),
+            _ => w.map(|at| self.hit(at, true)).unwrap_or(Hit::None),
+        };
         if let Hit::Pin(id, i) = hover {
             if self.c.part(id).is_some_and(is_bb) && !self.schematic {
                 let strip = bb_strip(&self.c, id, i);
@@ -800,16 +882,22 @@ impl CircuitView {
             );
             p.galley(r.min + vec2(4.0, 2.0), g, TEXT());
         }
-        // 接错标记：元件右上角的小圆点
-        for i in self.issues.iter().filter(|i| i.level != crate::circuit::check::Level::Tip) {
-            let col = if i.level == crate::circuit::check::Level::Err { ERR() } else { WARN() };
-            for id in &i.parts {
-                if let Some(b) = self.c.part(*id).and_then(part_bounds) {
-                    let at = v.w2s(b.2, b.1);
-                    p.circle(at, 7.0, col, Stroke::new(1.5, BG0()));
-                    p.text(at, Align2::CENTER_CENTER, "!", FontId::proportional(10.0), Color32::WHITE);
+        let active_net = self.net_origin.and_then(|contact| contact.net(&self.netlist));
+        if let Some(net) = active_net {
+            for part in self.c.parts.iter().filter(|part| !self.schematic || !is_bb(part)) {
+                for (pin, at) in part.pins().into_iter().enumerate() {
+                    if self.netlist.net_of(part.id, pin) == Some(net) {
+                        p.circle_stroke(v.w2s(at.0 as f32, at.1 as f32), (v.s * 0.22).clamp(2.5, 5.0), Stroke::new(1.1, ACCENT()));
+                    }
                 }
             }
+        }
+        let practice = self.practice_targets();
+        for &at in self.focus_points.iter().chain(practice.iter().flatten()) {
+            let at = v.w2s(at.0 as f32, at.1 as f32);
+            p.circle_filled(at, 11.0, WARN().gamma_multiply(0.15));
+            p.circle_stroke(at, 9.0, Stroke::new(1.8, WARN()));
+            p.circle_filled(at, 2.1, WARN());
         }
         // 选中框
         for s in &self.sel {
@@ -851,7 +939,9 @@ impl CircuitView {
                         }
                     }
                 }
-                tooltip(p, v.w2s(w.0, w.1), &lines);
+                if self.draft.is_none() && self.tool == Tool::Select {
+                    tooltip(p, v.w2s(w.0, w.1), &lines);
+                }
             }
         } else if let (Hit::Part(id), Some(w), Some(s)) = (hover, w, &self.sim) {
             // 通电时悬停元件：电流、功率、温度
@@ -876,18 +966,44 @@ impl CircuitView {
                 }
             }
         }
-        // 正在画的导线
-        if let Some(d) = &self.draft {
-            let mut pts = d.pts.clone();
-            if let Some(w) = w {
-                let last = *pts.last().unwrap();
-                pts.extend(route(last, snap(w), self.schematic).into_iter().skip(1));
+        if let Some(preview) = self.assistant_preview() {
+            let points: Vec<_> = preview.iter().map(|&(x, y)| v.w2s(x as f32, y as f32)).collect();
+            if points.len() >= 2 {
+                p.extend(Shape::dashed_line(&points, Stroke::new(2.4, VIOLET()), 5.0, 4.0));
+                for at in [points[0], points[points.len()-1]] {
+                    p.circle(at, 5.5, BG0(), Stroke::new(1.5, VIOLET()));
+                }
             }
-            let col = draw::rgb(WIRE_COLORS[self.wire_color as usize % 10].1);
-            let sp: Vec<Pos2> = pts.iter().map(|q| v.w2s(q.0 as f32, q.1 as f32)).collect();
-            p.add(Shape::line(sp.clone(), Stroke::new(if self.schematic { 1.5 } else { (v.s * 0.26).max(2.0) }, col.gamma_multiply(0.8))));
-            for q in sp {
-                p.circle_filled(q, 3.0, ACCENT());
+        }
+        if let Some(draft) = &self.draft {
+            let points = target.and_then(|at| self.draft_points(at)).unwrap_or_else(|| draft.pts.clone());
+            let trace: Vec<_> = points.iter().map(|q| v.w2s(q.0 as f32, q.1 as f32)).collect();
+            let starts = draft.pts[0];
+            let start = v.w2s(starts.0 as f32, starts.1 as f32);
+            if trace.len() > 1 {
+                p.add(Shape::line(trace.clone(), Stroke::new(6.0, ACCENT().gamma_multiply(0.2))));
+                p.add(Shape::line(trace, Stroke::new(2.0, ACCENT())));
+            }
+            p.circle_filled(start, 3.1, ACCENT());
+        }
+        if let Some(target) = target.filter(|_| self.draft.is_some() || self.tool != Tool::Select) {
+            let at = v.w2s(target.at.0 as f32, target.at.1 as f32);
+            let color = if target.contact.is_some() { ACCENT() } else { TEXT3() };
+            let radius = if target.contact.is_some() { 7.0 } else { 4.0 };
+            p.circle(at, radius, color.gamma_multiply(0.17), Stroke::new(1.5, color));
+            if let Some(contact) = target.contact {
+                let mut lines = vec![self.contact_name(contact)];
+                if let Some(draft) = &self.draft {
+                    let a = draft.start.net(&self.netlist);
+                    let b = contact.net(&self.netlist);
+                    if let (Some(a), Some(b)) = (a, b) {
+                        if a != b && self.netlist.members.get(a).is_some_and(|n| n.len() > 1)
+                            && self.netlist.members.get(b).is_some_and(|n| n.len() > 1) {
+                            lines.push(t("将合并两个网络").into());
+                        }
+                    }
+                }
+                tooltip(p, at, &lines);
             }
         }
         // 正在放的元件：跟着鼠标的半透明预览
@@ -930,45 +1046,35 @@ impl CircuitView {
             let r = Rect::from_two_pos(*start, end);
             p.rect(r, 0.0, ACCENT().gamma_multiply(0.08), Stroke::new(1.0, ACCENT().gamma_multiply(0.7)), egui::StrokeKind::Inside);
         }
-        // 空画布的提示
         if self.c.parts.is_empty() && self.c.wires.is_empty() {
-            p.text(
-                rect.center(),
-                Align2::CENTER_CENTER,
-                t("从左边元件库拖元件进来，或者点一下元件再点画布"),
-                FontId::proportional(14.0),
-                TEXT3(),
-            );
+            p.text(rect.center(), Align2::CENTER_CENTER, t("从元件库添加元件，或打开一个示例"), FontId::proportional(15.0), TEXT2());
         }
-        // 左下角：操作提示
-        let tip = if self.draft.is_some() {
-            t("点击加拐点，点到引脚结束 · Esc 取消 · 数字键换颜色")
-        } else if self.placing.is_some() {
-            t("点击放下 · R 旋转 · 按住 Shift 连续放 · Esc 取消")
-        } else if self.powered() {
-            t("点按钮、拨开关；在电位器、光敏电阻上滚轮调节")
-        } else {
-            t("从引脚拖出导线 · 滚轮缩放 · 中键或空格拖动画布")
-        };
-        p.text(rect.left_bottom() + vec2(10.0, -10.0), Align2::LEFT_BOTTOM, tip, FontId::proportional(11.5), TEXT3());
     }
 
     fn paint_wires(&self, p: &egui::Painter, rect: Rect) {
         let v = self.view;
-        let _ = rect;
+        let active_net = self.net_origin.and_then(|contact| contact.net(&self.netlist));
         for wr in &self.c.wires {
             let sel = self.sel.contains(&Sel::Wire(wr.id));
+            let traced = active_net.is_some() && active_net == self.netlist.wire.get(&wr.id).copied();
             let pts: Vec<Pos2> = wr.pts.iter().map(|q| v.w2s(q.0 as f32, q.1 as f32)).collect();
             if pts.len() < 2 {
                 continue;
             }
+            let bounds = Rect::from_points(&pts);
+            if !bounds.expand(12.0).intersects(rect) {
+                continue;
+            }
             let col = draw::rgb(WIRE_COLORS[wr.color as usize % 10].1);
+            if traced {
+                p.add(Shape::line(pts.clone(), Stroke::new((v.s * 0.26 + 6.0).max(6.0), ACCENT().gamma_multiply(0.30))));
+            }
             if self.schematic {
                 if sel {
                     p.add(Shape::line(pts.clone(), Stroke::new(5.0, ACCENT().gamma_multiply(0.35))));
                 }
                 let vc = self.sim.as_ref().and_then(|s| s.nl.wire.get(&wr.id).and_then(|n| s.net_v(*n))).map(volt_color);
-                p.add(Shape::line(pts.clone(), Stroke::new(1.6, vc.unwrap_or(TEXT2()))));
+                p.add(Shape::line(pts.clone(), Stroke::new(1.6, if traced { ACCENT() } else { vc.unwrap_or(TEXT2()) })));
             } else {
                 let wdt = (v.s * 0.26).max(2.0);
                 if sel {
@@ -989,31 +1095,11 @@ impl CircuitView {
                 }
             }
         }
-        if self.schematic {
-            // 连接点：三个及以上的线 / 引脚汇在一起画实心点
-            let mut cnt: HashMap<Pt, u32> = HashMap::new();
-            for wr in &self.c.wires {
-                for q in [wr.pts[0], *wr.pts.last().unwrap()] {
-                    *cnt.entry(q).or_default() += 1;
-                    // T 形连接
-                    for o in &self.c.wires {
-                        if o.id != wr.id && o.pts.windows(2).any(|s| on_segment(q, s[0], s[1]) && q != s[0] && q != s[1]) {
-                            *cnt.entry(q).or_default() += 2;
-                        }
-                    }
-                }
-            }
-            for part in self.c.parts.iter().filter(|q| !is_bb(q)) {
-                for q in part.pins() {
-                    if let Some(c) = cnt.get_mut(&q) {
-                        *c += 1;
-                    }
-                }
-            }
-            for (q, n) in cnt {
-                if n >= 3 {
-                    p.circle_filled(v.w2s(q.0 as f32, q.1 as f32), (v.s * 0.2).max(2.5), TEXT2());
-                }
+        for &q in &self.junctions {
+            let at = v.w2s(q.0 as f32, q.1 as f32);
+            if rect.contains(at) {
+                let traced = active_net.is_some() && active_net == self.netlist.point.get(&q).copied();
+                p.circle(at, (v.s * 0.14).clamp(2.2, 4.3), if traced { ACCENT() } else { TEXT2() }, Stroke::new(1.0, super::workbench::canvas_color()));
             }
         }
     }

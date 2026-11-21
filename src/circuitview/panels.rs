@@ -2,10 +2,13 @@
 
 use eframe::egui::{self, vec2, Color32, CornerRadius, FontId, RichText, Sense, Stroke};
 
-use super::{cat_header, draw, lib_row, CircuitView, RTab, Sel};
+use super::routing::Contact;
+use super::workbench::{action, card};
+use super::{cat_header, draw, lib_row, CircuitView, RTab, Sel, Tool};
+use crate::app::Icon;
 use crate::circuit::lib::{self, cap, Cat, PropKind};
 use crate::circuit::{fmt_si, parse_si, WIRE_COLORS};
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 use crate::theme::*;
 
 /// 选项值的显示名
@@ -89,25 +92,28 @@ fn caps_text(c: u32) -> String {
 
 impl CircuitView {
     pub(super) fn library(&mut self, ui: &mut egui::Ui) {
-        // 元件库 / 示例：同一块地方切换，不另加按钮
+        ui.spacing_mut().item_spacing.y = 5.0;
         ui.horizontal(|ui| {
-            for (ex, name) in [(false, t("元件库")), (true, t("示例"))] {
-                let on = self.lib_examples == ex;
-                let r = ui.add(egui::Label::new(RichText::new(name).size(14.0).strong().color(if on { TEXT() } else { TEXT3() })).sense(Sense::click()));
-                if on {
-                    let y = r.rect.bottom() + 3.0;
-                    ui.painter().line_segment([egui::pos2(r.rect.left(), y), egui::pos2(r.rect.right(), y)], Stroke::new(2.0, ACCENT()));
-                }
-                if r.clicked() {
+            for (ex, title, icon) in [(false, t("元件"), Icon::Toolbox), (true, t("示例"), Icon::Folder)] {
+                if action(ui, title, Some(icon), self.lib_examples == ex, ACCENT()).clicked() {
+                    if self.lib_examples != ex { self.lib_filter.clear(); }
                     self.lib_examples = ex;
                 }
-                ui.add_space(10.0);
             }
         });
-        ui.add_space(8.0);
+        ui.add_space(4.0);
         let hint = if self.lib_examples { t("搜索示例") } else { t("搜索元件、型号") };
-        ui.add(egui::TextEdit::singleline(&mut self.lib_filter).hint_text(hint).desired_width(f32::INFINITY).margin(vec2(8.0, 5.0)));
-        ui.add_space(6.0);
+        ui.add(egui::TextEdit::singleline(&mut self.lib_filter).hint_text(hint).desired_width(f32::INFINITY).margin(vec2(8.0, 7.0)));
+        ui.add_space(8.0);
+        if self.lib_filter.trim().is_empty() && self.practice.is_none() {
+            card(ui, |ui| {
+                ui.label(RichText::new(t("第一次使用")).size(11.5).color(TEXT3()));
+                if action(ui, t("接亮第一个 LED"), None, true, ACCENT()).clicked() {
+                    self.start_practice(ui.ctx().screen_rect().width());
+                }
+            });
+            ui.add_space(8.0);
+        }
         if self.lib_examples {
             self.examples_list(ui);
             return;
@@ -160,8 +166,8 @@ impl CircuitView {
             if !drag && self.placing.is_some_and(|p| p.0 == k) {
                 self.placing = None;
             } else {
+                self.choose_tool(Tool::Select);
                 self.placing = Some((k, drag));
-                self.draft = None;
                 self.place_rot = 0;
             }
         }
@@ -215,11 +221,16 @@ impl CircuitView {
         });
         if let Some(id) = pick {
             self.load_example(&id);
+            self.open_inspector(RTab::Example, ui.ctx().screen_rect().width());
         }
     }
 
     /// 右侧「示例」页：原理、搭建步骤、试一试、学到什么
     fn example_ui(&mut self, ui: &mut egui::Ui) {
+        if self.practice.is_some() {
+            self.practice_ui(ui);
+            return;
+        }
         use crate::circuit::examples;
         let Some(e) = self.example.as_deref().and_then(examples::find) else {
             ui.label(RichText::new(t("从左侧「示例」里选一个")).color(TEXT3()));
@@ -227,6 +238,9 @@ impl CircuitView {
         };
         ui.label(RichText::new(format!("{}  {}", e.id, e.title())).size(15.0).strong().color(TEXT()));
         ui.label(RichText::new(examples::group_name(e.group)).size(11.5).color(TEXT3()));
+        if e.id == "D7" && action(ui, t("运行串口仿真测试"), Some(Icon::Play), true, ACCENT()).clicked() {
+            self.run_led_serial_example(ui.ctx());
+        }
         ui.add_space(8.0);
         let section = |ui: &mut egui::Ui, title: &str, body: &str| {
             if body.is_empty() {
@@ -256,29 +270,28 @@ impl CircuitView {
     }
 
     pub(super) fn side(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            let mut tabs = vec![(RTab::Props, t("属性")), (RTab::Know, t("认识它"))];
-            if self.example.is_some() {
-                tabs.insert(0, (RTab::Example, t("示例")));
-            }
+        ui.spacing_mut().item_spacing.y = 7.0;
+        let mut tabs = vec![(RTab::Props, t("属性")), (RTab::Checks, t("检查")), (RTab::Nets, t("网络")), (RTab::Assistant, t("AI"))];
+        if self.example.is_some() { tabs.insert(0, (RTab::Example, t("示例"))); }
+        if self.tab == RTab::Know { tabs.push((RTab::Know, t("认识它"))); }
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing = vec2(3.0, 3.0);
             for (tab, name) in tabs {
-                let on = self.tab == tab;
-                let r = ui.add(egui::Label::new(RichText::new(name).size(13.0).color(if on { TEXT() } else { TEXT3() }).strong()).sense(Sense::click()));
-                if on {
-                    let y = r.rect.bottom() + 3.0;
-                    ui.painter().line_segment([egui::pos2(r.rect.left(), y), egui::pos2(r.rect.right(), y)], Stroke::new(2.0, ACCENT()));
-                }
-                if r.clicked() {
+                if action(ui, name, None, self.tab == tab, if tab == RTab::Assistant { VIOLET() } else { ACCENT() }).clicked() {
                     self.tab = tab;
                 }
-                ui.add_space(8.0);
             }
         });
-        ui.add_space(8.0);
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| match self.tab {
-            RTab::Props => self.props_ui(ui),
-            RTab::Know => self.know_ui(ui),
-            RTab::Example => self.example_ui(ui),
+        ui.separator();
+        egui::ScrollArea::vertical().id_salt("cv-inspector-scroll").auto_shrink([false, false]).show(ui, |ui| {
+            match self.tab {
+                RTab::Props => self.props_ui(ui),
+                RTab::Know => self.know_ui(ui),
+                RTab::Example => self.example_ui(ui),
+                RTab::Checks => self.issues_ui(ui),
+                RTab::Nets => self.net_ui(ui),
+                RTab::Assistant => self.assistant_ui(ui),
+            }
         });
     }
 
@@ -324,7 +337,9 @@ impl CircuitView {
         ui.add_space(4.0);
         ui.label(RichText::new(format!("{} {} · {} {}", n_parts, t("个元件"), self.c.wires.len(), t("根导线"))).color(TEXT2()));
         ui.add_space(10.0);
-        self.issues_ui(ui);
+        if action(ui, t("打开设计检查"), Some(Icon::Todo), false, ACCENT()).clicked() {
+            self.tab = RTab::Checks;
+        }
         ui.add_space(8.0);
         if let Some(sim) = &self.sim {
             super::power::power_ui(ui, &self.power, &self.c, sim);
@@ -336,52 +351,75 @@ impl CircuitView {
         if self.sim.is_some() {
             return;
         }
-        ui.add_space(12.0);
-        ui.label(RichText::new(t("怎么用")).size(12.0).strong().color(TEXT2()));
-        ui.add_space(2.0);
-        for line in [
-            t("1. 从左边把面包板、电源、元件拖到画布上"),
-            t("2. 从引脚或面包板孔拖出导线，松手在另一个孔上"),
-            t("3. 同一竖列的 5 个孔是通的，两边的长条是电源轨"),
-            t("4. 点「通电」看结果：LED 会亮，接错会冒烟"),
-            t("5. 选中元件可以在这里改阻值、颜色、型号"),
-        ] {
-            ui.label(RichText::new(line).size(12.0).color(TEXT3()));
-        }
     }
 
     fn issues_ui(&mut self, ui: &mut egui::Ui) {
         use crate::circuit::check::Level;
-        ui.label(RichText::new(t("接错检查")).size(12.5).strong().color(TEXT()));
-        ui.add_space(2.0);
-        let real: Vec<_> = self.issues.iter().filter(|i| i.level != Level::Tip).cloned().collect();
-        if real.is_empty() {
-            ui.label(RichText::new(format!("✓ {}", t("没发现接错"))).size(12.0).color(OK()));
-        }
-        let tips = self.issues.len() - real.len();
-        let list: Vec<_> = if tips > 0 && tips <= 6 { self.issues.clone() } else { real };
-        for i in list {
-            let (icon, col) = match i.level {
-                Level::Err => ("●", ERR()),
-                Level::Warn => ("▲", WARN()),
-                Level::Tip => ("○", TEXT3()),
-            };
-            let r = ui
-                .horizontal_top(|ui| {
-                    ui.label(RichText::new(icon).size(10.0).color(col));
-                    ui.add(
-                        egui::Label::new(RichText::new(&i.msg).size(12.0).color(if i.level == Level::Tip { TEXT2() } else { TEXT() }))
-                            .wrap()
-                            .sense(Sense::click()),
-                    )
-                })
-                .inner;
-            if r.on_hover_cursor(egui::CursorIcon::PointingHand).clicked() {
-                self.sel = i.parts.iter().map(|id| Sel::Part(*id)).collect();
+        ui.heading(t("设计检查"));
+        ui.horizontal_wrapped(|ui| {
+            for (level, label, color) in [(Level::Err, t("错误"), ERR()), (Level::Warn, t("警告"), WARN()), (Level::Tip, t("提示"), TEXT2())] {
+                let count = self.issues.iter().filter(|i| i.level == level).count();
+                if action(ui, &format!("{label} {count}"), None, self.issue_filter == Some(level), color).clicked() {
+                    self.issue_filter = if self.issue_filter == Some(level) { None } else { Some(level) };
+                }
             }
+        });
+        if self.issues.is_empty() {
+            card(ui, |ui| {
+                ui.label(RichText::new(t("已检查的规则中未发现问题")).strong().color(OK()));
+                ui.label(RichText::new(t("检查基于当前接线和元件参数。")).color(TEXT2()));
+            });
+            return;
         }
-        if tips > 6 {
-            ui.label(RichText::new(format!("{} {}", tips, t("个引脚还没接"))).size(11.5).color(TEXT3()));
+
+        let mut locate = None;
+        for (idx, issue) in self.issues.iter().enumerate().filter(|(_, i)| self.issue_filter.is_none_or(|level| i.level == level)) {
+            let (label, color) = match issue.level {
+                Level::Err => (t("错误"), ERR()),
+                Level::Warn => (t("警告"), WARN()),
+                Level::Tip => (t("提示"), ACCENT()),
+            };
+            card(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(RichText::new(label).strong().color(color));
+                    if !issue.pins.is_empty() {
+                        let pins = issue.pins.iter().map(|&(id, pin)| self.contact_name(Contact::Pin(id, pin))).collect::<Vec<_>>().join("  /  ");
+                        ui.label(RichText::new(pins).size(11.5).color(TEXT3()));
+                    }
+                });
+                if ui.add(egui::Label::new(RichText::new(&issue.msg).color(TEXT())).wrap().sense(Sense::click())).clicked() {
+                    locate = Some(idx);
+                }
+                if action(ui, t("定位到画布"), Some(Icon::Maximize), self.focused_issue == Some(idx), ACCENT()).clicked() {
+                    locate = Some(idx);
+                }
+            });
+            ui.add_space(4.0);
+        }
+        if let Some(idx) = locate { self.locate_issue(idx); }
+    }
+
+    fn net_ui(&mut self, ui: &mut egui::Ui) {
+        ui.heading(t("连接网络"));
+        let Some(net) = self.net_origin.and_then(|contact| contact.net(&self.netlist)) else {
+            card(ui, |ui| {
+                ui.label(RichText::new(t("在画布上选中导线，或右键点击引脚查看连接网络。")).color(TEXT2()));
+            });
+            return;
+        };
+        let pins = self.netlist.members.get(net).cloned().unwrap_or_default();
+        let wires = self.netlist.wire.values().filter(|&&n| n == net).count();
+        card(ui, |ui| {
+            ui.label(RichText::new(tf("{} 个引脚 · {} 根导线", &[&pins.len(), &wires])).color(TEXT2()));
+            if let Some(v) = self.sim.as_ref().and_then(|s| self.net_origin.and_then(|p| p.net(&s.nl)).and_then(|n| s.net_v(n))) {
+                ui.label(RichText::new(fmt_si(v, "V")).font(FontId::monospace(19.0)).color(ACCENT()));
+            }
+        });
+        for (id, k) in pins {
+            if ui.link(self.contact_name(Contact::Pin(id, k))).clicked() {
+                self.focus_points = self.pin_at(id, k).into_iter().collect();
+                self.center_points(&self.focus_points.clone());
+            }
         }
     }
 

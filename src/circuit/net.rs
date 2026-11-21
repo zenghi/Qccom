@@ -39,8 +39,11 @@ impl Dsu {
 
 /// 点 p 在线段 a-b 上（含端点）
 pub fn on_segment(p: Pt, a: Pt, b: Pt) -> bool {
-    let cross = (b.0 - a.0) as i64 * (p.1 - a.1) as i64 - (b.1 - a.1) as i64 * (p.0 - a.0) as i64;
-    cross == 0 && p.0 >= a.0.min(b.0) && p.0 <= a.0.max(b.0) && p.1 >= a.1.min(b.1) && p.1 <= a.1.max(b.1)
+    if p.0 < a.0.min(b.0) || p.0 > a.0.max(b.0) || p.1 < a.1.min(b.1) || p.1 > a.1.max(b.1) {
+        return false;
+    }
+    let diff = |n, m| i128::from(n) - i128::from(m);
+    diff(b.0, a.0) * diff(p.1, a.1) == diff(b.1, a.1) * diff(p.0, a.0)
 }
 
 impl Netlist {

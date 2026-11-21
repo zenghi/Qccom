@@ -2,14 +2,17 @@
 //! 电路数据和仿真在 crate::circuit，这里只管界面和交互。
 
 mod canvas;
+mod assistant;
 pub mod draw;
 mod flow;
 mod mcuedit;
 mod netlink;
 mod panels;
 mod power;
+mod routing;
 mod scope;
 mod wiring;
+mod workbench;
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -58,8 +61,19 @@ enum BTab {
 enum RTab {
     Props,
     Know,
+    Checks,
+    Nets,
+    Assistant,
     /// 打开的示例：原理、步骤、试一试
     Example,
+}
+
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+enum Tool {
+    #[default]
+    Select,
+    Wire,
+    Probe,
 }
 
 /// 鼠标拖动的状态
@@ -69,15 +83,17 @@ enum Drag {
     /// 移动选中的东西：按下时的世界坐标、各对象原位置
     Move {
         start: (f32, f32),
-        parts: Vec<(u32, i32, i32)>,
-        wires: Vec<(u32, Vec<Pt>)>,
-        notes: Vec<(u32, i32, i32)>,
-        moved: bool,
+        original: Box<Circuit>,
+        parts: HashSet<u32>,
+        wires: HashSet<u32>,
+        notes: HashSet<u32>,
+        delta: Pt,
     },
     /// 拖导线的一个端点（或中间拐点）
     WirePt {
         id: u32,
         k: usize,
+        original: Vec<Pt>,
         moved: bool,
     },
     /// 拉长两脚元件（拖第二脚）
@@ -94,7 +110,9 @@ enum Drag {
 
 /// 正在画的导线
 struct Draft {
+    start: routing::Contact,
     pts: Vec<Pt>,
+    marks: Vec<usize>,
     /// 按住拖出来的（松手就结束），否则是一下一下点的
     dragging: bool,
 }
@@ -108,6 +126,22 @@ pub struct CircuitView {
     speed: f64,
     view: View,
     schematic: bool,
+    tool: Tool,
+    vertical_first: bool,
+    library_open: bool,
+    compact_library: bool,
+    power_dialog: bool,
+    inspector_open: bool,
+    canvas_rect: Option<egui::Rect>,
+    focus_points: Vec<Pt>,
+    focused_issue: Option<usize>,
+    issue_filter: Option<crate::circuit::check::Level>,
+    net_origin: Option<routing::Contact>,
+    netlist: crate::circuit::net::Netlist,
+    junctions: Vec<Pt>,
+    assistant: assistant::Assistant,
+    practice: Option<Practice>,
+    save_source: Option<Circuit>,
     sel: Vec<Sel>,
     drag: Drag,
     draft: Option<Draft>,
@@ -133,6 +167,7 @@ pub struct CircuitView {
     last_frame: Option<Instant>,
     /// 首帧把视图对准电路
     fit: bool,
+    auto_frame: bool,
     pub events: Vec<CvEvt>,
     /// 新日志条数（底部面板关着时在按钮上显示）
     seen_log: usize,
@@ -160,6 +195,29 @@ pub struct CircuitView {
     compact: bool,
 }
 
+struct Practice {
+    previous: Circuit,
+    path: Option<PathBuf>,
+    saved: Option<Circuit>,
+    example: Option<String>,
+    view: View,
+    canvas_rect: Option<egui::Rect>,
+    schematic: bool,
+    dirty_at: Option<Instant>,
+    auto_frame: bool,
+    inspector_open: bool,
+    tab: RTab,
+    bottom: bool,
+    btab: BTab,
+    scope: scope::ScopeUi,
+    selection: Vec<Sel>,
+    sim: Option<Sim>,
+    paused: bool,
+    undo: Vec<String>,
+    redo: Vec<String>,
+    target: ((u32, usize), (u32, usize)),
+}
+
 fn autosave_path() -> PathBuf {
     crate::data_dir().join("circuit").join("current.json")
 }
@@ -180,6 +238,22 @@ impl CircuitView {
             speed: 1.0,
             view: View { org: pos2(0.0, 0.0), s: 14.0 },
             schematic: false,
+            tool: Tool::Select,
+            vertical_first: false,
+            library_open: true,
+            compact_library: false,
+            power_dialog: false,
+            inspector_open: false,
+            canvas_rect: None,
+            focus_points: vec![],
+            focused_issue: None,
+            issue_filter: None,
+            net_origin: None,
+            netlist: Default::default(),
+            junctions: vec![],
+            assistant: Default::default(),
+            practice: None,
+            save_source: None,
             sel: vec![],
             drag: Drag::None,
             draft: None,
@@ -194,12 +268,13 @@ impl CircuitView {
             ex_open: ['A'].into_iter().collect(),
             example: None,
             tab: RTab::Props,
-            bottom: true,
+            bottom: false,
             wire_color: 0,
             path: None,
             dirty_at: None,
             last_frame: None,
             fit: true,
+            auto_frame: true,
             events: vec![],
             seen_log: 0,
             show_flow: true,
@@ -319,36 +394,66 @@ impl CircuitView {
 
     /// 换一个电路（新建、打开、示例）
     pub fn load(&mut self, c: Circuit, path: Option<PathBuf>) {
-        self.example = None;
-        if !self.c.parts.is_empty() || !self.c.wires.is_empty() {
-            self.undo.push(self.c.to_json());
+        if self.practice.is_some() {
+            self.end_practice();
         }
+        self.save_source = path.as_ref().map(|_| c.clone());
+        self.undo.clear();
+        self.redo.clear();
         self.c = c;
         self.path = path;
+        self.example = None;
+        self.reset_canvas_state();
+        self.dirty_at = Some(Instant::now());
+    }
+
+    fn reset_canvas_state(&mut self) {
         self.sel.clear();
         self.draft = None;
         self.placing = None;
+        self.tool = Tool::Select;
         self.scope = Default::default();
-        self.sim = None;
+        self.set_power(false);
+        self.drag = Drag::None;
         self.fit = true;
-        self.dirty_at = Some(Instant::now());
+        self.focus_points.clear();
+        self.focused_issue = None;
+        self.net_origin = None;
         self.need_check = true;
+        self.issues.clear();
+        self.netlist = Default::default();
+        self.junctions.clear();
+        self.power_dialog = false;
+        self.assistant.reset_circuit();
     }
 
-    fn save_now(&mut self) {
-        let json = self.c.to_json();
-        let p = autosave_path();
-        if let Some(d) = p.parent() {
-            let _ = std::fs::create_dir_all(d);
-        }
-        let _ = crate::history::save_file(&p, json.as_bytes());
-        if let Some(f) = &self.path {
-            if let Err(e) = crate::history::save_file(f, json.as_bytes()) {
-                let m = format!("{}：{e}", t("保存失败"));
-                self.toast(m, ERR());
-            }
+    fn has_unsaved_file_edits(&self) -> bool {
+        self.save_source.as_ref().is_some_and(|saved| *saved != self.c)
+    }
+
+    fn autosave_draft(&mut self) {
+        if self.practice.is_none() {
+            let _ = crate::history::save_file(&autosave_path(), self.c.to_json().as_bytes());
         }
         self.dirty_at = None;
+    }
+
+    fn save_to(&mut self, path: PathBuf) {
+        if let Err(e) = crate::history::save_file(&path, self.c.to_json().as_bytes()) {
+            self.toast(format!("{}：{e}", t("保存失败")), ERR());
+            return;
+        }
+        self.path = Some(path);
+        self.save_source = Some(self.c.clone());
+        self.autosave_draft();
+        self.toast(t("已保存"), OK());
+    }
+
+    fn restore_saved(&mut self) {
+        if let Some(saved) = self.save_source.clone() {
+            self.checkpoint();
+            self.restore(&saved.to_json());
+        }
     }
 
     fn open_file(&mut self) {
@@ -369,9 +474,7 @@ impl CircuitView {
             .set_file_name(format!("{name}.qccirc"))
             .save_file()
         {
-            self.path = Some(p);
-            self.save_now();
-            self.toast(t("已保存"), OK());
+            self.save_to(p);
         }
     }
 
@@ -412,10 +515,6 @@ impl CircuitView {
 
     fn set_power(&mut self, on: bool) {
         if on {
-            let ports = self.sim_port_names();
-            if !ports.is_empty() {
-                self.events.push(CvEvt::Powered(ports));
-            }
             let mut s = Sim::new(&self.c);
             s.real_speed = self.speed;
             self.scope.hold = None;
@@ -425,6 +524,11 @@ impl CircuitView {
             self.seen_log = 0;
             self.last_frame = None;
             self.power.reset();
+            let ports = self.sim_port_names();
+            if !ports.is_empty() {
+                self.bridge();
+                self.events.push(CvEvt::Powered(ports));
+            }
         } else {
             self.sim = None;
         }
@@ -489,6 +593,7 @@ impl CircuitView {
         // 出事了（烧坏、保险丝断）自动打开底部输出
         if s.log.len() > self.seen_log && !self.bottom && s.log[self.seen_log..].iter().any(|l| l.2.starts_with('🔥') || l.2.contains(t("烧坏"))) {
             self.bottom = true;
+            self.btab = BTab::Log;
         }
         // 联网：模块的 AT 指令、开发板规则里的「发 MQTT / HTTP / TCP」在后台真的去连
         for (id, c) in std::mem::take(&mut s.at_net) {
@@ -509,233 +614,45 @@ impl CircuitView {
     /// compact = 副页面：不要元件库和属性栏，只看画布（还能点按键、调电位器）
     pub fn ui_in(&mut self, ui: &mut egui::Ui, compact: bool) {
         self.compact = compact;
-        // 拖动过程中不重算，松手再算
-        if self.need_check && matches!(self.drag, Drag::None) {
-            self.issues = crate::circuit::check::check(&self.c);
-            self.need_check = false;
+        self.refresh_diagnostics();
+        self.workspace(ui);
+        if let Some(dirty) = self.dirty_at {
+            if dirty.elapsed() > Duration::from_millis(800) && matches!(self.drag, Drag::None) {
+                self.autosave_draft();
+            } else {
+                ui.ctx().request_repaint_after(Duration::from_millis(250));
+            }
         }
-        egui::TopBottomPanel::top("cv-top")
-            .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                left: 10,
-                right: 10,
-                top: 6,
-                bottom: 6,
-            }))
-            .show_inside(ui, |ui| self.toolbar(ui));
-        if self.wiring_on {
-            self.wiring.set_dir(wiring::dir_for(self.project.as_deref()));
-            egui::CentralPanel::default()
-                .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin::same(14)))
-                .show_inside(ui, |ui| self.wiring.ui(ui, &self.c));
-            for (m, c) in std::mem::take(&mut self.wiring.toasts) {
-                self.toast(m, c);
-            }
-            return;
-        }
-        if !compact {
-            egui::SidePanel::left("cv-lib")
-                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                    left: 10,
-                    right: 8,
-                    top: 10,
-                    bottom: 6,
-                }))
-                .default_width(220.0)
-                .width_range(170.0..=340.0)
-                .show_inside(ui, |ui| self.library(ui));
-            egui::SidePanel::right("cv-side")
-                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                    left: 12,
-                    right: 10,
-                    top: 10,
-                    bottom: 6,
-                }))
-                .default_width(270.0)
-                .width_range(220.0..=420.0)
-                .show_inside(ui, |ui| self.side(ui));
-        }
-        if self.bottom {
-            egui::TopBottomPanel::bottom("cv-bottom")
-                .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
-                    left: 10,
-                    right: 10,
-                    top: 6,
-                    bottom: 6,
-                }))
-                .default_height(if self.btab == BTab::Log { 150.0 } else { 210.0 })
-                .height_range(135.0..=(ui.available_height() * 0.48).clamp(135.0, 520.0))
-                .resizable(true)
-                .show_inside(ui, |ui| {
-                    ui.set_min_height(ui.available_height());
-                    self.bottom_ui(ui);
-                });
-        }
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.canvas(ui));
-        if self.dirty_at.is_some_and(|t| t.elapsed() > Duration::from_millis(800)) && !matches!(self.drag, Drag::Move { .. } | Drag::WirePt { .. }) {
-            self.save_now();
-        }
-        if self.dirty_at.is_some() {
-            ui.ctx().request_repaint_after(Duration::from_millis(900));
-        }
-    }
-
-    fn toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            if !self.compact && icon_button(ui, Icon::Back, t("回到工具箱"), false).clicked() {
-                self.events.push(CvEvt::Back);
-            }
-            let title = if self.c.title.is_empty() { t("未命名电路").to_string() } else { self.c.title.clone() };
-            let r = ui.add(egui::Label::new(RichText::new(&title).size(14.0).strong().color(TEXT())).sense(Sense::click()));
-            let r = r.on_hover_text(t("双击改名"));
-            let id = ui.make_persistent_id("cv-title-edit");
-            if r.double_clicked() {
-                ui.memory_mut(|m| m.data.insert_temp(id, true));
-            }
-            if ui.memory(|m| m.data.get_temp::<bool>(id)).unwrap_or(false) {
-                let mut s = self.c.title.clone();
-                let e = ui.add(egui::TextEdit::singleline(&mut s).desired_width(180.0));
-                e.request_focus();
-                if s != self.c.title {
-                    self.c.title = s;
-                    self.changed();
-                }
-                if e.lost_focus() {
-                    ui.memory_mut(|m| m.data.remove::<bool>(id));
-                }
-            }
-            if self.dirty_at.is_some() && self.path.is_some() {
-                ui.label(RichText::new("●").size(9.0).color(TEXT3()));
-            }
-            ui.add_space(12.0);
-            // 电路 / 接线记录
-            for (v, name) in [(false, t("电路")), (true, t("接线记录"))] {
-                let on = self.wiring_on == v;
-                let b = egui::Button::new(RichText::new(name).size(12.5).color(if on { TEXT() } else { TEXT2() }))
-                    .fill(if on { BG3() } else { Color32::TRANSPARENT })
-                    .stroke(st(1.0, if on { LINE() } else { Color32::TRANSPARENT }))
-                    .corner_radius(CornerRadius::same(5))
-                    .min_size(vec2(0.0, 26.0));
-                if ui.add(b).clicked() && self.wiring_on != v {
-                    self.wiring_on = v;
-                    if !v {
-                        self.wiring.save_now();
-                    }
-                }
-            }
-            if self.wiring_on {
-                return;
-            }
-            ui.add_space(12.0);
-            // 实物 / 原理图
-            for (v, name) in [(false, t("实物")), (true, t("原理图"))] {
-                let on = self.schematic == v;
-                let b = egui::Button::new(RichText::new(name).size(12.5).color(if on { ACCENT() } else { TEXT2() }))
-                    .fill(if on { ACCENT().gamma_multiply(0.12) } else { BG2() })
-                    .stroke(st(1.0, if on { ACCENT().gamma_multiply(0.4) } else { LINE() }))
-                    .corner_radius(CornerRadius::same(5))
-                    .min_size(vec2(0.0, 26.0));
-                if ui.add(b).clicked() {
-                    self.schematic = v;
-                }
-            }
-            ui.add_space(12.0);
-            // 通电
-            let on = self.powered();
-            let (txt, col) = if on { (t("断电"), ERR()) } else { (t("通电"), OK()) };
-            let b = egui::Button::new(RichText::new(format!("{}  {txt}", if on { "■" } else { "▶" })).size(12.5).strong().color(col))
-                .fill(col.gamma_multiply(0.12))
-                .stroke(st(1.0, col.gamma_multiply(0.5)))
-                .corner_radius(CornerRadius::same(5))
-                .min_size(vec2(72.0, 26.0));
-            if ui.add(b).on_hover_text("F5").clicked() {
-                self.set_power(!on);
-            }
-            if on {
-                if icon_button(ui, if self.paused { Icon::Play } else { Icon::Pause }, if self.paused { t("继续") } else { t("暂停") }, self.paused).clicked() {
-                    self.paused = !self.paused;
-                }
-                let cur = SPEEDS.iter().find(|s| s.0 == self.speed).map_or("?", |s| s.1);
-                egui::ComboBox::from_id_salt("cv-speed").width(76.0).selected_text(t(cur)).show_ui(ui, |ui| {
-                    for (v, n) in SPEEDS {
-                        ui.selectable_value(&mut self.speed, v, t(n));
-                    }
-                });
-                if let Some(s) = &self.sim {
-                    let mut txt = format!("t = {}", fmt_time(s.t));
-                    if !self.paused && s.real_speed < self.speed * 0.8 {
-                        txt.push_str(&format!("  ({} {:.0}%)", t("实际速度"), s.real_speed / self.speed * 100.0));
-                    }
-                    if !s.ok {
-                        txt.push_str(&format!("  {}", t("不收敛")));
-                    }
-                    ui.label(RichText::new(txt).font(FontId::monospace(12.0)).color(if s.ok { TEXT2() } else { WARN() }));
-                }
-            }
-            {
-                use crate::circuit::check::Level;
-                let errs = self.issues.iter().filter(|i| i.level == Level::Err).count();
-                let warns = self.issues.iter().filter(|i| i.level == Level::Warn).count();
-                if errs + warns > 0 {
-                    ui.add_space(8.0);
-                    let col = if errs > 0 { ERR() } else { WARN() };
-                    let txt = if errs > 0 {
-                        format!("⚠ {} {}", errs + warns, t("处接错"))
-                    } else {
-                        format!("⚠ {} {}", warns, t("处提醒"))
-                    };
-                    let b = egui::Button::new(RichText::new(txt).size(12.0).color(col))
-                        .fill(col.gamma_multiply(0.10))
-                        .stroke(st(1.0, col.gamma_multiply(0.4)))
-                        .corner_radius(CornerRadius::same(5))
-                        .min_size(vec2(0.0, 26.0));
-                    if ui.add(b).on_hover_text(t("看接错检查")).clicked() {
-                        self.sel.clear();
-                        self.tab = RTab::Props;
-                    }
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let r = icon_button(ui, Icon::More, t("更多"), false);
-                let pop = egui::Id::new("cv-more");
-                if r.clicked() {
-                    ui.memory_mut(|m| m.toggle_popup(pop));
-                }
-                egui::popup::popup_below_widget(ui, pop, &r, egui::PopupCloseBehavior::CloseOnClick, |ui| self.more_menu(ui));
-                let n_new = self.sim.as_ref().map_or(0, |s| s.log.len().saturating_sub(self.seen_log));
-                let r = icon_button(ui, Icon::Terminal, t("输出"), self.bottom);
-                if n_new > 0 && !self.bottom {
-                    ui.painter().circle_filled(r.rect.right_top() + vec2(-6.0, 6.0), 3.5, WARN());
-                }
-                if r.clicked() {
-                    self.bottom = !self.bottom;
-                }
-                if icon_button(ui, Icon::Maximize, &format!("{} (Home)", t("看全部")), false).clicked() {
-                    self.fit = true;
-                }
-                if icon_button(ui, Icon::Forward, &format!("{} (Ctrl+Y)", t("重做")), false).clicked() {
-                    self.redo();
-                }
-                if icon_button(ui, Icon::Back, &format!("{} (Ctrl+Z)", t("撤销")), false).clicked() {
-                    self.undo();
-                }
-            });
-        });
     }
 
     fn more_menu(&mut self, ui: &mut egui::Ui) {
         ui.set_min_width(200.0);
         if crate::app::menu_item(ui, t("新建电路"), "") {
             self.load(Circuit::default(), None);
-            self.c.add_part("bb_half", 0, 0);
         }
         if crate::app::menu_item(ui, t("打开电路…"), "") {
             self.open_file();
         }
-        if crate::app::menu_item(ui, t("另存为…"), "Ctrl+S") {
+        if crate::app::menu_item(ui, t("保存"), "Ctrl+S") {
+            if let Some(path) = self.path.clone() { self.save_to(path); } else { self.save_as(); }
+        }
+        if crate::app::menu_item(ui, t("另存为…"), "") {
             self.save_as();
         }
+        if self.has_unsaved_file_edits() && crate::app::menu_item(ui, t("恢复上次保存"), "") {
+            self.restore_saved();
+        }
         ui.separator();
+        if crate::app::menu_item(ui, t("接亮第一个 LED"), "") {
+            self.start_practice(ui.ctx().screen_rect().width());
+        }
+        if crate::app::menu_item(ui, if self.wiring_on { t("返回电路") } else { t("接线记录") }, "") {
+            self.toggle_wiring();
+        }
+        if self.wiring_on { return; }
+        ui.separator();
+        if crate::app::menu_item(ui, t("撤销"), "Ctrl+Z") { self.undo(); }
+        if crate::app::menu_item(ui, t("重做"), "Ctrl+Y") { self.redo(); }
         if crate::app::menu_item(ui, if self.show_flow { t("隐藏电流动画") } else { t("显示电流动画") }, "") {
             self.show_flow = !self.show_flow;
         }
@@ -778,6 +695,7 @@ impl CircuitView {
         if ids.is_empty() {
             return;
         }
+        let original = self.c.clone();
         self.checkpoint();
         for id in ids {
             if let Some(p) = self.c.part_mut(id) {
@@ -788,6 +706,8 @@ impl CircuitView {
                 }
             }
         }
+        routing::carry_wires(&original, &mut self.c, &HashSet::new(), (0, 0), self.schematic);
+        self.paused = self.powered();
     }
 
     /// 复制选中的元件和导线（JSON 形式的小电路）
@@ -846,17 +766,18 @@ impl CircuitView {
         let i = ui.input(|i| i.clone());
         let cmd = i.modifiers.command;
         if i.key_pressed(Key::Escape) {
-            if self.draft.is_some() || self.placing.is_some() {
-                self.draft = None;
-                self.placing = None;
+            if self.draft.is_some() || self.placing.is_some() || self.tool != Tool::Select {
+                self.choose_tool(Tool::Select);
             } else {
                 self.sel.clear();
+                self.net_origin = None;
+                self.focus_points.clear();
             }
         }
         if i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace) {
             if let Some(d) = &mut self.draft {
-                if d.pts.len() > 1 {
-                    d.pts.pop();
+                if let Some(mark) = d.marks.pop() {
+                    d.pts.truncate(mark);
                 } else {
                     self.draft = None;
                 }
@@ -865,7 +786,12 @@ impl CircuitView {
             }
         }
         if i.key_pressed(Key::F5) {
-            self.set_power(!self.powered());
+            self.toggle_power();
+        }
+        if !cmd && i.modifiers == Modifiers::NONE {
+            for (key, tool) in [(Key::V, Tool::Select), (Key::W, Tool::Wire), (Key::P, Tool::Probe)] {
+                if i.key_pressed(key) { self.choose_tool(tool); }
+            }
         }
         if i.key_pressed(Key::Home) {
             self.fit = true;
@@ -881,9 +807,8 @@ impl CircuitView {
         } else if cmd && i.key_pressed(Key::A) {
             self.select_all();
         } else if cmd && i.key_pressed(Key::S) {
-            if self.path.is_some() {
-                self.save_now();
-                self.toast(t("已保存"), OK());
+            if let Some(path) = self.path.clone() {
+                self.save_to(path);
             } else {
                 self.save_as();
             }
@@ -892,7 +817,9 @@ impl CircuitView {
                 self.paste(2, 2);
             }
         } else if !cmd && i.key_pressed(Key::R) {
-            if self.placing.is_some() {
+            if self.draft.is_some() {
+                self.vertical_first = !self.vertical_first;
+            } else if self.placing.is_some() {
                 self.place_rot = (self.place_rot + 1) % 4;
             } else {
                 self.rotate_sel(false);
@@ -1005,15 +932,21 @@ impl CircuitView {
             return;
         };
         self.seen_log = s.log.len();
-        let rows: Vec<(f64, String, String)> = s.log.iter().map(|(tt, id, m)| (*tt, self.c.label(*id), m.clone())).collect();
+        let rows: Vec<_> = s.log.iter().map(|(tt, id, m)| (*tt, *id, self.c.label(*id), m.clone())).collect();
         egui::ScrollArea::vertical().auto_shrink([false, false]).stick_to_bottom(true).show(ui, |ui| {
             if rows.is_empty() {
                 ui.label(RichText::new(t("暂时没有事件")).color(TEXT3()));
             }
-            for (tt, who, m) in rows {
+            for (tt, id, who, m) in rows {
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(fmt_time(tt)).font(FontId::monospace(11.5)).color(TEXT3()));
-                    ui.label(RichText::new(who).font(FontId::monospace(11.5)).color(ACCENT()));
+                    if !who.is_empty() && ui.link(RichText::new(who).font(FontId::monospace(11.5)).color(ACCENT())).clicked() {
+                        if let Some(part) = self.c.part(id) {
+                            let points = part.pins();
+                            self.sel = vec![Sel::Part(id)];
+                            self.center_points(&points);
+                        }
+                    }
                     let bad = m.contains(t("烧坏")) || m.contains(t("熔断"));
                     ui.label(RichText::new(m).size(12.0).color(if bad { ERR() } else { TEXT() }));
                 });

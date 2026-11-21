@@ -19,6 +19,7 @@ pub enum Level {
 pub struct Issue {
     pub level: Level,
     pub parts: Vec<u32>,
+    pub pins: Vec<(u32, usize)>,
     pub msg: String,
 }
 
@@ -98,10 +99,18 @@ fn out_mode(m: &PinMode) -> bool {
 }
 
 pub fn check(c: &Circuit) -> Vec<Issue> {
-    let nl = Netlist::build(c);
-    let rails = rail_volts(c, &nl);
+    check_netlist(c, &Netlist::build(c))
+}
+
+pub fn check_netlist(c: &Circuit, nl: &Netlist) -> Vec<Issue> {
+    let rails = rail_volts(c, nl);
     let mut out: Vec<Issue> = vec![];
-    let mut push = |level, parts: Vec<u32>, msg: String| out.push(Issue { level, parts, msg });
+    let mut push = |level, pins: Vec<(u32, usize)>, msg: String| {
+        let mut parts: Vec<_> = pins.iter().map(|pin| pin.0).collect();
+        parts.sort_unstable();
+        parts.dedup();
+        out.push(Issue { level, parts, pins, msg });
+    };
     let label = |id: u32| c.label(id);
     // 网络里有哪些（元件, 引脚）
     let members = |net: usize| nl.members.get(net).cloned().unwrap_or_default();
@@ -113,6 +122,8 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
         nl.net_of(id, k)
     };
 
+    let mut supply_nets = HashMap::new();
+    let mut drivers = HashMap::new();
     for p in &c.parts {
         let Some(d) = lib::def(&p.kind) else { continue };
         if is_bb(d) {
@@ -121,8 +132,22 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
         let net = |k: usize| nl.net_of(p.id, k);
         // 电源正负极短路
         if matches!(d.key, "usb5v" | "psu" | "battery") && net(0).is_some() && net(0) == net(1) {
-            push(Level::Err, vec![p.id], tf("{} 的正负极直接连在一起：短路，电源会发烫、电池会鼓包", &[&label(p.id)]));
+            push(Level::Err, vec![(p.id, 0), (p.id, 1)], tf("{} 的正负极直接连在一起：短路，电源会发烫、电池会鼓包", &[&label(p.id)]));
             continue;
+        }
+        if let Some(n) = net(0) {
+            let voltage = match d.key {
+                "usb5v" | "psu" => Some(p.num("v")),
+                "battery" => Some(models::battery(p.prop("type")).vnom),
+                _ => None,
+            };
+            if let Some(v) = voltage {
+                let &(other, previous): &(u32, f64) = supply_nets.entry(n).or_insert((p.id, v));
+                if (v - previous).abs() > 0.25 {
+                    push(Level::Err, vec![(other, 0), (p.id, 0)],
+                        tf("{}（{} V）与 {}（{} V）接在同一电源网上，请检查供电来源", &[&label(other), &format!("{previous:.2}"), &label(p.id), &format!("{v:.2}")]));
+                }
+            }
         }
         // 两只脚插进了面包板同一列（被短接）
         if d.pins.len() <= 3 && !matches!(d.cat, Cat::Meter | Cat::Mcu | Cat::Module) {
@@ -131,7 +156,7 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                     if d.pins[a].name != d.pins[b].name && net(a).is_some() && net(a) == net(b) && same_strip(c, p, a, b) {
                         push(
                             Level::Warn,
-                            vec![p.id],
+                            vec![(p.id, a), (p.id, b)],
                             tf(
                                 "{} 的 {} 脚和 {} 脚插在面包板同一列，被短接了；把它转个方向或跨到另一列",
                                 &[&label(p.id), &d.pins[a].name, &d.pins[b].name],
@@ -143,20 +168,21 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
         }
         // 两脚元件有脚没接
         if matches!(d.cat, Cat::Passive | Cat::Diode | Cat::Bjt | Cat::Mos | Cat::Output | Cat::Input) && d.pins.len() <= 4 {
-            let loose: Vec<&str> = (0..d.pins.len()).filter(|k| net(*k).is_none_or(|n| members(n).len() <= 1)).map(|k| d.pins[k].name.as_str()).collect();
+            let loose: Vec<_> = (0..d.pins.len()).filter(|k| net(*k).is_none_or(|n| members(n).len() <= 1)).collect();
             if !loose.is_empty() && loose.len() < d.pins.len() && d.key != "button" {
-                push(Level::Tip, vec![p.id], tf("{} 的 {} 脚还没接", &[&label(p.id), &loose.join("、")]));
+                let names: Vec<_> = loose.iter().map(|&k| d.pins[k].name.as_str()).collect();
+                push(Level::Tip, loose.into_iter().map(|k| (p.id, k)).collect(), tf("{} 的 {} 脚还没接", &[&label(p.id), &names.join("、")]));
             }
         }
         // LED：没串电阻直接接在电源两端、接反
-        if matches!(d.key, "led" | "diode") || d.key == "led" {
+        if matches!(d.key, "led" | "diode") {
             let (a, k) = (net(0), net(1));
             let (va, vk) = (a.and_then(|n| rails.get(&n)), k.and_then(|n| rails.get(&n)));
             if let (Some(va), Some(vk)) = (va, vk) {
                 if d.key == "led" && va - vk > 1.6 {
                     push(
                         Level::Err,
-                        vec![p.id],
+                        vec![(p.id, 0), (p.id, 1)],
                         tf("{} 直接接在 {}V 电源上，没有串限流电阻，通电就会烧", &[&label(p.id), &format!("{:.1}", va - vk)]),
                     );
                 } else if vk - va > 0.5 {
@@ -165,7 +191,7 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                     } else {
                         t("二极管反接在电源上，不导通")
                     };
-                    push(Level::Warn, vec![p.id], format!("{}：{what}", label(p.id)));
+                    push(Level::Warn, vec![(p.id, 0), (p.id, 1)], format!("{}：{what}", label(p.id)));
                 }
             }
         }
@@ -174,7 +200,7 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
             let (pos, neg) = (net(0).and_then(|n| rails.get(&n)), net(1).and_then(|n| rails.get(&n)));
             if let (Some(a), Some(b)) = (pos, neg) {
                 if *b > a + 0.5 {
-                    push(Level::Err, vec![p.id], tf("{} 电解电容接反了：+ 极要接高电压，反接会鼓包甚至爆开", &[&label(p.id)]));
+                    push(Level::Err, vec![(p.id, 0), (p.id, 1)], tf("{} 电解电容接反了：+ 极要接高电压，反接会鼓包甚至爆开", &[&label(p.id)]));
                 }
             }
         }
@@ -186,11 +212,11 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                 let v = net(vp).and_then(|n| rails.get(&n)).copied();
                 let g = net(gp).and_then(|n| rails.get(&n)).copied();
                 match (v, g) {
-                    (Some(v), Some(g)) if v - g > hi + 0.3 => push(Level::Err, vec![p.id], tf("{} 最高只能接 {}V，现在接的是 {}V，会烧坏", &[&label(p.id), &hi, &format!("{:.1}", v - g)])),
+                    (Some(v), Some(g)) if v - g > hi + 0.3 => push(Level::Err, vec![(p.id, vp), (p.id, gp)], tf("{} 最高只能接 {}V，现在接的是 {}V，会烧坏", &[&label(p.id), &hi, &format!("{:.1}", v - g)])),
                     (Some(v), Some(g)) if v - g < lo - 0.2 && v - g > 0.5 => {
-                        push(Level::Warn, vec![p.id], tf("{} 至少要 {}V 才能正常工作，现在只有 {}V", &[&label(p.id), &lo, &format!("{:.1}", v - g)]))
+                        push(Level::Warn, vec![(p.id, vp), (p.id, gp)], tf("{} 至少要 {}V 才能正常工作，现在只有 {}V", &[&label(p.id), &lo, &format!("{:.1}", v - g)]))
                     }
-                    (Some(_), None) if net(gp).is_none_or(|n| members(n).len() <= 1) => push(Level::Warn, vec![p.id], tf("{} 的 GND 没接，模块不工作", &[&label(p.id)])),
+                    (Some(_), None) if net(gp).is_none_or(|n| members(n).len() <= 1) => push(Level::Warn, vec![(p.id, gp)], tf("{} 的 GND 没接，模块不工作", &[&label(p.id)])),
                     _ => {}
                 }
             }
@@ -203,16 +229,21 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                 let Some(k) = d.pin(&pc.pin) else { continue };
                 let Some(n) = net(k) else { continue };
                 if out_mode(&pc.mode) {
+                    let &(other, other_pin): &(u32, usize) = drivers.entry(n).or_insert((p.id, k));
+                    if (p.id, k) != (other, other_pin) {
+                        push(Level::Warn, vec![(other, other_pin), (p.id, k)],
+                            tf("{} 与 {} 都配置为输出，检查它们是否会同时驱动同一网络", &[&label(other), &label(p.id)]));
+                    }
                     if let Some(v) = rails.get(&n) {
                         push(
                             Level::Err,
-                            vec![p.id],
+                            vec![(p.id, k)],
                             tf("{} 的 {} 设成输出，却直接接到了 {}V（电源 / 地）：输出时会短路烧引脚", &[&label(p.id), &pc.pin, &format!("{v:.1}")]),
                         );
                     }
                 }
                 if matches!(pc.mode, PinMode::InFloat) && members(n).iter().any(|(id, _)| c.part(*id).is_some_and(|q| q.kind == "button")) {
-                    push(Level::Warn, vec![p.id], tf("{} 的 {} 接了按键但设成浮空输入，没按时读数乱跳；改成上拉输入", &[&label(p.id), &pc.pin]));
+                    push(Level::Warn, vec![(p.id, k)], tf("{} 的 {} 接了按键但设成浮空输入，没按时读数乱跳；改成上拉输入", &[&label(p.id), &pc.pin]));
                 }
             }
             // 5V 信号进 3.3V 板子（不耐 5V 的脚）
@@ -223,7 +254,7 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                     }
                     let Some(n) = net(k) else { continue };
                     if rails.get(&n).is_some_and(|v| *v > 4.0) {
-                        push(Level::Err, vec![p.id], tf("{} 的 {} 是 3.3V 引脚（不耐 5V），直接接了 5V 会损坏", &[&label(p.id), &pd.name]));
+                        push(Level::Err, vec![(p.id, k)], tf("{} 的 {} 是 3.3V 引脚（不耐 5V），直接接了 5V 会损坏", &[&label(p.id), &pd.name]));
                         continue;
                     }
                     for (oid, ok) in members(n) {
@@ -239,7 +270,7 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                         if vcc.and_then(|vp| nl.net_of(oid, vp)).and_then(|vn| rails.get(&vn)).is_some_and(|v| *v > 4.0) {
                             push(
                                 Level::Warn,
-                                vec![p.id, oid],
+                                vec![(p.id, k), (oid, ok)],
                                 tf(
                                     "{} 用 5V 供电，它的 {} 输出 5V 信号接到 {} 的 {}（3.3V 不耐 5V）：加分压电阻或电平转换",
                                     &[&label(oid), &qd.pins[ok].name, &label(p.id), &pd.name],
@@ -260,7 +291,7 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                 if oid > p.id && pin_caps(oid, ok) & cap::TX != 0 && pin_caps(oid, ok) & cap::RX == 0 && pd.caps & cap::RX == 0 {
                     push(
                         Level::Warn,
-                        vec![p.id, oid],
+                        vec![(p.id, k), (oid, ok)],
                         tf("{} 的 {} 接到了 {} 的 TX：串口要交叉接，TX 接对方 RX", &[&label(p.id), &pd.name, &label(oid)]),
                     );
                 }
@@ -280,16 +311,18 @@ pub fn check(c: &Circuit) -> Vec<Issue> {
                 continue;
             }
             let Some(n) = nl.net_of(p.id, k) else { continue };
-            for (oid, _) in members(n) {
+            for (oid, ok) in members(n) {
                 if oid <= p.id || !powered.contains(&oid) && !powered.contains(&p.id) {
                     continue;
                 }
                 if let Some(og) = gnd_of(oid) {
-                    if og != g && !out.iter().any(|i| i.parts.contains(&p.id) && i.parts.contains(&oid) && i.level == Level::Warn) {
+                    let msg = tf("{} 和 {} 之间有信号线，但 GND 没连在一起（没共地），信号不可靠", &[&label(p.id), &label(oid)]);
+                    if og != g && !out.iter().any(|i| i.msg == msg) {
                         out.push(Issue {
                             level: Level::Warn,
                             parts: vec![p.id, oid],
-                            msg: tf("{} 和 {} 之间有信号线，但 GND 没连在一起（没共地），信号不可靠", &[&label(p.id), &label(oid)]),
+                            pins: vec![(p.id, k), (oid, ok)],
+                            msg,
                         });
                     }
                 }

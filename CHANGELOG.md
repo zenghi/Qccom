@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.10
+
+- Preview interface and monospace fonts as you change them. Choose from more fonts installed on the system.
+- Apply font and highlighting changes across all serial logs, including detached windows, and select from more colors for manual highlights.
+- Restore the last page, split layout, serial selections, and detached window geometry at startup. Open the saved serial ports when you are ready to reconnect.
+
 ## 1.9.9
 
 - Open and monitor multiple serial ports with separate settings, logs, recordings, and reconnection. The simplified Devices list keeps the port controls together. Drag the serial log tabs to reorder them or open a split view. Right-click a tab to open its log in a separate window or manage the port and log.

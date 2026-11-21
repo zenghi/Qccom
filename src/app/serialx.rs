@@ -66,6 +66,8 @@ pub struct Profile {
     pub triggers: Vec<super::dock::Trigger>,
     pub scripts: Vec<super::dock::Script>,
     pub keywords: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub keyword_colors: BTreeMap<String, logx::ManualColor>,
 }
 
 fn profile_dir() -> PathBuf {
@@ -685,6 +687,7 @@ impl App {
             triggers: s.triggers.clone(),
             scripts: s.scripts.clone(),
             keywords: s.keywords.clone(),
+            keyword_colors: s.keyword_colors.clone(),
         }
     }
 
@@ -772,6 +775,7 @@ impl App {
             s.scripts = pr.scripts;
         }
         s.keywords = pr.keywords;
+        s.keyword_colors = pr.keyword_colors;
         s.profile = name.to_string();
         self.baud_text = self.s.cfg.baud.to_string();
         self.parse_keywords();

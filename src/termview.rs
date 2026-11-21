@@ -412,8 +412,8 @@ impl TermView {
                 self.zoom = (self.zoom * z).clamp(0.6, 2.5);
             }
         }
-        let mut font = TextStyle::Monospace.resolve(ui.style());
-        font.size = (font.size * self.zoom).round().max(7.0);
+        let mut font = TextStyle::Monospace.resolve(&ui.ctx().style());
+        font.size = (font.size * self.zoom).max(7.0);
         let bold_font = FontId::new(font.size, mono_bold());
         // 用一长串字符量出实际步进（排版时会按像素取整，单个字宽乘列数会越画越偏）
         let cw = ui.fonts(|f| f.layout_no_wrap("0".repeat(100), font.clone(), TEXT()).size().x / 100.0);
@@ -996,6 +996,41 @@ mod tests {
             });
         });
         out
+    }
+
+    #[test]
+    fn terminal_uses_updated_shared_font_size_and_preserves_zoom() {
+        use eframe::egui::{FontId, Shape, TextStyle};
+
+        let ctx = egui::Context::default();
+        crate::theme::load_fonts(&ctx);
+        let mut tv = TermView::new("live-font", 30, 3);
+        tv.zoom = 1.5;
+        tv.feed(b"terminal font probe");
+        let mut draw = |size| {
+            let input = egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(500.0, 300.0))),
+                ..Default::default()
+            };
+            ctx.run(input, |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    // The panel's existing local style predates this global change.
+                    ctx.all_styles_mut(|style| {
+                        style.text_styles.insert(TextStyle::Monospace, FontId::monospace(size));
+                    });
+                    tv.show(ui, &|s| s.as_bytes().to_vec(), None, false);
+                });
+            })
+            .shapes
+            .into_iter()
+            .find_map(|entry| match entry.shape {
+                Shape::Text(text) if text.galley.job.text.starts_with("terminal font probe") => Some(text.galley.job.sections[0].format.font_id.clone()),
+                _ => None,
+            })
+            .expect("terminal rendered the existing text")
+        };
+        assert_eq!(draw(11.0), FontId::monospace(16.5));
+        assert_eq!(draw(13.0), FontId::monospace(19.5));
     }
 
     #[test]

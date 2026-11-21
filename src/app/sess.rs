@@ -1039,6 +1039,86 @@ mod tests {
     use super::*;
 
     #[test]
+    fn open_serial_views_update_font_and_highlight_in_place() {
+        use std::{cell::RefCell, rc::Rc};
+
+        let settings = Settings {
+            telemetry: false,
+            auto_update: false,
+            font_size: 11.5,
+            show_ts: false,
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        let creation = eframe::CreationContext::_new_kittest(ctx.clone());
+        let mut app = App::with_settings(&creation, settings, Vec::new(), Vec::new());
+        app.set_page(Page::Debug);
+        app.s.port = "COM1".into();
+        app.serial_opened = true;
+        app.buf.push_line(Dir::Rx, b"primary 1234".to_vec(), app.s.encoding);
+        app.choose_serial_port("COM2", false);
+        app.serial_opened = true;
+        app.buf.push_line(Dir::Rx, b"secondary 1234".to_vec(), app.s.encoding);
+        let side = app.session_slot;
+        app.open_serial_side(side, DockPos::Right, false);
+        app.work.opened_at = None;
+
+        let raw = |viewport_id| egui::RawInput {
+            viewport_id,
+            screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1200.0, 720.0))),
+            ..Default::default()
+        };
+        let detached = Rc::new(RefCell::new(Vec::new()));
+        let capture = detached.clone();
+        egui::Context::set_immediate_viewport_renderer(move |ctx, mut viewport| {
+            let mut input = raw(viewport.ids.this);
+            input.viewports.insert(
+                viewport.ids.this,
+                egui::ViewportInfo {
+                    parent: Some(viewport.ids.parent),
+                    ..Default::default()
+                },
+            );
+            *capture.borrow_mut() = ctx.run(input, |ctx| (viewport.viewport_ui_cb)(ctx)).shapes;
+        });
+        let frame = |app: &mut App| {
+            ctx.run(raw(egui::ViewportId::ROOT), |ctx| {
+                app.dock_panel(ctx, &[]);
+                app.debug_page(ctx);
+            })
+            .shapes
+        };
+        let verify_line = |shapes: &[egui::epaint::ClippedShape], name: &str, size, highlighted| {
+            let job = shapes
+                .iter()
+                .find_map(|entry| match &entry.shape {
+                    Shape::Text(text) if text.galley.job.text.starts_with(name) => Some(&text.galley.job),
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("missing serial output for {name}"));
+            let number = job.text.find("1234").unwrap();
+            let format = &job.sections.iter().find(|section| section.byte_range.contains(&number)).unwrap().format;
+            assert_eq!(format.font_id, FontId::monospace(size));
+            assert_eq!(format.color != job.sections[0].format.color, highlighted);
+        };
+
+        let split = frame(&mut app);
+        verify_line(&split, "primary", 11.5, false);
+        verify_line(&split, "secondary", 11.5, false);
+
+        app.work.detached = true;
+        let _ = frame(&mut app);
+        verify_line(&detached.borrow(), "secondary", 11.5, false);
+        app.s.font_size = 19.5;
+        app.refresh_log_font_size(&ctx);
+        app.s.log_preset = LogPreset::DeviceLog;
+        app.repaint_log_windows(&ctx);
+        verify_line(&frame(&mut app), "primary", 19.5, true);
+        verify_line(&detached.borrow(), "secondary", 19.5, true);
+    }
+
+    #[test]
     fn choosing_a_device_in_a_split_preserves_the_log_and_uses_the_target_settings() {
         let settings = Settings {
             telemetry: false,

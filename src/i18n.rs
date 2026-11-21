@@ -24,10 +24,19 @@ const EN: usize = 1;
 static CUR: AtomicUsize = AtomicUsize::new(0);
 static TABLE: OnceLock<HashMap<&'static str, Vec<&'static str>>> = OnceLock::new();
 
+fn catalog() -> &'static str {
+    static TEXT: OnceLock<String> = OnceLock::new();
+    TEXT.get_or_init(|| {
+        let packed = include_bytes!(concat!(env!("OUT_DIR"), "/i18n.deflate"));
+        let bytes = miniz_oxide::inflate::decompress_to_vec(packed).expect("embedded translation data");
+        String::from_utf8(bytes).expect("UTF-8 translation catalog")
+    })
+}
+
 fn table() -> &'static HashMap<&'static str, Vec<&'static str>> {
     TABLE.get_or_init(|| {
         let mut m = HashMap::new();
-        for line in include_str!("../assets/i18n.tsv").lines() {
+        for line in catalog().lines() {
             if line.starts_with("# ") || line.trim().is_empty() {
                 continue;
             }
@@ -184,6 +193,7 @@ mod tests {
 
     #[test]
     fn table_is_consistent() {
+        assert_eq!(catalog(), include_str!("../assets/i18n.tsv"));
         let t = table();
         assert!(t.len() > 400);
         for (k, v) in t {

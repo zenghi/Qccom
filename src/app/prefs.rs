@@ -90,27 +90,40 @@ impl Default for Prefs {
 
 /// 一行设置：左边标题和说明，右边控件。搜索时不匹配就不画
 fn row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, add: impl FnOnce(&mut egui::Ui)) {
+    settings_row(ui, q, title, desc, false, add);
+}
+
+fn settings_row(ui: &mut egui::Ui, q: &str, title: &str, desc: &str, stacked: bool, add: impl FnOnce(&mut egui::Ui)) {
     if !q.is_empty() && find_ci(title, q).is_none() && find_ci(desc, q).is_none() {
         return;
     }
     let w = ui.available_width();
     egui::Frame::new().inner_margin(egui::Margin::symmetric(0, 10)).show(ui, |ui| {
         ui.set_width(w);
-        ui.horizontal(|ui| {
-            let text_w = (w - 260.0).max(220.0);
-            ui.vertical(|ui| {
-                ui.set_width(text_w);
-                ui.label(RichText::new(title).size(13.5).color(TEXT()));
-                if !desc.is_empty() {
-                    ui.add_space(2.0);
-                    ui.label(RichText::new(desc).size(12.0).color(TEXT3()));
-                }
+        let text = |ui: &mut egui::Ui| {
+            ui.label(RichText::new(title).size(13.5).color(TEXT()));
+            if !desc.is_empty() {
+                ui.add_space(2.0);
+                ui.label(RichText::new(desc).size(12.0).color(TEXT3()));
+            }
+        };
+        let control = |ui: &mut egui::Ui| {
+            ui.spacing_mut().slider_width = if stacked { (w - 62.0).clamp(32.0, 170.0) } else { 170.0 };
+            add(ui);
+        };
+        if stacked {
+            text(ui);
+            ui.add_space(4.0);
+            ui.horizontal(control);
+        } else {
+            ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    ui.set_width((w - 260.0).max(220.0));
+                    text(ui);
+                });
+                ui.with_layout(Layout::right_to_left(Align::Center), control);
             });
-            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                ui.spacing_mut().slider_width = 170.0;
-                add(ui)
-            });
-        });
+        }
     });
     let y = ui.cursor().top();
     ui.painter().hline(ui.max_rect().x_range(), y, st(1.0, LINE()));
@@ -144,6 +157,7 @@ fn cat_matches(cat: Cat, q: &str) -> bool {
             "界面字体",
             "等宽字体",
             "日志字号",
+            "字体预览",
             "背景图片",
             "不透明度",
             "显示方式",
@@ -194,7 +208,7 @@ fn font_picker(ui: &mut egui::Ui, id: &str, value: &mut String, kind: FontKind) 
     let selected = names.clone().find(|name| *name == value.as_str()).unwrap_or(kind.bundled());
     egui::ComboBox::from_id_salt(id)
         .selected_text(selected)
-        .width(160.0)
+        .width(ui.available_width().min(160.0))
         .show_ui(ui, |ui| {
             for name in names {
                 if ui.selectable_label(name == selected, name).clicked() && value.as_str() != name {
@@ -206,6 +220,27 @@ fn font_picker(ui: &mut egui::Ui, id: &str, value: &mut String, kind: FontKind) 
         })
         .inner
         .unwrap_or(false)
+}
+
+fn font_preview(ui: &mut egui::Ui, log_size: f32) {
+    ui.add_space(10.0);
+    egui::Frame::new()
+        .fill(BG2())
+        .stroke(st(1.0, LINE()))
+        .corner_radius(R_WIDGET)
+        .inner_margin(egui::Margin::symmetric(12, 9))
+        .show(ui, |ui| {
+            ui.set_min_width(ui.available_width());
+            ui.label(RichText::new(t("字体预览")).size(11.0).color(TEXT3()));
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(t("设备")).font(FontId::new(15.0, bold())).color(TEXT()));
+                ui.label(RichText::new(format!("{} · {} · {}  Aa Bb 123", t("串口"), t("连接"), t("日志"))).color(TEXT2()));
+            });
+            let mono = FontId::monospace(log_size);
+            ui.label(RichText::new("12:34:56.789  RX  01 03 00 FF").font(mono.clone()).color(TEXT()));
+            ui.label(RichText::new("Aa 0O 1lI {} [] -> !=").font(mono).color(TEXT2()));
+        });
+    ui.add_space(10.0);
 }
 
 impl App {
@@ -558,25 +593,33 @@ impl App {
                 ui.ctx().set_zoom_factor(self.s.ui_scale);
             }
         });
+
+        let mut rect = ui.available_rect_before_wrap();
+        rect.max.x = (ui.clip_rect().right() - 12.0).min(rect.right()).max(rect.left() + 1.0);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| self.prefs_fonts(ui, q));
+        self.prefs_background(ui, q);
+    }
+
+    fn prefs_fonts(&mut self, ui: &mut egui::Ui, q: &str) {
+        let stacked = ui.available_width() < 480.0;
         let mut fonts_changed = false;
-        row(ui, q, t("界面字体"), "", |ui| {
+        settings_row(ui, q, t("界面字体"), "", stacked, |ui| {
             fonts_changed |= font_picker(ui, "interface-font", &mut self.s.fonts.interface, FontKind::Interface);
         });
-        row(ui, q, t("等宽字体"), t("用于日志、终端和代码编辑器"), |ui| {
+        settings_row(ui, q, t("等宽字体"), t("用于日志、终端和代码编辑器"), stacked, |ui| {
             fonts_changed |= font_picker(ui, "monospace-font", &mut self.s.fonts.monospace, FontKind::Monospace);
         });
         if fonts_changed {
-            set_font_preferences(ui.ctx(), &self.s.fonts);
+            self.refresh_font_preferences(ui.ctx());
         }
-        row(ui, q, t("日志字号"), t("日志和终端使用的等宽字体大小"), |ui| {
+        settings_row(ui, q, t("日志字号"), t("日志和终端使用的等宽字体大小"), stacked, |ui| {
             if ui.add(egui::Slider::new(&mut self.s.font_size, 10.0..=22.0).step_by(0.5)).changed() {
-                let fs = self.s.font_size;
-                ui.ctx().all_styles_mut(|s| {
-                    s.text_styles.insert(TextStyle::Monospace, FontId::new(fs, FontFamily::Monospace));
-                });
+                self.refresh_log_font_size(ui.ctx());
             }
         });
-        self.prefs_background(ui, q);
+        if q.is_empty() || ["字体预览", "界面字体", "等宽字体", "日志字号"].iter().any(|key| find_ci(t(key), q).is_some()) {
+            font_preview(ui, self.s.font_size);
+        }
     }
 
     /// 背景图片：编辑器、底部终端、串口终端
@@ -667,13 +710,19 @@ impl App {
             }
         });
         row(ui, q, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"), |ui| {
-            switch(ui, &mut self.s.ansi);
+            if switch(ui, &mut self.s.ansi).changed() {
+                self.repaint_log_windows(ui.ctx());
+            }
         });
         row(ui, q, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"), |ui| {
-            switch(ui, &mut self.s.level_color);
+            if switch(ui, &mut self.s.level_color).changed() {
+                self.repaint_log_windows(ui.ctx());
+            }
         });
         row(ui, q, t("高亮预设"), t("为文本与混合视图中的日志着色"), |ui| {
-            super::logx::log_preset_combo(ui, &mut self.s.log_preset);
+            if super::logx::log_preset_combo(ui, &mut self.s.log_preset) {
+                self.repaint_log_windows(ui.ctx());
+            }
         });
         row(
             ui,

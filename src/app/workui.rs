@@ -2,7 +2,7 @@
 //! 来回切页的提示条、状态栏上的格局图标和提示。
 
 use super::toolbox::Tool;
-use super::work::{DockPos, DragPane, DropAt, Pane, SerialTarget, Strength, DEFAULT_FRAC, MIN_SIDE};
+use super::work::{DetachedGeometry, DockPos, DragPane, DropAt, Pane, SerialTarget, Strength, DEFAULT_FRAC, MIN_SIDE};
 use super::*;
 
 const TITLE_H: f32 = 30.0;
@@ -12,12 +12,14 @@ impl App {
     pub(super) fn dock_panel(&mut self, ctx: &egui::Context, acts: &[Act]) {
         let Some(p) = self.side_pane() else {
             self.work.rect = None;
+            self.work.detached_launch = None;
             return;
         };
         if self.work.detached {
             self.detached_window(ctx, p, acts);
             return;
         }
+        self.work.detached_launch = None;
         let avail = ctx.available_rect();
         // 打开时滑入
         let k = self.work.opened_at.map_or(1.0, |t| (t.elapsed().as_secs_f32() / 0.15).min(1.0));
@@ -249,7 +251,7 @@ impl App {
             });
         });
         if let Some(i) = pick {
-            self.work.cur = i;
+            self.select_side_tab(i);
             self.work.focus_side = true;
             self.work.serial_devices_side = self.serial_split_active();
         }
@@ -343,10 +345,28 @@ impl App {
         self.work.rect = None;
         let id = Self::detached_viewport_id();
         let title = format!("QCCOM · {}", self.pane_label(p));
-        let builder = egui::ViewportBuilder::default().with_title(title).with_inner_size([760.0, 620.0]).with_min_inner_size([320.0, 240.0]);
+        let geometry = *self.work.detached_launch.get_or_insert_with(|| self.work.detached_geometry.unwrap_or_default());
+        let mut builder = egui::ViewportBuilder::default().with_title(title).with_inner_size(geometry.size).with_min_inner_size([320.0, 240.0]);
+        if let Some([x, y]) = geometry.position {
+            builder = builder.with_position(pos2(x, y));
+        }
         let ctx2 = ctx.clone();
         let mut back = false;
         ctx2.show_viewport_immediate(id, builder, |vctx, class| {
+            if class != egui::ViewportClass::Embedded {
+                let geometry = vctx.input(|i| {
+                    let view = i.viewport();
+                    if view.minimized == Some(true) {
+                        return None;
+                    }
+                    let size = view.inner_rect?.size();
+                    let position = view.outer_rect.map(|rect| [rect.min.x, rect.min.y]);
+                    DetachedGeometry { position, size: [size.x, size.y] }.valid()
+                });
+                if let Some(geometry) = geometry {
+                    self.work.detached_geometry = Some(geometry);
+                }
+            }
             egui::TopBottomPanel::top("work-title-x")
                 .exact_height(TITLE_H)
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin { left: 8, right: 6, top: 0, bottom: 0 }))

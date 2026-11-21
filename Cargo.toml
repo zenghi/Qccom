@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.9.9"
+version = "1.9.10"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -74,6 +74,7 @@ strip = true
 panic = "abort"
 
 [build-dependencies]
+miniz_oxide = "0.9"
 winresource = "0.1.34"
 
 [patch.crates-io]

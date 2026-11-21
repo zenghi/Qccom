@@ -3,7 +3,7 @@
 //! 布局：左侧边栏（设备、连接、链路状态、显示设置）| 右侧（搜索与筛选、日志、命令栏）| 底部状态栏。
 //! 设计上靠底色深浅和细分隔线分层，青色只留给焦点元素（连接按钮、当前端口、速率曲线）。
 
-use std::collections::VecDeque;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
@@ -77,6 +77,8 @@ pub struct Settings {
     pub shell_menu_noticed: bool,
     pub history: Vec<String>,
     pub keywords: String,
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub keyword_colors: BTreeMap<String, logx::ManualColor>,
     pub max_lines: usize,
     pub font_size: f32,
     pub fonts: FontSettings,
@@ -200,6 +202,7 @@ impl Default for Settings {
             shell_menu_noticed: false,
             history: vec![],
             keywords: String::new(),
+            keyword_colors: BTreeMap::new(),
             max_lines: 100_000,
             font_size: 13.0,
             fonts: Default::default(),
@@ -724,6 +727,8 @@ impl App {
         app.compile_rules();
         app.compile_triggers();
         app.apply_frame();
+        let restore_main = open_dir.is_none() && app.open_log.is_none() && app.extra_port.is_none() && startup.is_empty();
+        app.restore_startup_workspace(restore_main);
         if let Some(d) = open_dir {
             app.code.open_root(d);
             app.set_page(Page::Code);
@@ -734,6 +739,7 @@ impl App {
         for r in startup {
             app.handle_req(r, false);
         }
+        app.restore_startup_dock();
         if just_updated {
             app.toast(tf("已更新到 v{}", &[&env!("CARGO_PKG_VERSION")]), OK());
         } else if !app.code.recovery.is_empty() && app.page != Page::Code {
@@ -747,6 +753,7 @@ impl App {
     }
 
     fn parse_keywords(&mut self) {
+        let palette = logx::manual_palette();
         self.keywords = self
             .s
             .keywords
@@ -754,8 +761,14 @@ impl App {
             .map(str::trim)
             .filter(|k| !k.is_empty())
             .enumerate()
-            .map(|(i, k)| (k.to_string(), kw_colors()[i % 6]))
+            .map(|(i, k)| {
+                let default = palette[i % palette.len()];
+                let color = self.s.keyword_colors.get(&k.to_ascii_lowercase()).map_or(default, |color| color.resolve(&palette));
+                (k.to_string(), color)
+            })
             .collect();
+        self.invalidate_log_views();
+        self.repaint_log_windows(&self.ctx);
     }
 
     // ------------------------------------------------------------ 串口
@@ -1252,8 +1265,17 @@ impl App {
                     self.s.port = new[0].clone();
                 }
                 self.toast(tf("新设备 {}", &[&new[0]]), ACCENT());
-            } else if !self.serial_opened && (self.s.port.is_empty() || (self.serial_tabs.len() == 1 && empty_log && !self.ports.iter().any(|p| p.name == self.s.port))) {
-                if let Some(p) = self.ports.iter().find(|p| !self.serial_port_busy(&p.name)) {
+            } else if !self.serial_opened
+                && (self.s.port.is_empty()
+                    || (self.work.restored_serial_choice != Some(self.session_slot) && self.serial_tabs.len() == 1 && empty_log && !self.ports.iter().any(|p| p.name == self.s.port)))
+            {
+                if let Some(p) = self.ports.iter().find(|p| {
+                    !self.serial_port_busy(&p.name)
+                        && !self.serial_tabs.iter().any(|&slot| {
+                            let port = self.serial_port_for(slot);
+                            slot != self.session_slot && (port == p.name || (cfg!(windows) && port.eq_ignore_ascii_case(&p.name)))
+                        })
+                }) {
                     self.s.port = p.name.clone();
                 }
             }
@@ -1921,8 +1943,11 @@ impl App {
         if switch_row(ui, &mut self.s.show_tx, t("发送回显"), t("在日志里显示自己发送的数据")) {
             self.invalidate_log_views();
         }
-        switch_row(ui, &mut self.s.ansi, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"));
-        switch_row(ui, &mut self.s.level_color, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"));
+        let ansi_changed = switch_row(ui, &mut self.s.ansi, t("ANSI 颜色"), t("解析终端颜色转义码（\\x1b[31m 等）"));
+        let level_changed = switch_row(ui, &mut self.s.level_color, t("级别着色"), t("ERROR / WARN 整行上色，级别标记高亮"));
+        if ansi_changed || level_changed {
+            self.repaint_log_windows(ui.ctx());
+        }
         switch_row(ui, &mut self.auto_scroll, t("自动滚动"), t("新数据到来时自动滚到底部；往上翻时自动停住"));
         switch_row(ui, &mut self.s.show_delta, t("时间差"), t("每行前显示和上一行相隔的时间，看时序很方便"));
         ui.horizontal(|ui| {
@@ -1949,12 +1974,29 @@ impl App {
             self.parse_keywords();
         }
         if !self.keywords.is_empty() {
+            let mut changed = false;
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(4.0, 4.0);
-                for (k, c) in &self.keywords {
-                    pill(ui, k, *c);
+                for (keyword, color) in &self.keywords {
+                    let button = egui::Button::new(RichText::new(keyword).font(FontId::monospace(10.5)).color(*color))
+                        .fill(color.gamma_multiply(0.12))
+                        .stroke(st(1.0, color.gamma_multiply(0.38)));
+                    let response = ui.add(button).on_hover_text(t("换颜色"));
+                    let key = keyword.to_ascii_lowercase();
+                    let mut choice = self.s.keyword_colors.get(&key).copied();
+                    if logx::highlight_color_popup(ui, &response, &mut choice, *color, true) {
+                        if let Some(choice) = choice {
+                            self.s.keyword_colors.insert(key, choice);
+                        } else {
+                            self.s.keyword_colors.remove(&key);
+                        }
+                        changed = true;
+                    }
                 }
             });
+            if changed {
+                self.parse_keywords();
+            }
         }
         ui.add_space(12.0);
 
@@ -1992,6 +2034,20 @@ impl App {
                     desc: String::new(),
                 });
             }
+        }
+        for &slot in &self.serial_tabs {
+            let name = self.serial_port_for(slot);
+            if name.trim().is_empty() || ports.iter().any(|port| port.name == name || (cfg!(windows) && port.name.eq_ignore_ascii_case(name))) {
+                continue;
+            }
+            #[cfg(windows)]
+            if self.mappings.hidden_driver_end(name, &self.s.mapping) {
+                continue;
+            }
+            ports.push(PortEntry {
+                name: name.to_owned(),
+                desc: String::new(),
+            });
         }
         ports
     }
@@ -2689,10 +2745,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.label(RichText::new(t("字号")).color(TEXT2()));
             if ui.add(egui::Slider::new(&mut self.s.font_size, 10.0..=22.0).step_by(0.5)).changed() {
-                let fs = self.s.font_size;
-                ui.ctx().all_styles_mut(|s| {
-                    s.text_styles.insert(TextStyle::Monospace, FontId::new(fs, FontFamily::Monospace));
-                });
+                self.refresh_log_font_size(ui.ctx());
             }
         });
         ui.horizontal(|ui| {
@@ -3675,6 +3728,29 @@ impl App {
 
     // ------------------------------------------------------------ 日志区
 
+    fn log_font(&self) -> FontId {
+        FontId::monospace(self.s.font_size)
+    }
+
+    pub(super) fn repaint_log_windows(&self, ctx: &egui::Context) {
+        ctx.request_repaint_of(egui::ViewportId::ROOT);
+        if self.work.detached && !ctx.embed_viewports() {
+            ctx.request_repaint_of(Self::detached_viewport_id());
+        }
+    }
+
+    pub(super) fn refresh_font_preferences(&self, ctx: &egui::Context) {
+        set_font_preferences(ctx, &self.s.fonts);
+        self.repaint_log_windows(ctx);
+    }
+
+    pub(super) fn refresh_log_font_size(&self, ctx: &egui::Context) {
+        ctx.all_styles_mut(|style| {
+            style.text_styles.insert(TextStyle::Monospace, self.log_font());
+        });
+        self.repaint_log_windows(ctx);
+    }
+
     fn log_view(&mut self, ui: &mut egui::Ui) {
         let card_rect = ui.max_rect();
         let painter = ui.painter().clone();
@@ -3682,7 +3758,7 @@ impl App {
         // 顶部一道渐隐的青色细线，点到为止的科技感
         hgrad_line(&painter, card_rect.top() + 0.5, card_rect.x_range(), ACCENT().gamma_multiply(0.55));
 
-        let font = TextStyle::Monospace.resolve(ui.style());
+        let font = self.log_font();
         let row_h = (ui.fonts(|f| f.row_height(&font)) + 4.0).round();
         let (n, open) = self.rows();
 
@@ -4571,6 +4647,7 @@ impl App {
         self.s.theme = mode.to_string();
         apply(ctx, self.s.font_size, resolve(mode, ctx));
         self.parse_keywords();
+        self.compile_rules();
     }
 
     /// 主题设成跟随系统时，系统切换深浅色后跟着变
@@ -4578,6 +4655,7 @@ impl App {
         if self.s.theme == "system" && resolve("system", ctx) != is_light() {
             apply(ctx, self.s.font_size, !is_light());
             self.parse_keywords();
+            self.compile_rules();
         }
     }
 
@@ -4657,7 +4735,12 @@ impl App {
         }
         if !compact && !narrow {
             let commands_max = (ui.available_width() - MIN_LOG_PANE_WIDTH).max(220.0);
-            let action = egui::SidePanel::right(salt.with("cmds"))
+            let commands_id = if self.s.transport == Transport::Serial && !self.s.port.is_empty() {
+                egui::Id::new(("serial-commands", &self.s.port))
+            } else {
+                salt.with("cmds")
+            };
+            let action = egui::SidePanel::right(commands_id)
                 .frame(egui::Frame::new().fill(BG1()).inner_margin(egui::Margin {
                     left: 14,
                     right: 14,
@@ -5450,6 +5533,7 @@ impl eframe::App for App {
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        self.snapshot_work_layout();
         self.code.snapshot();
         self.s.code = self.code.s.clone();
         self.s.git = self.gitv.s.clone();

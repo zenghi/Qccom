@@ -845,6 +845,21 @@ Vim 键位	Vim keys	Vim 鍵位	Vim キー操作	Vim 키	Vim-Tasten	Touches Vim	T
 「只显示」规则之间是“或”；「隐藏」优先。规则只影响显示，不影响录制。	“Show only” rules are OR-ed; “Hide” wins. Rules affect the view only, not recordings.	「只顯示」規則之間是“或”；「隱藏」優先。規則只影響顯示，不影響錄製。	「のみ表示」は OR、「非表示」が優先。表示だけに影響し録画には影響しません。	‘만 표시’ 규칙은 OR, ‘숨기기’가 우선. 표시에만 적용되고 녹화에는 영향 없음.	„Nur zeigen“-Regeln sind ODER-verknüpft; „Ausblenden“ hat Vorrang. Nur Anzeige, keine Aufzeichnung.	Les règles « Afficher seulement » sont en OU ; « Masquer » l'emporte. Affichage uniquement.	Las reglas «Solo mostrar» se combinan con O; «Ocultar» tiene prioridad. Solo afectan a la vista.	Правила «Только показать» объединяются по ИЛИ; «Скрыть» важнее. Влияют только на отображение.	Regras «Só mostrar» são OU; «Ocultar» tem prioridade. Afetam só a exibição.
 文字或正则	Text or regex	文字或正規表示式	テキストまたは正規表現	텍스트 또는 정규식	Text oder Regex	Texte ou regex	Texto o regex	Текст или regex	Texto ou regex
 换颜色	Change color	換顏色	色を変更	색 바꾸기	Farbe ändern	Changer de couleur	Cambiar color	Сменить цвет	Mudar cor
+紫色	Purple	紫色	紫色	보라색	Violett	Violet	Morado	Фиолетовый	Roxo
+黄色	Yellow	黃色	黄色	노란색	Gelb	Jaune	Amarillo	Жёлтый	Amarelo
+粉色	Pink	粉紅色	ピンク	분홍색	Rosa	Rose	Rosa	Розовый	Rosa
+蓝色	Blue	藍色	青色	파란색	Blau	Bleu	Azul	Синий	Azul
+橙色	Orange	橙色	オレンジ	주황색	Orange	Orange	Naranja	Оранжевый	Laranja
+青色	Cyan	青色	シアン	시안	Cyan	Cyan	Cian	Голубой	Ciano
+红色	Red	紅色	赤色	빨간색	Rot	Rouge	Rojo	Красный	Vermelho
+绿色	Green	綠色	緑色	초록색	Grün	Vert	Verde	Зелёный	Verde
+蓝绿色	Teal	藍綠色	青緑色	청록색	Blaugrün	Bleu-vert	Verde azulado	Сине-зелёный	Azul-petróleo
+靛蓝色	Indigo	靛藍色	藍色	남색	Indigo	Indigo	Índigo	Индиго	Índigo
+黄绿色	Lime	黃綠色	黄緑色	연두색	Limettengrün	Vert citron	Verde lima	Лаймовый	Verde-lima
+玫红色	Magenta	玫紅色	マゼンタ	자홍색	Magenta	Magenta	Magenta	Пурпурный	Magenta
+蓝灰色	Blue-gray	藍灰色	青灰色	청회색	Blaugrau	Bleu-gris	Gris azulado	Сине-серый	Azul-acinzentado
+棕色	Brown	棕色	茶色	갈색	Braun	Marron	Marrón	Коричневый	Marrom
+自定义颜色	Custom color	自訂顏色	カスタム色	사용자 지정 색	Benutzerdefinierte Farbe	Couleur personnalisée	Color personalizado	Свой цвет	Cor personalizada
 ＋ 添加规则	＋ Add rule	＋ 新增規則	＋ ルールを追加	＋ 규칙 추가	＋ Regel hinzufügen	＋ Ajouter une règle	＋ Añadir regla	＋ Добавить правило	＋ Adicionar regra
 帧格式	Frame format	幀格式	フレーム形式	프레임 형식	Frame-Format	Format de trame	Formato de trama	Формат кадра	Formato de quadro
 收到的数据按帧头 + 长度切成一帧一行，并检查校验；校验错的帧标红。适合看二进制协议。	Incoming data is split into one frame per line by header + length and checked; bad frames turn red. Good for binary protocols.	收到的資料按幀頭 + 長度切成一幀一行，並檢查校驗；校驗錯的幀標紅。適合看二進位協定。	受信データをヘッダー + 長さで 1 フレーム 1 行に分割しチェック。エラーは赤。バイナリ向け。	수신 데이터를 헤더 + 길이로 한 줄에 한 프레임씩 나누고 검사, 오류는 빨간색. 바이너리 프로토콜용.	Daten werden per Kopf + Länge in einen Frame pro Zeile geteilt und geprüft; Fehler rot. Für Binärprotokolle.	Les données sont découpées en une trame par ligne et vérifiées ; erreurs en rouge. Pour protocoles binaires.	Los datos se dividen en una trama por línea y se verifican; errores en rojo. Para protocolos binarios.	Данные делятся на кадры по заголовку и длине и проверяются; ошибки красным. Для двоичных протоколов.	Os dados viram um quadro por linha e são verificados; erros em vermelho. Para protocolos binários.
@@ -3423,3 +3438,4 @@ SSH 身份验证失败。请检查用户名和密钥。若密码提示未出现�
 查看日志	View log	查看日誌	ログを表示	로그 보기	Protokoll anzeigen	Afficher le journal	Ver registro	Просмотреть журнал	Ver registro
 发送队列已满，请稍后再试	Send queue is full. Try again shortly.	傳送佇列已滿，請稍後再試。	送信キューがいっぱいです。しばらくしてからもう一度お試しください。	전송 대기열이 가득 찼습니다. 잠시 후 다시 시도하세요.	Die Sendewarteschlange ist voll. Versuchen Sie es gleich erneut.	La file d’envoi est pleine. Réessayez dans un instant.	La cola de envío está llena. Inténtalo de nuevo en unos instantes.	Очередь отправки заполнена. Повторите попытку чуть позже.	A fila de envio está cheia. Tente novamente em instantes.
 单次网络串口发送最多 64 KiB	Each network serial send is limited to 64 KiB.	每次網路串列埠傳送上限為 64 KiB。	ネットワークシリアルの送信は 1 回あたり 64 KiB までです。	네트워크 시리얼 전송은 한 번에 최대 64 KiB입니다.	Pro Sendevorgang sind am Netzwerk-Seriellport höchstens 64 KiB möglich.	Chaque envoi série par le réseau est limité à 64 KiB.	Cada envío por el puerto serie de red tiene un límite de 64 KiB.	Размер одной отправки через сетевой последовательный порт ограничен 64 КиБ.	Cada envio pela porta serial de rede é limitado a 64 KiB.
+字体预览	Font preview	字型預覽	フォントのプレビュー	글꼴 미리보기	Schriftvorschau	Aperçu de la police	Vista previa de la fuente	Предпросмотр шрифта	Prévia da fonte

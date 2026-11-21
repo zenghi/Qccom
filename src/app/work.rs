@@ -101,18 +101,61 @@ pub(super) enum SerialTarget {
     Side,
 }
 
+/// 保留原有通用页面名称，具体串口使用端口名而不是运行时槽号。
+#[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
+enum SavedPane {
+    Debug,
+    Code,
+    Git,
+    Compare,
+    Community,
+    Files,
+    Tool(Tool),
+    Serial(String),
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, PartialEq, Debug)]
+pub(super) struct DetachedGeometry {
+    pub position: Option<[f32; 2]>,
+    pub size: [f32; 2],
+}
+
+impl Default for DetachedGeometry {
+    fn default() -> Self {
+        Self { position: None, size: [760.0, 620.0] }
+    }
+}
+
+impl DetachedGeometry {
+    pub(super) fn valid(self) -> Option<Self> {
+        let [width, height] = self.size;
+        if !(320.0..=16384.0).contains(&width) || !(240.0..=16384.0).contains(&height) {
+            return None;
+        }
+        let position = self.position.filter(|coords| coords.iter().all(|v| v.is_finite() && v.abs() <= 100_000.0));
+        Some(Self { position, ..self })
+    }
+}
+
 /// 一种布局：主页面 + 副页面（可以有几个标签）+ 位置 + 比例 + 底部终端开没开
 #[derive(Clone, Serialize, Deserialize, PartialEq, Debug)]
 #[serde(default)]
 pub(super) struct Layout {
     pub main: Option<Pane>,
-    pub tabs: Vec<Pane>,
+    tabs: Vec<SavedPane>,
     pub cur: usize,
     pub pos: DockPos,
     pub frac: f32,
     pub term: bool,
     /// 比较页左边带文件树
     pub tree: bool,
+    /// 旧版布局缺少这个字段，原来启动时只把副页放进待恢复列表。
+    visible: Option<bool>,
+    detached: bool,
+    detached_geometry: Option<DetachedGeometry>,
+    selected_serial: Option<String>,
+    serial_tabs: Vec<String>,
+    settings: Option<String>,
 }
 
 impl Default for Layout {
@@ -125,23 +168,18 @@ impl Default for Layout {
             frac: DEFAULT_FRAC,
             term: false,
             tree: true,
+            visible: None,
+            detached: false,
+            detached_geometry: None,
+            selected_serial: None,
+            serial_tabs: vec![],
+            settings: None,
         }
     }
 }
 
-fn saved_tabs(tabs: &[Pane], cur: usize) -> (Vec<Pane>, usize) {
-    let mut saved = Vec::new();
-    let mut index = 0;
-    for (i, &pane) in tabs.iter().enumerate() {
-        if !matches!(pane, Pane::Serial(_)) {
-            if i < cur {
-                index += 1;
-            }
-            saved.push(pane);
-        }
-    }
-    let index = index.min(saved.len().saturating_sub(1));
-    (saved, index)
+fn valid_layout_port(port: &str) -> bool {
+    port.len() <= 4096 && !port.trim().is_empty() && !port.chars().any(char::is_control)
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
@@ -157,7 +195,7 @@ pub(super) fn builtin_schemes() -> Vec<Scheme> {
             name: t("调固件").into(),
             lay: Layout {
                 main: Some(Pane::Code),
-                tabs: vec![Pane::Debug],
+                tabs: vec![SavedPane::Debug],
                 frac: 0.38,
                 term: true,
                 ..Default::default()
@@ -167,7 +205,7 @@ pub(super) fn builtin_schemes() -> Vec<Scheme> {
             name: t("仿真联调").into(),
             lay: Layout {
                 main: Some(Pane::Tool(Tool::Circuit)),
-                tabs: vec![Pane::Debug],
+                tabs: vec![SavedPane::Debug],
                 frac: 0.36,
                 ..Default::default()
             },
@@ -176,7 +214,7 @@ pub(super) fn builtin_schemes() -> Vec<Scheme> {
             name: t("审阅").into(),
             lay: Layout {
                 main: Some(Pane::Compare),
-                tabs: vec![Pane::Code],
+                tabs: vec![SavedPane::Code],
                 frac: 0.38,
                 tree: true,
                 ..Default::default()
@@ -283,6 +321,7 @@ pub(super) struct Work {
     pub frac: f32,
     /// Ctrl+Alt+\ 收起时记住，再按还原
     pub hidden: Vec<Pane>,
+    pub hidden_cur: usize,
     /// 当前副页面是自动弹出的：触发名
     pub auto: Option<String>,
     /// 副页面里有用户自己放的
@@ -295,6 +334,7 @@ pub(super) struct Work {
     pub serial_device_rect: Option<Rect>,
     /// 设备栏仍显示选中的副页面，即使键盘焦点已进入设备栏
     pub serial_devices_side: bool,
+    pub restored_serial_choice: Option<usize>,
     /// 专注模式：暂停自动弹出
     pub focus: bool,
     pub typed_at: Option<Instant>,
@@ -308,10 +348,11 @@ pub(super) struct Work {
     pub pair_day: HashMap<String, Instant>,
     pub drag: Option<DragPane>,
     pub detached: bool,
+    pub detached_geometry: Option<DetachedGeometry>,
+    pub detached_launch: Option<DetachedGeometry>,
     pub proj_key: String,
     /// 打开动画
     pub opened_at: Option<Instant>,
-    pub loaded: bool,
     /// 串口连上了仿真口（调试页 + 电路）
     pub sim_opened: bool,
     /// 电路生成的代码写在哪个文件（代码页里打开，规则改了自动更新）
@@ -331,6 +372,7 @@ impl Default for Work {
             pos: DockPos::Right,
             frac: DEFAULT_FRAC,
             hidden: vec![],
+            hidden_cur: 0,
             auto: None,
             manual: false,
             focus_side: false,
@@ -339,6 +381,7 @@ impl Default for Work {
             serial_tab_rect: None,
             serial_device_rect: None,
             serial_devices_side: false,
+            restored_serial_choice: None,
             focus: false,
             typed_at: None,
             chip: None,
@@ -350,9 +393,10 @@ impl Default for Work {
             pair_day: HashMap::new(),
             drag: None,
             detached: false,
+            detached_geometry: None,
+            detached_launch: None,
             proj_key: String::new(),
             opened_at: None,
-            loaded: false,
             sim_opened: false,
             gen_file: None,
             gen_at: None,
@@ -380,6 +424,13 @@ impl App {
 
     pub(super) fn side_pane(&self) -> Option<Pane> {
         self.work.tabs.get(self.work.cur).copied()
+    }
+
+    pub(super) fn select_side_tab(&mut self, index: usize) {
+        if let Some(&pane) = self.work.tabs.get(index) {
+            self.work.cur = index;
+            self.pane_activate(pane);
+        }
     }
 
     pub(super) fn pane_label(&self, pane: Pane) -> String {
@@ -493,7 +544,13 @@ impl App {
         if let Some(i) = self.work.tabs.iter().position(|&p| p == pane) {
             self.remove_work_tab(i);
         }
-        self.work.hidden.retain(|&p| p != pane);
+        if let Some(i) = self.work.hidden.iter().position(|&p| p == pane) {
+            self.work.hidden.remove(i);
+            if i < self.work.hidden_cur {
+                self.work.hidden_cur -= 1;
+            }
+            self.work.hidden_cur = self.work.hidden_cur.min(self.work.hidden.len().saturating_sub(1));
+        }
         if self.work.drag.as_ref().is_some_and(|d| d.pane == pane) {
             self.work.drag = None;
         }
@@ -614,6 +671,7 @@ impl App {
             }
         }
         self.work.hidden = std::mem::take(&mut self.work.tabs);
+        self.work.hidden_cur = self.work.cur;
         self.work.cur = 0;
         self.work.manual = false;
         self.work.detached = false;
@@ -636,7 +694,9 @@ impl App {
             self.work.cur -= 1;
         }
         self.work.cur = self.work.cur.min(self.work.tabs.len().saturating_sub(1));
-        if self.work.tabs.is_empty() {
+        if let Some(pane) = self.side_pane() {
+            self.pane_activate(pane);
+        } else {
             self.work.auto = None;
             self.work.manual = false;
             self.work.detached = false;
@@ -657,6 +717,7 @@ impl App {
             return;
         }
         let hidden = std::mem::take(&mut self.work.hidden);
+        let selected = hidden.get(self.work.hidden_cur).copied();
         let hidden: Vec<Pane> = hidden
             .into_iter()
             .filter(|p| match *p {
@@ -667,6 +728,9 @@ impl App {
         if !hidden.is_empty() {
             for p in hidden {
                 self.open_side(p, None, true);
+            }
+            if let Some(i) = self.work.tabs.iter().position(|p| Some(*p) == selected) {
+                self.work.cur = i;
             }
             return;
         }
@@ -848,13 +912,6 @@ impl App {
 
     /// 每帧：打字记录、延后的弹出、切页记录、提示过期
     pub(super) fn work_tick(&mut self, ctx: &egui::Context) {
-        if !self.work.loaded {
-            self.work.loaded = true;
-            let l = self.s.work.last.clone();
-            self.work.pos = l.pos;
-            self.work.frac = l.frac;
-            self.work.hidden = l.tabs.into_iter().filter(|p| !matches!(p, Pane::Files)).collect();
-        }
         let typing = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Text(_) | egui::Event::Key { pressed: true, .. })));
         if typing && ctx.wants_keyboard_input() {
             self.work.typed_at = Some(Instant::now());
@@ -898,7 +955,9 @@ impl App {
             self.work.serial_devices_side = false;
             self.work.rect = None;
         }
-        // 记住当前布局（全局一份、当前工程一份）
+    }
+
+    pub(super) fn snapshot_work_layout(&mut self) {
         let lay = self.current_layout();
         if lay != self.s.work.last {
             if !self.work.proj_key.is_empty() {
@@ -909,39 +968,187 @@ impl App {
     }
 
     pub(super) fn current_layout(&self) -> Layout {
-        let tabs = if self.work.tabs.is_empty() { &self.work.hidden } else { &self.work.tabs };
-        let (tabs, cur) = saved_tabs(tabs, self.work.cur);
+        let visible = !self.work.tabs.is_empty();
+        let (panes, selected) = if visible { (&self.work.tabs, self.work.cur) } else { (&self.work.hidden, self.work.hidden_cur) };
+        let mut tabs = Vec::new();
+        let mut cur = 0;
+        for (i, &pane) in panes.iter().enumerate() {
+            if let Some(saved) = self.save_work_pane(pane) {
+                if i <= selected {
+                    cur = tabs.len();
+                }
+                tabs.push(saved);
+            }
+        }
+        let settings = (self.page == Page::Settings).then(|| self.prefs.cat.id().to_owned());
         Layout {
-            main: self.main_pane(),
+            main: self.main_pane().or_else(|| settings.as_ref().and_then(|_| Pane::of(self.prev_page, self.s.tb.tool))),
             tabs,
             cur,
             pos: self.work.pos,
             frac: self.work.frac,
             term: self.shells.s.open,
             tree: self.s.work.cmp_tree,
+            visible: Some(visible),
+            detached: visible && self.work.detached,
+            detached_geometry: self.work.detached_geometry,
+            selected_serial: self.saved_serial_name(self.selected_serial),
+            serial_tabs: self.serial_log_slots().into_iter().filter_map(|slot| self.saved_serial_name(slot)).collect(),
+            settings,
         }
+    }
+
+    fn saved_serial_name(&self, slot: usize) -> Option<String> {
+        let port = self.serial_port_for(slot);
+        valid_layout_port(port).then(|| port.to_owned())
+    }
+
+    fn save_work_pane(&self, pane: Pane) -> Option<SavedPane> {
+        Some(match pane {
+            Pane::Debug => SavedPane::Debug,
+            Pane::Serial(slot) => SavedPane::Serial(self.saved_serial_name(slot)?),
+            Pane::Code => SavedPane::Code,
+            Pane::Git => SavedPane::Git,
+            Pane::Compare => SavedPane::Compare,
+            Pane::Community => SavedPane::Community,
+            Pane::Files => SavedPane::Files,
+            Pane::Tool(tool) => SavedPane::Tool(tool),
+        })
+    }
+
+    fn layout_serial_slot(&mut self, port: &str, visible_tab: bool) -> Option<usize> {
+        if !valid_layout_port(port) {
+            return None;
+        }
+        let slot = self.serial_tabs.iter().copied().find(|&slot| {
+            let known = self.serial_port_for(slot);
+            known == port || (cfg!(windows) && known.eq_ignore_ascii_case(port))
+        });
+        let slot = slot.unwrap_or_else(|| {
+            let slot = self.new_serial_log_slot();
+            self.with_session(slot, |app| app.s.port = port.to_owned());
+            slot
+        });
+        if visible_tab {
+            // 让上次打开的日志标签继续显示，连接仍由用户自己打开。
+            self.with_session(slot, |app| app.serial_opened = true);
+        }
+        Some(slot)
+    }
+
+    fn restore_serial_layout(&mut self, layout: &Layout, keep_requested_port: bool) {
+        let mut ordered = Vec::new();
+        for name in &layout.serial_tabs {
+            if let Some(slot) = self.layout_serial_slot(name, true) {
+                if !ordered.contains(&slot) {
+                    ordered.push(slot);
+                }
+            }
+        }
+        if !keep_requested_port {
+            if let Some(slot) = layout.selected_serial.as_deref().and_then(|port| self.layout_serial_slot(port, false)) {
+                self.work.restored_serial_choice = Some(slot);
+                self.selected_serial = slot;
+                if self.page == Page::Debug {
+                    self.use_session(slot);
+                }
+            }
+        }
+        for &slot in &self.serial_tabs {
+            if !ordered.contains(&slot) {
+                ordered.push(slot);
+            }
+        }
+        self.serial_tabs = ordered;
+    }
+
+    fn restore_main_layout(&mut self, layout: &Layout) {
+        if let Some(main) = layout.main {
+            self.goto_pane(main);
+        }
+        if let Some(cat) = layout.settings.as_deref().and_then(|id| prefs::Cat::ALL.into_iter().find(|cat| cat.id() == id)) {
+            self.open_settings(cat);
+        }
+    }
+
+    pub(super) fn restore_startup_workspace(&mut self, restore_main: bool) {
+        let layout = self.s.work.last.clone();
+        self.work.proj_key.clone_from(&self.last_project);
+        self.restore_serial_layout(&layout, self.extra_port.is_some());
+        if restore_main {
+            self.restore_main_layout(&layout);
+        }
+    }
+
+    pub(super) fn restore_startup_dock(&mut self) {
+        let layout = self.s.work.last.clone();
+        self.restore_dock_layout(&layout, false);
+        if layout.visible.is_some() {
+            self.shells.s.open = layout.term;
+        }
+    }
+
+    fn restore_dock_layout(&mut self, layout: &Layout, default_visible: bool) {
+        let visible = layout.visible.unwrap_or(default_visible);
+        let mut tabs = Vec::new();
+        let mut cur = 0;
+        for (i, saved) in layout.tabs.iter().enumerate() {
+            let pane = match saved {
+                SavedPane::Debug => Pane::Debug,
+                SavedPane::Code => Pane::Code,
+                SavedPane::Git => Pane::Git,
+                SavedPane::Compare => Pane::Compare,
+                SavedPane::Community => Pane::Community,
+                SavedPane::Files => Pane::Files,
+                SavedPane::Tool(tool) => Pane::Tool(*tool),
+                SavedPane::Serial(name) => {
+                    let Some(slot) = self.layout_serial_slot(name, true) else { continue };
+                    Pane::Serial(slot)
+                }
+            };
+            if (visible && !self.side_ok(pane)) || tabs.iter().any(|&other| self.same_pane(other, pane)) {
+                continue;
+            }
+            if i <= layout.cur {
+                cur = tabs.len();
+            }
+            tabs.push(pane);
+        }
+        self.work.cur = if visible { cur } else { 0 };
+        self.work.hidden_cur = if visible { 0 } else { cur };
+        self.work.tabs.clear();
+        self.work.hidden.clear();
+        if visible {
+            self.work.tabs = tabs;
+            if let Some(pane) = self.side_pane() {
+                self.pane_activate(pane);
+            }
+        } else {
+            self.work.hidden = tabs;
+        }
+        self.work.pos = layout.pos;
+        self.work.frac = if layout.frac.is_finite() && (0.1..=1.0).contains(&layout.frac) {
+            layout.frac
+        } else {
+            DEFAULT_FRAC
+        };
+        self.work.auto = None;
+        self.work.manual = visible && !self.work.tabs.is_empty();
+        self.work.focus_side = false;
+        self.work.serial_devices_side = false;
+        self.work.detached = visible && layout.detached && !self.work.tabs.is_empty();
+        self.work.detached_geometry = layout.detached_geometry.and_then(DetachedGeometry::valid);
+        self.work.detached_launch = None;
+        self.s.work.cmp_tree = layout.tree;
     }
 
     /// 套用一个布局（方案、按工程记住的）
     pub(super) fn apply_layout(&mut self, l: &Layout) {
         self.work.tabs.clear();
-        self.work.auto = None;
-        self.work.detached = false;
-        if let Some(m) = l.main {
-            self.goto_pane(m);
-        }
-        for p in &l.tabs {
-            if self.side_ok(*p) {
-                self.open_side(*p, Some(l.pos), true);
-            }
-        }
-        self.work.cur = l.cur.min(self.work.tabs.len().saturating_sub(1));
-        self.work.pos = l.pos;
-        self.work.frac = if l.frac > 0.1 { l.frac } else { DEFAULT_FRAC };
-        self.s.work.cmp_tree = l.tree;
-        if l.term && !self.shells.s.open {
-            self.shells.s.open = true;
-        }
+        self.restore_serial_layout(l, false);
+        self.restore_main_layout(l);
+        self.restore_dock_layout(l, true);
+        self.shells.s.open = l.term;
         if l.main == Some(Pane::Tool(Tool::Circuit)) {
             self.circ.get_or_insert_with(|| Box::new(crate::circuitview::CircuitView::new())).show_scope();
         }
@@ -975,6 +1182,7 @@ impl App {
     pub(super) fn reset_layout(&mut self) {
         self.work.tabs.clear();
         self.work.hidden.clear();
+        self.work.hidden_cur = 0;
         self.work.auto = None;
         self.work.manual = false;
         self.work.detached = false;
@@ -996,15 +1204,9 @@ impl App {
         if let Some(name) = self.s.work.proj_scheme.get(&key).cloned() {
             self.apply_scheme(&name);
         } else if let Some(l) = self.s.work.proj.get(&key).cloned() {
-            if !l.tabs.is_empty() {
+            if l.visible.is_some() || !l.tabs.is_empty() {
                 // 只还原副页面，不抢主页面（用户刚打开工程，应该看代码页）
-                self.work.tabs.clear();
-                for p in &l.tabs {
-                    if self.side_ok(*p) {
-                        self.open_side(*p, Some(l.pos), true);
-                    }
-                }
-                self.work.frac = l.frac;
+                self.restore_dock_layout(&l, true);
             }
         }
     }
@@ -1122,7 +1324,7 @@ impl App {
             return;
         }
         if let Some(i) = self.work.tabs.iter().position(|x| *x == p) {
-            self.work.cur = i;
+            self.select_side_tab(i);
             return;
         }
         // 设置页里点的：直接整页
@@ -1292,6 +1494,23 @@ impl App {
 mod tests {
     use super::*;
 
+    #[derive(Default)]
+    struct TestStorage(Option<String>);
+
+    impl eframe::Storage for TestStorage {
+        fn get_string(&self, key: &str) -> Option<String> {
+            assert_eq!(key, eframe::APP_KEY);
+            self.0.clone()
+        }
+
+        fn set_string(&mut self, key: &str, value: String) {
+            assert_eq!(key, eframe::APP_KEY);
+            self.0 = Some(value);
+        }
+
+        fn flush(&mut self) {}
+    }
+
     #[test]
     fn hex_from_c_arrays() {
         assert_eq!(hex_bytes("{0x01, 0x3, 0xAB}").as_deref(), Some("01 03 AB"));
@@ -1306,7 +1525,7 @@ mod tests {
     }
 
     #[test]
-    fn docking_a_serial_session_preserves_its_identity_and_only_saves_generic_panes() {
+    fn docking_a_serial_session_saves_its_port_name_and_cleans_up_after_close() {
         let settings = Settings {
             telemetry: false,
             auto_update: false,
@@ -1342,7 +1561,7 @@ mod tests {
         assert!(app.work.detached);
         let saved = app.current_layout();
         assert_eq!(saved.main, Some(Pane::Debug));
-        assert_eq!(saved.tabs, [Pane::Code]);
+        assert_eq!(saved.tabs, [SavedPane::Serial("COM2".into()), SavedPane::Code]);
         assert_eq!(saved.cur, 0);
         let json = serde_json::to_string(&saved).unwrap();
         assert_eq!(serde_json::from_str::<Layout>(&json).unwrap(), saved);
@@ -1358,6 +1577,121 @@ mod tests {
         app.open_serial_side(second, DockPos::Right, true);
         assert_eq!(app.work.tabs, [Pane::Code]);
         assert!(!app.work.detached);
+    }
+
+    #[test]
+    fn restart_restores_named_panes_geometry_and_disconnected_missing_ports() {
+        let settings = Settings {
+            telemetry: false,
+            auto_update: false,
+            ..Default::default()
+        };
+        let ctx = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let mut app = App::with_settings(&ctx, settings, vec![], vec![]);
+        app.s.port = "COM8".into();
+        app.serial_opened = true;
+        app.choose_serial_port("COM19", false);
+        let other_slot = app.session_slot;
+        app.serial_opened = true;
+        app.use_session(0);
+        app.set_page(Page::Code);
+        app.open_side(Pane::Git, Some(DockPos::Bottom), true);
+        app.open_serial_side(other_slot, DockPos::Bottom, true);
+        app.work.frac = 0.62;
+        let geometry = DetachedGeometry {
+            position: Some([1180.0, 55.0]),
+            size: [600.0, 410.0],
+        };
+        app.work.detached_geometry = Some(geometry);
+
+        let mut storage = TestStorage::default();
+        eframe::App::save(&mut app, &mut storage);
+        let settings: Settings = eframe::get_value(&storage, eframe::APP_KEY).unwrap();
+        let ctx = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let mut restored = App::with_settings(&ctx, settings, vec![], vec![]);
+        assert!(restored.page == Page::Code);
+        assert_eq!((restored.work.pos, restored.work.frac), (DockPos::Bottom, 0.62));
+        assert!(restored.work.detached);
+        assert_eq!(restored.work.detached_geometry, Some(geometry));
+        assert_eq!(restored.work.tabs[0], Pane::Git);
+        let pane = restored.side_pane().unwrap();
+        let slot = pane.serial_slot(restored.selected_serial).unwrap();
+        assert_eq!(restored.pane_label(pane), "COM19");
+        assert_eq!(restored.serial_port_for(restored.selected_serial), "COM8");
+        assert_eq!(restored.serial_log_slots().len(), 2);
+        for serial in restored.serial_tabs.clone() {
+            assert!(restored.with_session(serial, |app| app.conn.is_none() && app.reconnect.is_none()));
+        }
+        restored.on_ports(vec![PortEntry {
+            name: "COM7".into(),
+            desc: String::new(),
+        }]);
+        assert_eq!(restored.serial_port_for(slot), "COM19");
+        assert_eq!(restored.serial_port_for(restored.selected_serial), "COM8");
+
+        restored.close_side();
+        eframe::App::save(&mut restored, &mut storage);
+        let settings: Settings = eframe::get_value(&storage, eframe::APP_KEY).unwrap();
+        let ctx = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let mut reopened = App::with_settings(&ctx, settings, vec![], vec![]);
+        assert!(reopened.work.tabs.is_empty() && !reopened.work.detached);
+        reopened.toggle_side();
+        assert_eq!(reopened.pane_label(reopened.side_pane().unwrap()), "COM19");
+    }
+
+    #[test]
+    fn legacy_layout_loads_and_cli_port_keeps_precedence() {
+        let storage = TestStorage(Some(
+            r#"(port:"COM8",telemetry:false,auto_update:false,work:(last:(main:Some(Code),tabs:[Debug,Tool(Ssh)],cur:1,pos:Bottom,frac:0.47)))"#.into(),
+        ));
+        let settings: Settings = eframe::get_value(&storage, eframe::APP_KEY).unwrap();
+        let ctx = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let app = App::with_settings(&ctx, settings, vec![], vec![]);
+        assert!(app.page == Page::Code);
+        assert!(app.work.tabs.is_empty());
+        assert_eq!(app.work.hidden, [Pane::Debug, Pane::Tool(Tool::Ssh)]);
+        assert_eq!((app.work.hidden_cur, app.work.pos), (1, DockPos::Bottom));
+
+        let settings = Settings {
+            port: "COM8".into(),
+            telemetry: false,
+            auto_update: false,
+            ..Default::default()
+        };
+        let mut settings = settings;
+        settings.work.last = Layout {
+            main: Some(Pane::Compare),
+            visible: Some(true),
+            tabs: vec![SavedPane::Serial("COM19".into()), SavedPane::Code],
+            selected_serial: Some("COM8".into()),
+            serial_tabs: vec!["COM8".into(), "COM19".into()],
+            ..Default::default()
+        };
+        let app = App::with_settings(&ctx, settings, vec!["COM19".into()], vec![]);
+        assert!(app.page == Page::Debug);
+        assert_eq!(app.serial_port_for(app.selected_serial), "COM19");
+        assert_eq!(app.work.tabs, [Pane::Code]);
+        assert!(app.conn.is_none());
+    }
+
+    #[test]
+    fn selected_unopened_port_survives_missing_scan_without_creating_a_log_tab() {
+        let mut settings = Settings {
+            port: "COM17".into(),
+            telemetry: false,
+            auto_update: false,
+            ..Default::default()
+        };
+        settings.work.last.selected_serial = Some("COM17".into());
+        let ctx = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let mut app = App::with_settings(&ctx, settings, vec![], vec![]);
+        app.on_ports(vec![PortEntry {
+            name: "COM5".into(),
+            desc: String::new(),
+        }]);
+        assert_eq!(app.s.port, "COM17");
+        assert!(app.serial_log_slots().is_empty() && app.conn.is_none());
+        assert!(app.serial_device_entries().iter().any(|port| port.name == "COM17"));
     }
 
     #[test]

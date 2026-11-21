@@ -195,6 +195,7 @@ impl App {
             }
             None => {
                 self.work.hidden = std::mem::take(&mut self.work.tabs);
+                self.work.hidden_cur = self.work.cur;
                 self.work.cur = 0;
                 self.work.auto = None;
                 self.work.manual = false;

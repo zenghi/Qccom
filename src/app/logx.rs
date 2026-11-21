@@ -28,8 +28,10 @@ pub struct Rule {
     pub pat: String,
     pub regex: bool,
     pub act: RuleAct,
-    /// 高亮颜色（kw_colors 的下标）
+    /// 高亮预设的下标，顺序与已有配置兼容。
     pub color: u8,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub custom_color: Option<[u8; 3]>,
 }
 
 impl Default for Rule {
@@ -40,8 +42,109 @@ impl Default for Rule {
             regex: false,
             act: RuleAct::Mark,
             color: 0,
+            custom_color: None,
         }
     }
+}
+
+impl Rule {
+    fn highlight_color(&self) -> ManualColor {
+        self.custom_color.map_or(ManualColor::Palette(self.color), ManualColor::Custom)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ManualColor {
+    Palette(u8),
+    Custom([u8; 3]),
+}
+
+const COLOR_NAMES: [&str; 14] = ["紫色", "黄色", "粉色", "蓝色", "橙色", "青色", "红色", "绿色", "蓝绿色", "靛蓝色", "黄绿色", "玫红色", "蓝灰色", "棕色"];
+
+pub(super) const MANUAL_COLOR_COUNT: usize = COLOR_NAMES.len();
+
+impl ManualColor {
+    pub(super) fn resolve(self, palette: &[Color32; MANUAL_COLOR_COUNT]) -> Color32 {
+        match self {
+            Self::Palette(index) => palette[index as usize % palette.len()],
+            Self::Custom([r, g, b]) => readable_highlight(Color32::from_rgb(r, g, b), BG0()),
+        }
+    }
+}
+
+pub(super) fn manual_palette() -> [Color32; MANUAL_COLOR_COUNT] {
+    let [violet, yellow, pink, blue, orange, cyan] = kw_colors();
+    [
+        violet,
+        yellow,
+        pink,
+        blue,
+        orange,
+        cyan,
+        ERR(),
+        Color32::from_rgb(0x4a, 0xde, 0x80),
+        Color32::from_rgb(0x2d, 0xd4, 0xbf),
+        Color32::from_rgb(0x81, 0x8c, 0xf8),
+        Color32::from_rgb(0xa3, 0xe6, 0x35),
+        Color32::from_rgb(0xe8, 0x79, 0xf9),
+        Color32::from_rgb(0x94, 0xa3, 0xb8),
+        Color32::from_rgb(0xd9, 0xa4, 0x7b),
+    ]
+    .map(|color| readable_highlight(color, BG0()))
+}
+
+fn readable_highlight(color: Color32, background: Color32) -> Color32 {
+    let target = if luminance(background) < 0.5 { Color32::WHITE } else { Color32::BLACK };
+    // Evaluate against the same tinted background used by the log renderer.
+    (0..20)
+        .map(|step| color.lerp_to_gamma(target, step as f32 * 0.05))
+        .find(|&fg| contrast(luminance(fg), luminance(background.blend(fg.gamma_multiply(0.16)))) >= 4.5)
+        .unwrap_or(target)
+}
+
+pub(super) fn highlight_color_popup(ui: &egui::Ui, anchor: &egui::Response, selected: &mut Option<ManualColor>, displayed: Color32, allow_auto: bool) -> bool {
+    let id = anchor.id.with("highlight-color");
+    if anchor.clicked() {
+        ui.memory_mut(|m| m.toggle_popup(id));
+    }
+    let before = *selected;
+    egui::popup::popup_below_widget(ui, id, anchor, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
+        let colors = manual_palette();
+        for (row, colors) in colors.chunks(7).enumerate() {
+            ui.horizontal(|ui| {
+                for (column, &color) in colors.iter().enumerate() {
+                    let index = row * 7 + column;
+                    let choice = ManualColor::Palette(index as u8);
+                    let name = t(COLOR_NAMES[index]);
+                    let active = before == Some(choice);
+                    let outline = if active { st(2.0, TEXT()) } else { st(1.0, LINE_HI()) };
+                    let button = egui::Button::new("").min_size(vec2(23.0, 23.0)).fill(color).stroke(outline);
+                    let response = ui.add(button).on_hover_text(name);
+                    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, true, active, name));
+                    if response.clicked() {
+                        *selected = Some(choice);
+                        ui.memory_mut(|m| m.close_popup());
+                    }
+                }
+            });
+        }
+        if allow_auto && ui.selectable_label(before.is_none(), t("自动")).clicked() {
+            *selected = None;
+            ui.memory_mut(|m| m.close_popup());
+        }
+        egui::CollapsingHeader::new(t("自定义颜色"))
+            .default_open(matches!(before, Some(ManualColor::Custom(_))))
+            .show(ui, |ui| {
+                let mut color = match before {
+                    Some(ManualColor::Custom([r, g, b])) => Color32::from_rgb(r, g, b),
+                    _ => displayed,
+                };
+                if egui::color_picker::color_picker_color32(ui, &mut color, egui::color_picker::Alpha::Opaque) {
+                    *selected = Some(ManualColor::Custom([color.r(), color.g(), color.b()]));
+                }
+            });
+    });
+    before != *selected
 }
 
 pub(super) enum Matcher {
@@ -78,12 +181,14 @@ pub(super) struct RuleRt {
     pub m: Matcher,
 }
 
-pub(super) fn log_preset_combo(ui: &mut egui::Ui, selected: &mut LogPreset) {
+pub(super) fn log_preset_combo(ui: &mut egui::Ui, selected: &mut LogPreset) -> bool {
+    let before = *selected;
     egui::ComboBox::from_id_salt("log-highlight-preset").selected_text(selected.name()).show_ui(ui, |ui| {
         for preset in LogPreset::ALL {
             ui.selectable_value(selected, preset, preset.name());
         }
     });
+    before != *selected
 }
 
 // ---------------------------------------------------------------- 分帧
@@ -423,7 +528,7 @@ impl App {
     // ------------------------------------------------------------ 规则
 
     pub(super) fn compile_rules(&mut self) {
-        let cols = kw_colors();
+        let colors = manual_palette();
         self.rules_rt = self
             .s
             .rules
@@ -432,12 +537,13 @@ impl App {
             .filter_map(|r| {
                 Matcher::new(&r.pat, r.regex).ok().map(|m| RuleRt {
                     act: r.act,
-                    color: cols[r.color as usize % cols.len()],
+                    color: r.highlight_color().resolve(&colors),
                     m,
                 })
             })
             .collect();
         self.invalidate_log_views();
+        self.repaint_log_windows(&self.ctx);
     }
 
     pub(super) fn rules_filter(&self) -> bool {
@@ -750,12 +856,12 @@ impl App {
         tool_window(ctx, t("过滤与高亮规则"), "rules", &mut open, 520.0, |ui| {
             ui.horizontal(|ui| {
                 ui.label(t("高亮预设"));
-                log_preset_combo(ui, &mut self.s.log_preset);
+                changed |= log_preset_combo(ui, &mut self.s.log_preset);
             });
             ui.separator();
             ui.label(RichText::new(t("「只显示」规则之间是“或”；「隐藏」优先。规则只影响显示，不影响录制。")).small().color(TEXT3()));
             ui.add_space(4.0);
-            let cols = kw_colors();
+            let colors = manual_palette();
             let mut del = None;
             for (i, r) in self.s.rules.iter_mut().enumerate() {
                 ui.horizontal(|ui| {
@@ -776,12 +882,26 @@ impl App {
                         )
                         .changed();
                     changed |= small_chip(ui, &mut r.regex, ".*", t("正则表达式"));
-                    // 颜色：点一下换下一个
-                    let (rect, resp) = ui.allocate_exact_size(vec2(18.0, 18.0), Sense::click());
-                    ui.painter().circle_filled(rect.center(), 6.0, cols[r.color as usize % cols.len()]);
-                    if resp.on_hover_text(t("换颜色")).clicked() {
-                        r.color = (r.color + 1) % cols.len() as u8;
-                        changed = true;
+                    if r.act != RuleAct::Hide {
+                        let previous = r.highlight_color();
+                        let displayed = previous.resolve(&colors);
+                        let button = egui::Button::new("").min_size(vec2(24.0, 20.0)).fill(displayed).stroke(st(1.0, LINE_HI()));
+                        let response = ui.add(button).on_hover_text(t("换颜色"));
+                        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, t("换颜色")));
+                        let mut selected = Some(previous);
+                        if highlight_color_popup(ui, &response, &mut selected, displayed, false) {
+                            match selected {
+                                Some(ManualColor::Palette(index)) => {
+                                    r.color = index;
+                                    r.custom_color = None;
+                                }
+                                Some(ManualColor::Custom(rgb)) => r.custom_color = Some(rgb),
+                                None => {}
+                            }
+                            changed = true;
+                        }
+                    } else {
+                        ui.add_space(24.0);
                     }
                     if icon_button(ui, Icon::Close, t("删除"), false).clicked() {
                         del = Some(i);
@@ -795,15 +915,15 @@ impl App {
             ui.add_space(2.0);
             ui.horizontal(|ui| {
                 if ui.button(t("＋ 添加规则")).clicked() {
-                    let n = self.s.rules.len() as u8;
-                    self.s.rules.push(Rule { color: n % 6, ..Default::default() });
+                    let color = (self.s.rules.len() % MANUAL_COLOR_COUNT) as u8;
+                    self.s.rules.push(Rule { color, ..Default::default() });
                 }
                 // 把搜索框里的词变成规则
                 if !self.search.is_empty() && ui.button(tf("把“{}”加为规则", &[&self.search])).clicked() {
-                    let n = self.s.rules.len() as u8;
+                    let color = (self.s.rules.len() % MANUAL_COLOR_COUNT) as u8;
                     self.s.rules.push(Rule {
                         pat: self.search.clone(),
-                        color: n % 6,
+                        color,
                         ..Default::default()
                     });
                     changed = true;
@@ -1084,7 +1204,33 @@ pub(crate) fn small_chip(ui: &mut egui::Ui, v: &mut bool, label: &str, tip: &str
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::app::serialx::Profile;
     use std::io::Cursor;
+
+    #[test]
+    fn manual_highlight_colors_round_trip_with_legacy_rule_indices() {
+        let legacy = r#"{"rules":[{"pat":"warn","color":4}],"keywords":"warn, boot"}"#;
+        let mut profile: Profile = serde_json::from_str(legacy).unwrap();
+        assert!(profile.keyword_colors.is_empty());
+        assert_eq!(profile.rules[0].highlight_color(), ManualColor::Palette(4));
+        profile.keyword_colors.insert("warn".to_owned(), ManualColor::Palette(11));
+        profile.rules[0].custom_color = Some([12, 34, 56]);
+        let saved = serde_json::to_string(&profile).unwrap();
+        let restored: Profile = serde_json::from_str(&saved).unwrap();
+        assert_eq!(restored.keyword_colors, profile.keyword_colors);
+        assert_eq!(restored.rules, profile.rules);
+    }
+
+    #[test]
+    fn custom_highlight_is_readable_on_light_and_dark_log_backgrounds() {
+        for background in [LIGHT.bg0, DARK.bg0] {
+            for color in [Color32::BLACK, Color32::WHITE, Color32::from_rgb(0x05, 0x12, 0x30)] {
+                let fg = readable_highlight(color, background);
+                let tinted = background.blend(fg.gamma_multiply(0.16));
+                assert!(contrast(luminance(fg), luminance(tinted)) >= 4.5);
+            }
+        }
+    }
 
     #[test]
     fn log_snapshot_reads_only_requested_bytes_and_whole_tail_lines() {

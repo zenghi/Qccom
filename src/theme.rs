@@ -289,22 +289,39 @@ struct SystemFont {
     bold: PathBuf,
 }
 
+const MAX_FONT_BYTES: u64 = 32 * 1024 * 1024;
+
 fn system_fonts() -> &'static [SystemFont] {
     static FONTS: OnceLock<Vec<SystemFont>> = OnceLock::new();
     FONTS.get_or_init(|| {
         use FontKind::{Interface, Monospace};
 
         #[cfg(windows)]
-        let (dirs, faces) = (
-            vec![PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into())).join("Fonts")],
-            [
+        let (dirs, faces) = {
+            let mut dirs = vec![PathBuf::from(std::env::var_os("SystemRoot").unwrap_or_else(|| r"C:\Windows".into())).join("Fonts")];
+            if let Some(app_data) = std::env::var_os("LOCALAPPDATA") {
+                dirs.push(PathBuf::from(app_data).join(r"Microsoft\Windows\Fonts"));
+            }
+            let faces = [
                 ("Segoe UI", Interface, "segoeui.ttf", "segoeuib.ttf"),
                 ("Arial", Interface, "arial.ttf", "arialbd.ttf"),
+                ("Calibri", Interface, "calibri.ttf", "calibrib.ttf"),
+                ("Tahoma", Interface, "tahoma.ttf", "tahomabd.ttf"),
+                ("Verdana", Interface, "verdana.ttf", "verdanab.ttf"),
+                ("Trebuchet MS", Interface, "trebuc.ttf", "trebucbd.ttf"),
+                ("Microsoft YaHei", Interface, "msyh.ttc", "msyhbd.ttc"),
                 ("SimHei", Interface, "simhei.ttf", "simhei.ttf"),
                 ("Consolas", Monospace, "consola.ttf", "consolab.ttf"),
+                ("Cascadia Mono", Monospace, "CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"),
+                ("Cascadia Mono", Monospace, "CascadiaMono.ttf", "CascadiaMono.ttf"),
+                ("Cascadia Code", Monospace, "CascadiaCode-Regular.ttf", "CascadiaCode-Bold.ttf"),
+                ("Cascadia Code", Monospace, "CascadiaCode.ttf", "CascadiaCode.ttf"),
+                ("Fira Code", Monospace, "FiraCode-Regular.ttf", "FiraCode-Bold.ttf"),
+                ("Lucida Console", Monospace, "lucon.ttf", "lucon.ttf"),
                 ("Courier New", Monospace, "cour.ttf", "courbd.ttf"),
-            ],
-        );
+            ];
+            (dirs, faces)
+        };
         #[cfg(target_os = "macos")]
         let (dirs, faces) = (
             vec![PathBuf::from("/System/Library/Fonts/Supplemental")],
@@ -315,8 +332,8 @@ fn system_fonts() -> &'static [SystemFont] {
             ],
         );
         #[cfg(target_os = "linux")]
-        let (dirs, faces) = (
-            [
+        let (dirs, faces) = {
+            let mut dirs: Vec<_> = [
                 "/usr/share/fonts/truetype/dejavu",
                 "/usr/share/fonts/dejavu",
                 "/usr/share/fonts/dejavu-sans-fonts",
@@ -327,33 +344,91 @@ fn system_fonts() -> &'static [SystemFont] {
                 "/usr/share/fonts/truetype/noto",
                 "/usr/share/fonts/noto",
                 "/usr/share/fonts/TTF",
+                "/usr/share/fonts/truetype/roboto/unhinted/RobotoTTF",
             ]
             .into_iter()
             .map(PathBuf::from)
-            .collect::<Vec<_>>(),
-            [
+            .collect();
+            let mut roots = vec![
+                PathBuf::from("/usr/share/fonts"),
+                PathBuf::from("/usr/share/fonts/truetype"),
+                PathBuf::from("/usr/share/fonts/opentype"),
+                PathBuf::from("/usr/local/share/fonts"),
+            ];
+            let home = std::env::var_os("HOME").map(PathBuf::from);
+            let data = std::env::var_os("XDG_DATA_HOME").map(PathBuf::from).filter(|path| path.is_absolute());
+            if let Some(data) = data.or_else(|| home.as_ref().map(|home| home.join(".local/share"))) {
+                roots.push(data.join("fonts"));
+            }
+            if let Some(home) = home {
+                roots.push(home.join(".fonts"));
+            }
+            // Packages install families in subdirectories named for the distro's package or font family.
+            for root in roots {
+                if let Ok(entries) = std::fs::read_dir(&root) {
+                    let mut children: Vec<_> = entries
+                        .filter_map(Result::ok)
+                        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_dir()))
+                        .map(|entry| entry.path())
+                        .collect();
+                    children.sort_unstable();
+                    dirs.push(root);
+                    dirs.extend(children);
+                }
+            }
+            let faces = [
                 ("DejaVu Sans", Interface, "DejaVuSans.ttf", "DejaVuSans-Bold.ttf"),
                 ("Liberation Sans", Interface, "LiberationSans-Regular.ttf", "LiberationSans-Bold.ttf"),
                 ("Noto Sans", Interface, "NotoSans-Regular.ttf", "NotoSans-Bold.ttf"),
+                ("Ubuntu", Interface, "Ubuntu-R.ttf", "Ubuntu-B.ttf"),
+                ("Ubuntu", Interface, "Ubuntu-Regular.ttf", "Ubuntu-Bold.ttf"),
+                ("Cantarell", Interface, "Cantarell-Regular.otf", "Cantarell-Bold.otf"),
+                ("Cantarell", Interface, "Cantarell-VF.otf", "Cantarell-VF.otf"),
+                ("Open Sans", Interface, "OpenSans-Regular.ttf", "OpenSans-Bold.ttf"),
+                ("Lato", Interface, "Lato-Regular.ttf", "Lato-Bold.ttf"),
+                ("Roboto", Interface, "Roboto-Regular.ttf", "Roboto-Bold.ttf"),
+                ("Source Sans 3", Interface, "SourceSans3-Regular.otf", "SourceSans3-Bold.otf"),
+                ("Source Sans 3", Interface, "SourceSans3-Regular.ttf", "SourceSans3-Bold.ttf"),
                 ("DejaVu Sans Mono", Monospace, "DejaVuSansMono.ttf", "DejaVuSansMono-Bold.ttf"),
                 ("Liberation Mono", Monospace, "LiberationMono-Regular.ttf", "LiberationMono-Bold.ttf"),
                 ("Noto Sans Mono", Monospace, "NotoSansMono-Regular.ttf", "NotoSansMono-Bold.ttf"),
-            ],
-        );
+                ("Noto Mono", Monospace, "NotoMono-Regular.ttf", "NotoMono-Regular.ttf"),
+                ("Ubuntu Mono", Monospace, "UbuntuMono-R.ttf", "UbuntuMono-B.ttf"),
+                ("Ubuntu Mono", Monospace, "UbuntuMono-Regular.ttf", "UbuntuMono-Bold.ttf"),
+                ("Fira Code", Monospace, "FiraCode-Regular.ttf", "FiraCode-Bold.ttf"),
+                ("Fira Code", Monospace, "FiraCode-VF.ttf", "FiraCode-VF.ttf"),
+                ("Fira Mono", Monospace, "FiraMono-Regular.ttf", "FiraMono-Bold.ttf"),
+                ("Hack", Monospace, "Hack-Regular.ttf", "Hack-Bold.ttf"),
+                ("Inconsolata", Monospace, "Inconsolata-Regular.ttf", "Inconsolata-Bold.ttf"),
+                ("Source Code Pro", Monospace, "SourceCodePro-Regular.otf", "SourceCodePro-Bold.otf"),
+                ("Source Code Pro", Monospace, "SourceCodePro-Regular.ttf", "SourceCodePro-Bold.ttf"),
+                ("Cascadia Mono", Monospace, "CascadiaMono-Regular.ttf", "CascadiaMono-Bold.ttf"),
+                ("Cascadia Mono", Monospace, "CascadiaMono.ttf", "CascadiaMono.ttf"),
+                ("IBM Plex Mono", Monospace, "IBMPlexMono-Regular.ttf", "IBMPlexMono-Bold.ttf"),
+            ];
+            (dirs, faces)
+        };
         #[cfg(not(any(windows, target_os = "macos", target_os = "linux")))]
         let (dirs, faces): (Vec<PathBuf>, [(&str, FontKind, &str, &str); 0]) = (Vec::new(), []);
-        faces
-            .into_iter()
-            .filter_map(|(name, kind, regular, bold)| {
-                let dir = dirs.iter().find(|dir| dir.join(regular).is_file())?;
-                Some(SystemFont {
+        let mut fonts: Vec<SystemFont> = Vec::new();
+        for (name, kind, regular, bold) in faces {
+            if fonts.iter().any(|font| font.name == name && font.kind == kind) {
+                continue;
+            }
+            if let Some((regular, dir)) = dirs.iter().find_map(|dir| {
+                let path = dir.join(regular);
+                let installed = path.metadata().is_ok_and(|meta| meta.is_file() && (1..=MAX_FONT_BYTES).contains(&meta.len()));
+                installed.then_some((path, dir))
+            }) {
+                fonts.push(SystemFont {
                     name,
                     kind,
-                    regular: dir.join(regular),
+                    regular,
                     bold: dir.join(bold),
-                })
-            })
-            .collect()
+                });
+            }
+        }
+        fonts
     })
 }
 
@@ -378,6 +453,9 @@ fn font_definitions(prefs: &FontSettings) -> FontDefinitions {
         (FontKind::Interface, &prefs.interface, [FontFamily::Proportional, bold()], ["interface-user", "interface-user-bold"]),
         (FontKind::Monospace, &prefs.monospace, [FontFamily::Monospace, mono_bold()], ["monospace-user", "monospace-user-bold"]),
     ] {
+        if name == kind.bundled() {
+            continue;
+        }
         let Some(font) = system_fonts().iter().find(|font| font.kind == kind && font.name == name) else {
             continue;
         };
@@ -396,7 +474,6 @@ fn font_definitions(prefs: &FontSettings) -> FontDefinitions {
 }
 
 fn read_font(path: &Path) -> Option<Arc<FontData>> {
-    const MAX_FONT_BYTES: u64 = 16 * 1024 * 1024;
     let file = std::fs::File::open(path).ok()?;
     let mut bytes = Vec::new();
     file.take(MAX_FONT_BYTES + 1).read_to_end(&mut bytes).ok()?;

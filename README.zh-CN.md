@@ -130,6 +130,33 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 
 完整说明见 [使用手册](docs/USER_GUIDE.zh-CN.md)。
 
+### 在内置终端中编译和烧录 MCU
+
+在代码页打开工程根目录，再打开底部终端。QCCOM 会根据工程文件查找已安装的工具链。 **MCU 工具链** 可调整 SDK、构建目录、开发板等工程设置。
+
+在 **调试 → 设备** 选择串口，或用终端工具栏上的串口下拉框切换同一设备。烧录命令会读取当前设备，**串口监视** 在调试页打开该设备，并使用调试会话的波特率。终端会等已连接的串口释放后才开始烧录。
+
+ESP32 工程可把构建目录设为 `build/field-itwt-qq7-tcp-5s-8ms`，在设备列表选中 `COM30` 后点 **自定义命令 → 烧录应用并监视**。也可以在 QCCOM 的 ESP-IDF 终端直接执行
+
+```powershell
+idf.py -B build/field-itwt-qq7-tcp-5s-8ms -p COM30 app-flash monitor
+```
+
+直接输入 `make` 会在 ESP-IDF CMake 工程根目录执行编译。`make flash` 和 `make app-flash` 使用选中的设备，`make monitor` 打开调试串口。GNU Make 工程可使用自己的 Makefile。
+
+| 工程 | 终端操作 |
+| --- | --- |
+| ESP-IDF（ESP32、S2、S3、C3、C6、H2 等） | 从 `IDF_PATH`、Espressif 安装管理器或常见安装目录加载 SDK 和 Python 环境。支持编译、整包烧录、仅烧录应用、清理、`menuconfig` 和固件大小。具体芯片取决于 SDK 版本。 |
+| STM32CubeMX / CubeIDE | 用 Makefile、CMake 或 CubeIDE 的命令行构建。选择固件后用 STM32CubeProgrammer 烧录，默认 SWD。选择「设备串口」可用串口烧录。`.bin` 需要填写起始地址。 |
+| 沁恒微 WCH / MounRiver Studio | 识别 `.wvproj` 和常见 CH32、CH5xx 工程。用 Make/CMake 或 MounRiver 已生成的 Makefile 编译，选择 WCH-Link、USB ISP 或串口 ISP。需要本机安装对应的 `wlink` 或 `wchisp`，芯片支持范围取决于烧录工具。也可使用工程自己的烧录目标。 |
+| PlatformIO | 用 `pio run` 编译、上传和清理。使用 ST-Link 或网络上传等工程专用方式时，可勾选「烧录接口由 platformio.ini 指定」。 |
+| Zephyr | 用 `west` 编译和烧录。填写开发板名称，烧录使用该板的 runner。可覆盖 Nordic nRF、NXP、STM32 等 Zephyr 支持的板卡。 |
+| Raspberry Pi Pico SDK | 用 CMake 编译 RP2040 / RP2350 工程，选择 `.uf2` 后用 `picotool` 烧录。 |
+| Arduino CLI | 填写 FQBN，通过已安装的 board core 编译并使用当前设备串口上传。 |
+| 通用 Make / CMake | 编译、清理以及工程定义的烧录目标，适用于已配置好编译器及烧录程序的工程。 |
+
+通过 **自定义命令 → 编辑任务** 添加命令，例如 `idf.py size-components`。每条保存的命令都会在终端工具栏生成按钮，右键可编辑。Keil、IAR 等其他工具可从 **手动导入环境** 配置路径，再添加工程的编译和烧录命令。
+
 ## 从源码编译
 
 需要较新的 Rust 稳定版（用 `rustup` 安装，1.85 或更高）。

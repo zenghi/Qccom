@@ -809,6 +809,12 @@ impl App {
             self.toast(t("没有可用的串口"), WARN());
             return;
         }
+        if self.lent.is_some() {
+            if !quiet {
+                self.toast(t("设备串口正在被其他任务使用"), WARN());
+            }
+            return;
+        }
         if self.conn.is_none() && self.serial_port_busy(&self.s.port) {
             if !quiet {
                 self.toast(t("该串口正在使用"), WARN());
@@ -841,9 +847,13 @@ impl App {
     }
 
     fn disconnect(&mut self) {
+        self.disconnect_with(Cmd::Close);
+    }
+
+    fn disconnect_with(&mut self, cmd: Cmd) {
         self.reconnect = None;
         if let Some(c) = self.conn.take() {
-            let _ = c.cmd.send(Cmd::Close);
+            let _ = c.cmd.send(cmd);
         }
         self.connected = None;
         self.connected_at = None;
@@ -5679,7 +5689,9 @@ impl eframe::App for App {
         self.shells.poll(ctx.input(|i| i.focused));
         self.ssh_poll();
         let cwd = self.shell_cwd();
-        self.shells.ui(ctx, &cwd);
+        let mcu_slot = self.serial_sidebar_slot();
+        let mcu_port = self.serial_port_for(mcu_slot).to_owned();
+        self.shells.ui(ctx, &cwd, &mcu_port, &self.ports);
         for e in std::mem::take(&mut self.shells.events) {
             match e {
                 ShellEvt::Toast(m) => self.toast(m, WARN()),
@@ -5694,7 +5706,30 @@ impl eframe::App for App {
                     self.reveal(Pane::Code, "shell.open", work::Strength::Strong);
                 }
                 ShellEvt::Task(name, cmd) => self.flash_checkpoint(&name, &cmd),
-                ShellEvt::Command(id, line, row) => self.lend_port(id, &line, row),
+                ShellEvt::Command(id, line, row, data, monitor) => {
+                    let monitor = monitor.as_deref().and_then(|name| {
+                        if name == mcu_port {
+                            Some(mcu_slot)
+                        } else {
+                            self.serial_tabs.iter().copied().find(|&slot| self.serial_port_for(slot) == name)
+                        }
+                    });
+                    if let Some(releases) = self.lend_port(id, &line, row, monitor) {
+                        self.shells.submit(id, data, releases);
+                        if let Some(slot) = monitor {
+                            self.show_mcu_serial(slot);
+                        }
+                    }
+                }
+                ShellEvt::SelectSerial(port) => {
+                    if self.work.serial_devices_side && self.serial_split_active() {
+                        self.choose_serial_port_in(&port, false, work::SerialTarget::Side);
+                    } else {
+                        self.choose_serial_port(&port, false);
+                    }
+                }
+                ShellEvt::ShowSerialDevices => self.show_mcu_serial(mcu_slot),
+                ShellEvt::MonitorSerial => self.monitor_mcu_serial(mcu_slot),
             }
         }
         self.tick_lent();

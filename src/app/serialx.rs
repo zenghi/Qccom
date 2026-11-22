@@ -10,6 +10,8 @@ pub(crate) struct Lent {
     prompt: String,
     row: u64,
     since: Instant,
+    monitor: bool,
+    reopen: bool,
 }
 use crate::bridge::{Bridge, BridgeEvt};
 
@@ -332,7 +334,34 @@ impl App {
     // ------------------------------------------------------------ 终端命令要用串口：先让出来
 
     /// 终端里执行的命令用到了 QCCOM 正开着的串口（烧录、stty、别的工具）：先关掉，命令跑完再打开
-    pub(super) fn lend_port(&mut self, shell: usize, line: &str, row: u64) {
+    pub(super) fn show_mcu_serial(&mut self, slot: usize) {
+        self.shells.show_below_debug();
+        if self.focus_docked_serial(slot) {
+            return;
+        }
+        self.selected_serial = slot;
+        self.reveal(Pane::Debug, "mcu.serial", work::Strength::Strong);
+    }
+
+    pub(super) fn monitor_mcu_serial(&mut self, slot: usize) {
+        self.show_mcu_serial(slot);
+        if self.serial_port_for(slot).is_empty() {
+            self.toast(t("请先在「设备」中选择串口"), WARN());
+            return;
+        }
+        let port = self.serial_port_for(slot).to_owned();
+        if self.is_mapping_monitor(&port) {
+            return;
+        }
+        self.with_session(slot, |app| {
+            if app.lent.is_none() && app.conn.is_none() && app.reconnect.is_none() && app.autobaud.is_none() {
+                app.connect();
+            }
+        });
+    }
+
+    pub(super) fn lend_port(&mut self, shell: usize, line: &str, row: u64, monitor: Option<usize>) -> Option<Vec<std::sync::mpsc::Receiver<()>>> {
+        let mut releases = Vec::new();
         let prompt = crate::shell::prompt_of(line);
         let cmd = line.strip_prefix(prompt.as_str()).unwrap_or(line);
         let matching: Vec<_> = self
@@ -341,22 +370,32 @@ impl App {
             .copied()
             .filter(|&k| {
                 let port = self.serial_port_for(k);
-                !port.is_empty() && crate::shell::uses_port(cmd, port)
+                !port.is_empty() && (monitor == Some(k) || crate::shell::uses_port(cmd, port))
             })
             .collect();
+        if matching.iter().copied().any(|slot| self.with_session(slot, |app| app.lent.is_some() || app.autobaud.is_some())) {
+            self.toast(t("设备串口正在被其他任务使用"), WARN());
+            return None;
+        }
         for k in matching {
             self.with_session(k, |app| {
-                if app.conn.is_none() || app.lent.is_some() {
+                let follow = monitor == Some(k);
+                if app.s.transport != Transport::Serial {
                     return;
                 }
                 let port = app.s.port.clone();
-                app.disconnect();
-                app.buf.sys(if prompt.is_empty() {
-                    tf("终端命令要用 {}，已先关闭串口", &[&port])
-                } else {
-                    tf("终端命令要用 {}，已先关闭串口，命令结束后自动重新打开", &[&port])
-                });
-                app.toast(tf("已关闭 {}，让给终端命令使用", &[&port]), WARN());
+                let reopen = follow || app.conn.is_some() || app.reconnect.is_some();
+                if app.conn.is_some() {
+                    let (done, released) = std::sync::mpsc::channel();
+                    app.disconnect_with(Cmd::Release(done));
+                    releases.push(released);
+                    app.buf.sys(if prompt.is_empty() {
+                        tf("终端命令要用 {}，已先关闭串口", &[&port])
+                    } else {
+                        tf("终端命令要用 {}，已先关闭串口，命令结束后自动重新打开", &[&port])
+                    });
+                }
+                app.reconnect = None;
                 if !prompt.is_empty() {
                     app.lent = Some(Lent {
                         port,
@@ -364,28 +403,35 @@ impl App {
                         prompt: prompt.clone(),
                         row,
                         since: Instant::now(),
+                        monitor: follow,
+                        reopen,
                     });
                 }
             });
         }
+        Some(releases)
     }
 
     /// 让出的串口：命令回到提示符后重新打开（设备烧录后重启要重新枚举，交给自动重连等它出现）
     pub(super) fn tick_lent(&mut self) {
         let Some(l) = &self.lent else { return };
         // 用户自己又打开了，或者等太久了：不管了
-        if self.conn.is_some() || l.since.elapsed() > Duration::from_secs(1800) {
+        if self.conn.is_some() || self.s.port != l.port || l.since.elapsed() > Duration::from_secs(1800) {
             self.lent = None;
             return;
         }
-        match self.shells.back_at_prompt(l.shell, &l.prompt, l.row) {
-            Some(false) => self.ctx.request_repaint_after(Duration::from_millis(500)),
+        match self.shells.back_at_prompt(l.shell, &l.prompt, l.row, !l.monitor) {
+            Some(false) => self.ctx.request_repaint_after(Duration::from_millis(if l.monitor { 100 } else { 500 })),
             done => {
                 let l = self.lent.take().unwrap();
-                if done.is_some() {
-                    self.s.port = l.port.clone();
+                if l.reopen && (done.is_some() || l.monitor) {
                     self.buf.sys(tf("命令已结束，重新打开 {}", &[&l.port]));
-                    self.reconnect = Some((l.port, Instant::now()));
+                    if l.monitor && self.ports.iter().any(|p| p.name == l.port) {
+                        self.connect_inner(true);
+                    }
+                    if self.conn.is_none() {
+                        self.reconnect = Some((l.port, Instant::now()));
+                    }
                 }
             }
         }
@@ -843,5 +889,38 @@ impl App {
                 }
             }
         });
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod mcu_serial_tests {
+    use super::*;
+
+    #[test]
+    fn monitor_uses_the_selected_debug_device_and_its_baud_rate() {
+        use portable_pty::{native_pty_system, PtySize};
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let port = pair.master.tty_name().unwrap().into_os_string().into_string().unwrap();
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx);
+        let settings = Settings {
+            telemetry: false,
+            auto_update: false,
+            ..Default::default()
+        };
+        let mut app = App::with_settings(&cc, settings, vec![], vec![]);
+        app.ports.push(PortEntry {
+            name: port.clone(),
+            desc: String::new(),
+        });
+        app.choose_serial_port(&port, false);
+        let slot = app.serial_sidebar_slot();
+        app.with_session(slot, |app| app.s.cfg.baud = 57_600);
+        app.monitor_mcu_serial(slot);
+        app.with_session(slot, |app| {
+            assert_eq!(app.connected.as_deref(), Some(port.as_str()));
+            assert_eq!(app.s.cfg.baud, 57_600);
+        });
+        assert!(app.shells.tabs.is_empty());
     }
 }

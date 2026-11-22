@@ -3,10 +3,14 @@
 //! 屏幕和按键处理复用 TermView，所以 vi、top、颜色、回滚都和串口终端一样。
 
 mod environment;
+mod mcu;
 use environment::{EnvDialog, Environment};
+use mcu::{Action, Syntax};
+use std::collections::BTreeMap;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::Arc;
 
 use eframe::egui::{self, pos2, vec2, Align, Align2, FontId, Layout, Rect, RichText, Sense};
 use portable_pty::{native_pty_system, Child, CommandBuilder, MasterPty, PtySize};
@@ -135,16 +139,20 @@ pub struct Shell {
     /// 启动用的 shell 类型名（标签可以改名，重启时按这个找）
     kind: String,
     environment: Option<Environment>,
+    syntax: Option<Syntax>,
+    mcu: Option<Arc<mcu::Session>>,
+    pending_write: Option<(Vec<u8>, Vec<Receiver<()>>)>,
+    pending_shortcut: Option<PendingShortcut>,
     /// 编号（标签会重排，用它认出是哪一个）
     pub id: usize,
 }
 
 impl Shell {
     pub fn spawn(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize) -> Result<Shell, String> {
-        Self::spawn_with_env(ctx, kind, cwd, n, None)
+        Self::spawn_with_env(ctx, kind, cwd, n, None, None)
     }
 
-    fn spawn_with_env(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize, env: Option<&Environment>) -> Result<Shell, String> {
+    fn spawn_with_env(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize, env: Option<&Environment>, mcu: Option<Arc<mcu::Session>>) -> Result<Shell, String> {
         let (cols, rows) = (100u16, 24u16);
         let pair = native_pty_system()
             .openpty(PtySize {
@@ -156,7 +164,10 @@ impl Shell {
             .map_err(|e| e.to_string())?;
         let mut cmd = CommandBuilder::new(&kind.program);
         cmd.args(&kind.args);
-        utf8_args(&mut cmd, &kind.program);
+        let syntax = Syntax::for_shell(kind);
+        if !mcu.as_ref().is_some_and(|m| m.has_esp()) || !matches!(syntax, Some(Syntax::PowerShell | Syntax::Cmd)) {
+            utf8_args(&mut cmd, &kind.program);
+        }
         cmd.cwd(cwd);
         if cfg!(windows) && kind.name == "Git Bash" {
             // Git for Windows' login profile otherwise changes to $HOME.
@@ -167,6 +178,9 @@ impl Shell {
         utf8_env(&mut cmd);
         if let Some(env) = env {
             env.apply(&mut cmd)?;
+        }
+        if let Some((mcu, syntax)) = mcu.as_ref().zip(syntax) {
+            mcu.apply(&mut cmd, syntax);
         }
         let child = pair.slave.spawn_command(cmd).map_err(|e| e.to_string())?;
         drop(pair.slave);
@@ -210,6 +224,10 @@ impl Shell {
             attn: false,
             kind: kind.name.clone(),
             environment: env.cloned(),
+            syntax,
+            mcu,
+            pending_write: None,
+            pending_shortcut: None,
             id: n,
         })
     }
@@ -237,11 +255,48 @@ impl Shell {
                 self.tv.feed(msg.as_bytes());
             }
         }
+        if let Some((data, mut releases)) = self.pending_write.take().filter(|_| self.exited.is_none()) {
+            releases.retain(|rx| matches!(rx.try_recv(), Err(mpsc::TryRecvError::Empty)));
+            if releases.is_empty() {
+                self.write(&data);
+            } else {
+                self.pending_write = Some((data, releases));
+            }
+        }
     }
 
     pub fn write(&mut self, d: &[u8]) {
         let _ = self.writer.write_all(d);
         let _ = self.writer.flush();
+    }
+
+    fn command_event(&self, line: String, data: Vec<u8>, monitor: Option<String>) -> ShellEvt {
+        ShellEvt::Command(self.id, line, self.tv.cursor_row(), data, monitor)
+    }
+
+    fn serial_shortcut(&mut self, line: &str, port: &str) -> Option<Option<ShellEvt>> {
+        let prompt = prompt_of(line);
+        if prompt.is_empty() {
+            return None;
+        }
+        let (mcu, syntax) = self.mcu.as_ref().zip(self.syntax)?;
+        let shortcut = mcu.shortcut(line.strip_prefix(prompt.as_str())?)?;
+        let monitor = shortcut.action.monitor_after().then(|| port.to_owned());
+        let result = mcu.shortcut_command(syntax, &shortcut, port);
+        self.write(b"\x03"); // Clear the typed line before dispatching the application action.
+        Some(match result {
+            Ok(Some(task)) => {
+                self.pending_shortcut = Some(PendingShortcut {
+                    task,
+                    prompt,
+                    monitor,
+                    at: std::time::Instant::now(),
+                });
+                None
+            }
+            Ok(None) => Some(ShellEvt::MonitorSerial),
+            Err(e) => Some(ShellEvt::Toast(e)),
+        })
     }
 
     pub fn sync_size(&mut self) {
@@ -279,6 +334,7 @@ pub struct ShellSettings {
     pub tasks: Vec<Task>,
     pub environments: Vec<Environment>,
     pub environment: String,
+    mcu: BTreeMap<PathBuf, mcu::Options>,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Default)]
@@ -290,16 +346,30 @@ pub struct Task {
 
 impl Default for ShellSettings {
     fn default() -> Self {
-        let task = |n: &str, c: &str| Task { name: n.into(), cmd: c.into() };
         Self {
             open: false,
             height: 260.0,
             default: String::new(),
             environments: vec![],
             environment: String::new(),
-            tasks: vec![task("编译", "make -j8"), task("烧录", "make flash"), task("清理", "make clean")],
+            mcu: BTreeMap::new(),
+            tasks: DEFAULT_TASKS.iter().map(|(n, c)| Task { name: (*n).into(), cmd: (*c).into() }).collect(),
         }
     }
+}
+
+const DEFAULT_TASKS: &[(&str, &str)] = &[("编译", "make -j8"), ("烧录", "make flash"), ("清理", "make clean")];
+
+fn default_task_label(task: &Task) -> &'static str {
+    match task.name.as_str() {
+        "编译" => t("编译"),
+        "烧录" => t("烧录"),
+        _ => t("清理"),
+    }
+}
+
+fn primary_action(action: Action) -> bool {
+    matches!(action, Action::Build | Action::Flash | Action::Monitor | Action::Clean)
 }
 
 /// 编译输出里的一条错误 / 警告
@@ -399,7 +469,7 @@ fn tab_color(i: usize) -> Option<egui::Color32> {
 }
 
 pub enum ShellEvt {
-    Toast(&'static str),
+    Toast(String),
     /// 后台的长命令跑完了：(标签名, 用时)
     Done(String, std::time::Duration),
     /// Ctrl+点击了 `文件:行号`
@@ -407,7 +477,24 @@ pub enum ShellEvt {
     /// 点了任务按钮：(任务名, 命令)
     Task(String, String),
     /// 在本机终端里执行了一条命令：(终端编号, 提示符 + 命令, 回车时光标所在行)
-    Command(usize, String, u64),
+    Command(usize, String, u64, Vec<u8>, Option<String>),
+    SelectSerial(String),
+    ShowSerialDevices,
+    MonitorSerial,
+}
+
+struct PendingShortcut {
+    task: Task,
+    prompt: String,
+    monitor: Option<String>,
+    at: std::time::Instant,
+}
+
+struct PendingShell {
+    kind: ShellKind,
+    cwd: PathBuf,
+    result: Receiver<mcu::Session>,
+    task: Option<Task>,
 }
 
 pub struct Shells {
@@ -430,6 +517,7 @@ pub struct Shells {
     pub rect: Option<Rect>,
     edit_tasks: bool,
     env_dialog: EnvDialog,
+    pending_shell: Option<PendingShell>,
 }
 
 impl Shells {
@@ -451,6 +539,7 @@ impl Shells {
             rect: None,
             edit_tasks: false,
             env_dialog: Default::default(),
+            pending_shell: None,
         }
     }
 
@@ -473,19 +562,53 @@ impl Shells {
     }
 
     /// 运行任务按钮：在当前终端（没有就新开一个）里输入命令
-    fn run_task(&mut self, ctx: &egui::Context, cwd: &Path, cmd: &str) {
+    fn run_task(&mut self, ctx: &egui::Context, cwd: &Path, task: Task, port: &str) {
+        if let Some((mcu, syntax)) = self.tabs.get(self.active).and_then(|sh| sh.mcu.as_ref().zip(sh.syntax)) {
+            if let Some(shortcut) = mcu.shortcut(&task.cmd) {
+                match mcu.shortcut_command(syntax, &shortcut, port) {
+                    Ok(Some(command)) => self.submit_task(self.active, command, mcu.root == cwd, shortcut.action.monitor_after().then(|| port.to_owned())),
+                    Ok(None) => self.events.push(ShellEvt::MonitorSerial),
+                    Err(e) => self.events.push(ShellEvt::Toast(e)),
+                }
+                return;
+            }
+        }
         if self.tabs.get(self.active).is_none_or(|s| s.exited.is_some()) {
-            self.new_shell(ctx, None, cwd);
+            self.launch(ctx, None, cwd, Some(task));
+        } else {
+            self.submit_task(self.active, task, true, None);
         }
-        let Some(sh) = self.tabs.get_mut(self.active) else { return };
-        self.prob_from = Some((self.active, sh.tv.cursor_row()));
+    }
+
+    fn submit_task(&mut self, index: usize, task: Task, check_flash: bool, monitor: Option<String>) {
+        let Some(sh) = self.tabs.get_mut(index) else { return };
+        if sh.pending_write.is_some() {
+            return;
+        }
+        self.prob_from = Some((index, sh.tv.cursor_row()));
+        self.prob_at = None;
         self.problems.clear();
-        if !sh.remote {
-            self.events.push(ShellEvt::Command(sh.id, format!("{}{cmd}", sh.tv.cursor_line()), sh.tv.cursor_row()));
+        let data = format!("{}\r", task.cmd).into_bytes();
+        if check_flash {
+            self.events.push(ShellEvt::Task(task.name, task.cmd.clone()));
         }
-        sh.write(format!("{cmd}\r").as_bytes());
+        if !sh.remote {
+            self.events.push(sh.command_event(format!("{} {}", sh.tv.cursor_line(), task.cmd), data, monitor));
+        } else {
+            sh.write(&data);
+        }
         sh.tv.focus_req = true;
         self.s.open = true;
+    }
+
+    pub fn submit(&mut self, id: usize, data: Vec<u8>, releases: Vec<Receiver<()>>) {
+        if let Some(sh) = self.tabs.iter_mut().find(|s| s.id == id && s.exited.is_none()) {
+            if releases.is_empty() {
+                sh.write(&data);
+            } else {
+                sh.pending_write = Some((data, releases));
+            }
+        }
     }
 
     fn refresh_problems(&mut self) {
@@ -505,9 +628,9 @@ impl Shells {
     }
 
     /// 某个终端里的命令跑完、回到提示符了吗：None = 终端已经关了 / 进程退出了
-    pub fn back_at_prompt(&self, id: usize, prompt: &str, row: u64) -> Option<bool> {
+    pub fn back_at_prompt(&self, id: usize, prompt: &str, row: u64, settle: bool) -> Option<bool> {
         let sh = self.tabs.iter().find(|s| s.id == id && s.exited.is_none())?;
-        let quiet = sh.tv.fed_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(700));
+        let quiet = !settle || sh.tv.fed_at.is_none_or(|t| t.elapsed() > std::time::Duration::from_millis(700));
         Some(quiet && sh.tv.cursor_row() > row && sh.tv.cursor_line() == prompt.trim_end())
     }
 
@@ -521,6 +644,10 @@ impl Shells {
 
     pub fn project_changed(&mut self) {
         self.project_shell_pending = true;
+    }
+
+    pub fn show_below_debug(&mut self) {
+        self.maximized = false;
     }
 
     /// 打开 / 关闭面板；第一次打开时自动开一个默认 shell
@@ -541,25 +668,74 @@ impl Shells {
     }
 
     pub fn new_shell(&mut self, ctx: &egui::Context, kind: Option<ShellKind>, cwd: &Path) {
+        self.launch(ctx, kind, cwd, None);
+    }
+
+    fn launch(&mut self, ctx: &egui::Context, kind: Option<ShellKind>, cwd: &Path, task: Option<Task>) {
+        self.pending_shell = None;
+        self.project_shell_pending = false;
         let default = self.s.default.clone();
         let kinds = self.kinds();
         let Some(kind) = kind.or_else(|| kinds.iter().find(|k| k.name == default).or(kinds.first()).cloned()) else {
-            self.events.push(ShellEvt::Toast(t("没有找到可用的 shell")));
+            self.events.push(ShellEvt::Toast(t("没有找到可用的 shell").into()));
             return;
         };
+        let env = self.s.environments.iter().find(|e| e.name == self.s.environment).cloned();
+        let options = self.s.mcu.get(cwd).cloned().unwrap_or_default();
+        if env.is_some() || options.profile == mcu::Profile::System || Syntax::for_shell(&kind).is_none() {
+            self.finish_launch(ctx, &kind, cwd, env.as_ref(), None, task);
+            return;
+        }
+        let (tx, result) = mpsc::channel();
+        let dir = cwd.to_owned();
+        let repaint = ctx.clone();
+        match std::thread::Builder::new().name("mcu-discover".into()).spawn(move || {
+            let _ = tx.send(mcu::Session::discover(dir, options));
+            repaint.request_repaint();
+        }) {
+            Ok(_) => {
+                self.pending_shell = Some(PendingShell {
+                    kind,
+                    cwd: cwd.to_owned(),
+                    result,
+                    task,
+                });
+                self.s.open = true;
+            }
+            Err(e) => self.events.push(ShellEvt::Toast(tf("检测 MCU 工具链失败：{}", &[&e]))),
+        }
+    }
+
+    fn finish_launch(&mut self, ctx: &egui::Context, kind: &ShellKind, cwd: &Path, env: Option<&Environment>, mcu: Option<Arc<mcu::Session>>, task: Option<Task>) {
         self.next_id += 1;
-        let env = self.s.environments.iter().find(|e| e.name == self.s.environment);
-        match Shell::spawn_with_env(ctx, &kind, cwd, self.next_id, env) {
+        match Shell::spawn_with_env(ctx, kind, cwd, self.next_id, env, mcu) {
             Ok(sh) => {
                 self.tabs.push(sh);
                 self.active = self.tabs.len() - 1;
                 self.s.open = true;
-                self.project_shell_pending = false;
+                if let Some(task) = task {
+                    self.submit_task(self.active, task, true, None);
+                }
             }
             Err(e) => {
-                let msg: &'static str = Box::leak(tf("启动 {} 失败：{}", &[&kind.name, &e]).into_boxed_str());
-                self.events.push(ShellEvt::Toast(msg));
+                self.events.push(ShellEvt::Toast(tf("启动 {} 失败：{}", &[&kind.name, &e])));
             }
+        }
+    }
+
+    fn poll_launch(&mut self, ctx: &egui::Context) {
+        let Some(pending) = self.pending_shell.take() else { return };
+        match pending.result.try_recv() {
+            Ok(mcu) => {
+                let show = self.s.open;
+                if let Some(issue) = &mcu.issue {
+                    self.events.push(ShellEvt::Toast(issue.clone()));
+                }
+                self.finish_launch(ctx, &pending.kind, &pending.cwd, None, Some(Arc::new(mcu)), pending.task);
+                self.s.open = show;
+            }
+            Err(mpsc::TryRecvError::Empty) => self.pending_shell = Some(pending),
+            Err(mpsc::TryRecvError::Disconnected) => self.events.push(ShellEvt::Toast(t("检测 MCU 工具链失败").into())),
         }
     }
 
@@ -583,8 +759,18 @@ impl Shells {
 
     /// 每帧调用：读 shell 输出（面板收起时也要读，避免缓冲区堆满）
     pub fn poll(&mut self, window_focused: bool) {
+        let mut ready = Vec::new();
         for (i, sh) in self.tabs.iter_mut().enumerate() {
             sh.poll();
+            if let Some(shortcut) = sh.pending_shortcut.take().filter(|_| sh.exited.is_none()) {
+                if sh.tv.cursor_line() == shortcut.prompt.trim_end() {
+                    ready.push((i, shortcut));
+                } else if shortcut.at.elapsed() < std::time::Duration::from_secs(2) {
+                    sh.pending_shortcut = Some(shortcut);
+                } else {
+                    self.events.push(ShellEvt::Toast(t("终端未回到提示符，请用工具栏执行 MCU 命令").into()));
+                }
+            }
             if let Some(d) = sh.tv.take_done() {
                 let visible = self.s.open && (i == self.active || self.split == Some(i));
                 if !visible || !window_focused {
@@ -593,10 +779,14 @@ impl Shells {
                 }
             }
         }
+        for (index, shortcut) in ready {
+            self.submit_task(index, shortcut.task, false, shortcut.monitor);
+        }
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context, cwd: &Path) {
+    pub fn ui(&mut self, ctx: &egui::Context, cwd: &Path, port: &str, ports: &[crate::serial::PortEntry]) {
         if !self.s.open {
+            self.poll_launch(ctx);
             self.rect = None;
             return;
         }
@@ -605,6 +795,7 @@ impl Shells {
             // necessarily its current directory. Keep it open and start fresh.
             self.new_shell(ctx, None, cwd);
         }
+        self.poll_launch(ctx);
         let avail = ctx.available_rect().height();
         let limit = (avail - 120.0).max(120.0);
         let want = if self.maximized { limit } else { self.s.height.clamp(120.0, limit) };
@@ -617,7 +808,7 @@ impl Shells {
             .show_separator_line(true)
             .show(ctx, |ui| {
                 ui.set_min_height(ui.available_height());
-                self.header(ui, cwd);
+                self.header(ui, cwd, port, ports);
                 let rect = ui.available_rect_before_wrap().shrink2(vec2(6.0, 4.0));
                 self.rect = Some(ui.max_rect());
                 if self.split.is_some_and(|j| j == self.active || j >= self.tabs.len()) {
@@ -634,19 +825,20 @@ impl Shells {
                     None => vec![(self.active, rect)],
                 };
                 for (i, r) in panes {
-                    if self.show_tab(ui, i, r) {
+                    if self.show_tab(ui, i, r, port) {
                         let old = &self.tabs[i];
                         let env = old.environment.clone();
+                        let mcu = old.mcu.clone();
                         let (kname, title, color, cwd) = (old.kind.clone(), old.title.clone(), old.color, old.cwd.clone());
                         if let Some(kind) = self.kinds().iter().find(|k| k.name == kname).cloned() {
                             self.next_id += 1;
-                            match Shell::spawn_with_env(ui.ctx(), &kind, &cwd, self.next_id, env.as_ref()) {
+                            match Shell::spawn_with_env(ui.ctx(), &kind, &cwd, self.next_id, env.as_ref(), mcu) {
                                 Ok(mut new) => {
                                     new.title = title;
                                     new.color = color;
                                     self.tabs[i] = new;
                                 }
-                                Err(_) => self.events.push(ShellEvt::Toast(t("启动失败"))),
+                                Err(_) => self.events.push(ShellEvt::Toast(t("启动失败").into())),
                             }
                         }
                     }
@@ -699,7 +891,7 @@ impl Shells {
     }
 
     /// 画一个标签的终端；返回 true 表示进程已退出、用户按了回车要重启
-    fn show_tab(&mut self, ui: &mut egui::Ui, i: usize, rect: Rect) -> bool {
+    fn show_tab(&mut self, ui: &mut egui::Ui, i: usize, rect: Rect, port: &str) -> bool {
         let Some(sh) = self.tabs.get_mut(i) else { return false };
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true);
@@ -716,14 +908,21 @@ impl Shells {
         let mut restart = false;
         if sh.exited.is_some() {
             restart = o.input.contains(&b'\r');
-        } else if !o.input.is_empty() {
+        } else if !o.input.is_empty() && sh.pending_write.is_none() && sh.pending_shortcut.is_none() {
             if let Some(line) = o.enter_line.filter(|_| !sh.remote) {
-                self.events.push(ShellEvt::Command(sh.id, line, sh.tv.cursor_row()));
+                let shortcut = (o.input == b"\r").then(|| sh.serial_shortcut(&line, port)).flatten();
+                if let Some(event) = shortcut {
+                    self.events.extend(event);
+                    ui.ctx().request_repaint_after(std::time::Duration::from_secs(2));
+                } else {
+                    self.events.push(sh.command_event(line, o.input, None));
+                }
+            } else {
+                sh.write(&o.input);
             }
-            sh.write(&o.input);
         }
         if let Some(m) = o.toast {
-            self.events.push(ShellEvt::Toast(m));
+            self.events.push(ShellEvt::Toast(m.into()));
         }
         if let Some((f, line)) = o.open {
             let base = self.tabs.get(i).map(|s| s.cwd.clone()).unwrap_or_default();
@@ -731,18 +930,19 @@ impl Shells {
             if p.is_file() {
                 self.events.push(ShellEvt::Open(p, line.saturating_sub(1)));
             } else {
-                self.events.push(ShellEvt::Toast(t("找不到这个文件")));
+                self.events.push(ShellEvt::Toast(t("找不到这个文件").into()));
             }
         }
         restart
     }
 
-    fn header(&mut self, ui: &mut egui::Ui, cwd: &Path) {
+    fn header(&mut self, ui: &mut egui::Ui, cwd: &Path, port: &str, ports: &[crate::serial::PortEntry]) {
         let ctx = ui.ctx().clone();
         let mut close = None;
         let mut pick = None;
         let mut new_kind: Option<Option<ShellKind>> = None;
-        let mut task_run: Option<String> = None;
+        let mut task_run = None;
+        let mut action_run = None;
         ui.horizontal(|ui| {
             ui.set_height(30.0);
             ui.add_space(10.0);
@@ -810,7 +1010,7 @@ impl Shells {
                 if resp.middle_clicked() {
                     close = Some(i);
                 }
-                let resp = resp.on_hover_text(t("双击改名，右键设置颜色、拆分"));
+                let resp = resp.on_hover_text(format!("{}\n{}", t("双击改名，右键设置颜色、拆分"), sh.cwd.display()));
                 resp.context_menu(|ui| {
                     if ui.button(t("重命名…")).clicked() {
                         rename_start = Some(i);
@@ -955,43 +1155,121 @@ impl Shells {
                         if path.is_file() {
                             self.events.push(ShellEvt::Open(path, line.saturating_sub(1)));
                         } else {
-                            self.events.push(ShellEvt::Toast(t("找不到这个文件")));
+                            self.events.push(ShellEvt::Toast(t("找不到这个文件").into()));
                         }
                         ui.memory_mut(|m| m.close_popup());
                     }
                 }
-                let env = self.tabs.get(self.active).and_then(|sh| sh.environment.as_ref());
-                let name = env.map_or(t("环境导入"), |e| e.name.as_str());
-                if ui.small_button(crate::app::truncate(name, 16)).on_hover_text(t("终端环境")).clicked() {
+                let sh = self.tabs.get(self.active);
+                let mcu = sh.and_then(|sh| sh.mcu.as_ref()).filter(|m| !m.actions().is_empty());
+                let name = if self.pending_shell.is_some() {
+                    t("检测工具链…")
+                } else if let Some(env) = sh.and_then(|sh| sh.environment.as_ref()) {
+                    &env.name
+                } else {
+                    mcu.map_or(t("MCU 工具链"), |m| m.profile.label())
+                };
+                if ui.small_button(crate::app::truncate(name, 22)).on_hover_text(t("MCU 工具链")).clicked() {
                     self.env_dialog.open = true;
                 }
-                // 任务按钮（右键编辑）
-                for k in (0..self.s.tasks.len()).rev() {
-                    let tk = &self.s.tasks[k];
-                    let r = ui.add(egui::Button::new(RichText::new(format!("▶ {}", tk.name)).size(11.5).color(TEXT2())).min_size(vec2(0.0, 22.0)));
-                    let tip = format!("{}\n{}", tk.cmd, t("右键编辑任务"));
-                    let r = r.on_hover_text(tip);
-                    if r.clicked() {
-                        task_run = Some(tk.cmd.clone());
-                        self.events.push(ShellEvt::Task(tk.name.clone(), tk.cmd.clone()));
-                    }
-                    if r.secondary_clicked() {
-                        self.edit_tasks = true;
-                    }
+                if mcu.is_some() {
+                    ui.menu_button(if port.is_empty() { t("设备串口") } else { port }, |ui| {
+                        for entry in ports {
+                            if ui.selectable_label(entry.name == port, &entry.name).on_hover_text(&entry.desc).clicked() {
+                                self.events.push(ShellEvt::SelectSerial(entry.name.clone()));
+                                ui.close_menu();
+                            }
+                        }
+                        if ui.button(t("打开调试设备列表")).clicked() {
+                            self.events.push(ShellEvt::ShowSerialDevices);
+                            ui.close_menu();
+                        }
+                    })
+                    .response
+                    .on_hover_text(t("烧录和监视跟随调试区选中的设备串口"));
                 }
-                if self.s.tasks.is_empty() && ui.add(egui::Button::new(RichText::new(t("+ 任务")).size(11.5)).frame(false)).clicked() {
-                    self.edit_tasks = true;
-                }
-                if !self.tabs.is_empty() {
-                    if let Some(sh) = self.tabs.get(self.active) {
-                        let d = sh.cwd.to_string_lossy().to_string();
-                        ui.label(RichText::new(d).size(11.0).color(TEXT3()));
+                if self.pending_shell.is_none() {
+                    let syntax = sh.and_then(|sh| sh.syntax);
+                    let ready = sh.is_some_and(|sh| {
+                        sh.exited.is_none() && sh.pending_write.is_none() && sh.pending_shortcut.is_none() && {
+                            let line = sh.tv.cursor_line();
+                            !line.is_empty() && prompt_of(&line).trim_end() == line
+                        }
+                    });
+                    ui.menu_button(t("自定义命令"), |ui| {
+                        if let Some((m, syntax)) = mcu.zip(syntax) {
+                            for &action in m.actions().iter().filter(|&&a| !primary_action(a)) {
+                                if action_button(ui, m, syntax, action, ready, port) {
+                                    action_run = Some(action);
+                                    ui.close_menu();
+                                }
+                            }
+                            ui.separator();
+                        }
+                        for task in &self.s.tasks {
+                            if mcu.is_some() && DEFAULT_TASKS.contains(&(task.name.as_str(), task.cmd.as_str())) {
+                                continue;
+                            }
+                            if ui.add_enabled(mcu.is_none() || ready, egui::Button::new(&task.name)).on_hover_text(&task.cmd).clicked() {
+                                task_run = Some(task.clone());
+                                ui.close_menu();
+                            }
+                        }
+                        if ui.button(t("编辑任务…")).clicked() {
+                            self.edit_tasks = true;
+                            ui.close_menu();
+                        }
+                    });
+                    if let Some((m, syntax)) = mcu.zip(syntax) {
+                        for &action in m.actions().iter().rev().filter(|&&a| primary_action(a)) {
+                            if action_button(ui, m, syntax, action, ready, port) {
+                                action_run = Some(action);
+                            }
+                        }
+                    } else {
+                        for task in self.s.tasks.iter().rev().filter(|task| DEFAULT_TASKS.contains(&(task.name.as_str(), task.cmd.as_str()))) {
+                            if ui.small_button(default_task_label(task)).on_hover_text(&task.cmd).clicked() {
+                                task_run = Some(task.clone());
+                            }
+                        }
+                    }
+                    for task in self
+                        .s
+                        .tasks
+                        .iter()
+                        .rev()
+                        .filter(|task| !task.name.trim().is_empty() && !task.cmd.trim().is_empty() && !DEFAULT_TASKS.contains(&(task.name.as_str(), task.cmd.as_str())))
+                    {
+                        let button = ui
+                            .add_enabled(mcu.is_none() || ready, egui::Button::new(crate::app::truncate(&task.name, 20)).small())
+                            .on_hover_text(format!("{}\n{}", task.cmd, t("右键编辑任务")));
+                        if button.clicked() {
+                            task_run = Some(task.clone());
+                        }
+                        if button.secondary_clicked() {
+                            self.edit_tasks = true;
+                        }
                     }
                 }
             });
         });
-        if let Some(cmd) = task_run {
-            self.run_task(&ctx, cwd, &cmd);
+        if action_run == Some(Action::Monitor) {
+            self.events.push(ShellEvt::MonitorSerial);
+        } else if let Some(action) = action_run {
+            if let Some((m, syntax)) = self.tabs.get(self.active).and_then(|sh| sh.mcu.as_ref().zip(sh.syntax)) {
+                match m.command(syntax, action, port) {
+                    Ok(cmd) => self.submit_task(
+                        self.active,
+                        Task { name: action.label().into(), cmd },
+                        m.root == cwd && matches!(action, Action::Flash | Action::AppFlash | Action::AppFlashMonitor),
+                        action.monitor_after().then(|| port.to_owned()),
+                    ),
+                    Err(e) => self.events.push(ShellEvt::Toast(e)),
+                }
+            }
+        }
+        if let Some(task) = task_run {
+            self.run_task(&ctx, cwd, task, port);
         }
         self.tasks_window(&ctx);
         self.environment_dialog(&ctx, cwd);
@@ -1009,6 +1287,23 @@ impl Shells {
         let y = ui.cursor().top();
         ui.painter().hline(ui.max_rect().x_range(), y, st(1.0, LINE()));
     }
+}
+
+fn action_button(ui: &mut egui::Ui, mcu: &mcu::Session, syntax: Syntax, action: Action, ready: bool, port: &str) -> bool {
+    if action == Action::Monitor {
+        return ui.small_button(action.label()).on_hover_text(t("请在调试页查看串口日志")).clicked();
+    }
+    ui.add_enabled(ready, egui::Button::new(action.label()).small())
+        .on_disabled_hover_text(t("请等待终端回到命令提示符"))
+        .on_hover_ui(|ui| match mcu.command(syntax, action, port) {
+            Ok(cmd) => {
+                ui.monospace(cmd);
+            }
+            Err(e) => {
+                ui.label(e);
+            }
+        })
+        .clicked()
 }
 
 #[cfg(test)]

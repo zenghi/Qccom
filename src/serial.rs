@@ -90,6 +90,8 @@ pub enum Cmd {
     Break(u32),
     /// 依次设置 DTR / RTS 并保持一段时间（复位、进下载模式这类时序）；None = 不变
     Pulse(Vec<(Option<bool>, Option<bool>, u32)>),
+    /// Close the serial handle before letting a terminal command continue.
+    Release(Sender<()>),
     Close,
 }
 
@@ -214,6 +216,7 @@ fn open_sim(gen: u64, name: &str, cfg: PortConfig, side_b: bool, tx: Sender<Evt>
         .spawn(move || {
             let _ = tx.send(Evt::Opened(gen, name.clone()));
             ctx.request_repaint();
+            let mut release = None;
             let reason = loop {
                 match simport::read(&name) {
                     None => break Some(t("仿真串口已移除").to_string()),
@@ -233,11 +236,18 @@ fn open_sim(gen: u64, name: &str, cfg: PortConfig, side_b: bool, tx: Sender<Evt>
                         ctx.request_repaint();
                     }
                     Ok(Cmd::Close) | Err(TryRecvError::Disconnected) => break None,
+                    Ok(Cmd::Release(done)) => {
+                        release = Some(done);
+                        break None;
+                    }
                     _ => {}
                 }
                 thread::sleep(Duration::from_millis(5));
             };
             simport::close(&name);
+            if let Some(done) = release {
+                let _ = done.send(());
+            }
             let _ = tx.send(Evt::Closed(gen, reason));
             ctx.request_repaint();
         })
@@ -328,6 +338,13 @@ fn io_loop(gen: u64, mut port: Box<dyn serialport::SerialPort>, name: String, si
                     }
                 }
                 Ok(Cmd::Subscribe(_) | Cmd::Unsubscribe(_) | Cmd::PubOptions(..)) => {}
+                Ok(Cmd::Release(done)) => {
+                    drop(port);
+                    let _ = done.send(());
+                    let _ = tx.send(Evt::Closed(gen, None));
+                    ctx.request_repaint();
+                    return;
+                }
                 Ok(Cmd::Close) | Err(TryRecvError::Disconnected) => {
                     let _ = tx.send(Evt::Closed(gen, None));
                     ctx.request_repaint();
@@ -486,5 +503,21 @@ mod tests {
     #[test]
     fn natural_sort() {
         assert!(natural_key("COM3") < natural_key("COM10"));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn terminal_handoff_releases_the_serial_handle_before_acknowledging() {
+        use portable_pty::{native_pty_system, PtySize};
+        let pair = native_pty_system().openpty(PtySize::default()).unwrap();
+        let name = pair.master.tty_name().unwrap();
+        let name = name.to_str().unwrap();
+        let cfg = PortConfig::default();
+        let (events, _rx) = mpsc::channel();
+        let conn = open(1, name, cfg, false, false, events, Default::default()).unwrap();
+        let (done, released) = mpsc::channel();
+        conn.cmd.send(Cmd::Release(done)).unwrap();
+        released.recv_timeout(Duration::from_secs(2)).unwrap();
+        assert!(cfg.builder(name).open().is_ok());
     }
 }

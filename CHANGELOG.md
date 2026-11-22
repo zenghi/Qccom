@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.13
+
+- Detect installed ESP-IDF, STM32, WCH / MounRiver Studio, PlatformIO, Zephyr, Pico SDK and Arduino toolchains in the built-in terminal. Use each project's native build and flash commands.
+- Use the serial port selected in Devices for MCU flashing and open serial output in Debug with that connection's baud rate. Each saved custom command has a toolbar button.
+- Detect CH32 and other supported WCH projects. Build Make/CMake projects and use WCH-Link, USB ISP or serial ISP for flashing, depending on the chip and board.
+
 ## 1.9.12
 
 - Open SVN working copies in the version control view. Browse local changes and compare files with their SVN BASE in the existing comparison view.

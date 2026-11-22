@@ -17,6 +17,7 @@ use crate::keymap::Act;
 use crate::theme::*;
 
 mod ops;
+mod svn;
 
 const ROW_H: f32 = 28.0;
 const LANE_W: f32 = 14.0;
@@ -76,6 +77,8 @@ enum Msg {
     Info(String, Result<CommitInfo, String>),
     Diff(u64, Result<String, String>),
     Status(Result<Status, String>),
+    SvnStatus(Result<svn::Status, String>),
+    SvnCompare(Result<GitEvt, String>),
     Checkout(String, Result<String, String>),
     Op(String, Result<String, String>),
     Ops(ops::OpMsg),
@@ -119,6 +122,7 @@ pub struct GitView {
     pub s: GitSettings,
     ctx: egui::Context,
     root: Option<PathBuf>,
+    svn: Option<svn::WorkingCopy>,
     err: Option<String>,
     tx: Sender<(u64, Msg)>,
     rx: Receiver<(u64, Msg)>,
@@ -163,6 +167,7 @@ impl GitView {
             s,
             ctx,
             root: None,
+            svn: None,
             err: None,
             tx,
             rx,
@@ -203,7 +208,9 @@ impl GitView {
     pub fn activate(&mut self, code_root: Option<&Path>) {
         if self.activated {
             // 再次进入时刷新一下工作区状态
-            if self.root.is_some() {
+            if self.svn.is_some() {
+                self.load_svn();
+            } else if self.root.is_some() {
                 self.load_status();
                 self.load_branches();
             }
@@ -221,13 +228,13 @@ impl GitView {
     }
 
     pub fn open_root(&mut self, p: &Path) {
-        match git::find_root(p) {
-            Ok(r) => {
-                self.set_repo(Some(r));
+        match repo_root(p) {
+            Ok((root, svn)) => {
+                self.set_repo(Some(root), svn);
             }
             Err(e) => {
                 self.err = Some(if e.contains("not a git repository") {
-                    tf("「{}」不是 Git 仓库", &[&p.display()])
+                    tf("「{}」不是 Git 或 SVN 工作副本", &[&p.display()])
                 } else {
                     e
                 });
@@ -235,10 +242,11 @@ impl GitView {
         }
     }
 
-    fn set_repo(&mut self, root: Option<PathBuf>) {
+    fn set_repo(&mut self, root: Option<PathBuf>, svn: bool) {
         self.repo_gen += 1;
         self.s.root = root.as_ref().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
         self.root = root;
+        self.svn = svn.then(svn::WorkingCopy::default);
         self.err = None;
         self.branches.clear();
         self.status = None;
@@ -256,15 +264,17 @@ impl GitView {
         self.confirm = None;
         self.busy = None;
         self.ops = Default::default();
-        if self.root.is_some() {
+        if self.svn.is_some() {
+            self.load_svn();
+        } else if self.root.is_some() {
             self.refresh();
         }
     }
 
     fn pick_folder(&mut self) {
-        if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开 Git 仓库")).pick_folder() {
+        if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开仓库文件夹")).pick_folder() {
             self.open_root(&p);
-            if self.root.is_some() {
+            if self.err.is_none() && self.root.is_some() {
                 self.events.push(GitEvt::Project(p));
             }
         }
@@ -276,12 +286,12 @@ impl GitView {
             self.s.root.clear();
             return;
         }
-        match git::find_root(p) {
-            Ok(r) if self.root.as_ref() == Some(&r) => {}
-            Ok(r) => self.set_repo(Some(r)),
+        match repo_root(p) {
+            Ok((root, svn)) if self.root.as_ref() == Some(&root) && self.svn.is_some() == svn => {}
+            Ok((root, svn)) => self.set_repo(Some(root), svn),
             Err(_) => {
-                self.set_repo(None);
-                self.err = Some(tf("当前工程「{}」不是 Git 仓库", &[&p.display()]));
+                self.set_repo(None, false);
+                self.err = Some(tf("「{}」不是 Git 或 SVN 工作副本", &[&p.display()]));
             }
         }
     }
@@ -387,6 +397,14 @@ impl GitView {
                 Msg::Branches(Ok(b)) => self.branches = b,
                 Msg::Branches(Err(e)) | Msg::Status(Err(e)) => self.err = Some(e),
                 Msg::Status(Ok(s)) => self.status = Some(s),
+                Msg::SvnStatus(result) => {
+                    if let Some(svn) = &mut self.svn {
+                        svn.status = Some(result);
+                        svn.loading = false;
+                    }
+                }
+                Msg::SvnCompare(Ok(event)) => self.events.push(event),
+                Msg::SvnCompare(Err(error)) => self.toast(error, ERR()),
                 Msg::Log(g, r) if g == self.log_gen => {
                     self.loading_log = false;
                     match r {
@@ -527,6 +545,13 @@ impl GitView {
     pub fn ui_in(&mut self, ui: &mut egui::Ui, acts: &[Act], compact: bool) {
         let ctx = &ui.ctx().clone();
         self.poll();
+        if self.svn.is_some() {
+            if acts.contains(&Act::GitRefresh) {
+                self.load_svn();
+            }
+            egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| self.svn_ui(ui));
+            return;
+        }
         if self.root.is_some() {
             for a in acts {
                 match a {
@@ -596,11 +621,11 @@ impl GitView {
         let ic = Rect::from_center_size(c - vec2(0.0, 40.0), vec2(56.0, 56.0));
         p.rect(ic, CornerRadius::same(14), BG2(), st(1.0, VIOLET().gamma_multiply(0.4)), egui::StrokeKind::Inside);
         draw_icon(p, ic.shrink(12.0), Icon::Branch, VIOLET());
-        p.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, t("Git 分支"), FontId::new(22.0, bold()), TEXT());
+        p.text(c + vec2(0.0, 14.0), Align2::CENTER_CENTER, "Git / SVN", FontId::new(22.0, bold()), TEXT());
         p.text(
             c + vec2(0.0, 42.0),
             Align2::CENTER_CENTER,
-            t("查看各分支的提交图谱、每次提交改了什么、工作区还有哪些没提交"),
+            t("查看 Git 历史、SVN 修订和工作区更改"),
             FontId::proportional(13.0),
             TEXT3(),
         );
@@ -1769,6 +1794,13 @@ fn is_conflict(f: &StatusFile) -> bool {
     f.x == 'U' || f.y == 'U' || (f.x == 'A' && f.y == 'A') || (f.x == 'D' && f.y == 'D')
 }
 
+fn repo_root(path: &Path) -> Result<(PathBuf, bool), String> {
+    if let Some(root) = svn::find_root(path) {
+        return Ok((root, true));
+    }
+    git::find_root(path).map(|root| (root, false))
+}
+
 fn file_row(ui: &mut Ui, status: char, path: &str, adds: Option<u32>, dels: Option<u32>, active: bool) -> egui::Response {
     let (name, dir) = match path.rsplit_once('/') {
         Some((a, b)) => (b, a),
@@ -1777,14 +1809,14 @@ fn file_row(ui: &mut Ui, status: char, path: &str, adds: Option<u32>, dels: Opti
     let mark = match status {
         'A' | 'U' | '?' => 'A',
         'D' => 'D',
-        'R' => 'R',
+        'R' | 'P' | '!' => status,
         _ => 'M',
     };
     let r = tree_row(ui, 0, name, (!dir.is_empty()).then_some(dir), false, None, active, None);
     let p = ui.painter();
     let col = match mark {
         'A' => OK(),
-        'D' => ERR(),
+        'D' | '!' => ERR(),
         'R' => VIOLET(),
         _ => WARN(),
     };

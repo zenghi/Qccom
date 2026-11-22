@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.12
+
+- Open SVN working copies in the version control view. Browse local changes and compare files with their SVN BASE in the existing comparison view.
+- On Windows, open the working copy's log, update, or commit window in TortoiseSVN. Use the installed `svn` command for the integrated status and comparison.
+
 ## 1.9.11
 
 - Fix a community freeze when opening an unread notification that links to a reply.

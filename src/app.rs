@@ -4993,7 +4993,7 @@ impl App {
                 for (pg, icon, tip) in [
                     (Page::Debug, Icon::Pulse, t("调试：串口 / TCP / UDP / MQTT")),
                     (Page::Code, Icon::Code, t("代码查看：打开工程、跳转定义、宏展开")),
-                    (Page::Git, Icon::Branch, t("Git：分支、提交图谱、差异")),
+                    (Page::Git, Icon::Branch, t("版本管理（Git / SVN）")),
                     (Page::Compare, Icon::Compare, t("比较与合并：文件夹、文本、十六进制、三方合并")),
                     (Page::Tools, Icon::Toolbox, t("工具箱：文件服务、设备发现、数据转换、CAN、HID")),
                 ] {

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.11
+
+- Fix a community freeze when opening an unread notification that links to a reply.
+- Keep serial log viewports steady during bursts of incoming data and preserve the reading position in each pane.
+- Save workspace layout changes automatically and restore the active page, serial tabs, and window geometry when QCCOM restarts.
+- Preview custom log highlight colors in a separate editor and apply them together.
+- Update the circuit workbench with wiring assistance, guided practice, design checks, and an optional AI assistant. Simplify the wiring in all 72 built-in examples and add two to four oscilloscope probes to each.
+
 ## 1.9.10
 
 - Preview interface and monospace fonts as you change them. Choose from more fonts installed on the system.

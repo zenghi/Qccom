@@ -104,10 +104,40 @@ fn readable_highlight(color: Color32, background: Color32) -> Color32 {
 
 pub(super) fn highlight_color_popup(ui: &egui::Ui, anchor: &egui::Response, selected: &mut Option<ManualColor>, displayed: Color32, allow_auto: bool) -> bool {
     let id = anchor.id.with("highlight-color");
+    let editor = id.with("custom");
+    let before = *selected;
+    if let Some(mut draft) = ui.ctx().data(|d| d.get_temp::<Color32>(editor)) {
+        let modal = egui::Modal::new(editor).show(ui.ctx(), |ui| {
+            ui.set_width(256.0);
+            ui.heading(t("自定义颜色"));
+            ui.add_space(6.0);
+            ui.spacing_mut().slider_width = 220.0;
+            egui::color_picker::color_picker_color32(ui, &mut draft, egui::color_picker::Alpha::Opaque);
+            ui.add_space(6.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let apply = ui.button(t("应用")).clicked();
+                let cancel = ui.button(t("取消")).clicked();
+                (apply, cancel)
+            })
+            .inner
+        });
+        let (apply, cancel) = modal.inner;
+        if apply {
+            *selected = Some(ManualColor::Custom([draft.r(), draft.g(), draft.b()]));
+        }
+        let close = apply || cancel || modal.should_close();
+        ui.ctx().data_mut(|d| {
+            if close {
+                d.remove::<Color32>(editor);
+            } else {
+                d.insert_temp(editor, draft);
+            }
+        });
+        return before != *selected;
+    }
     if anchor.clicked() {
         ui.memory_mut(|m| m.toggle_popup(id));
     }
-    let before = *selected;
     egui::popup::popup_below_widget(ui, id, anchor, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
         let colors = manual_palette();
         for (row, colors) in colors.chunks(7).enumerate() {
@@ -132,17 +162,15 @@ pub(super) fn highlight_color_popup(ui: &egui::Ui, anchor: &egui::Response, sele
             *selected = None;
             ui.memory_mut(|m| m.close_popup());
         }
-        egui::CollapsingHeader::new(t("自定义颜色"))
-            .default_open(matches!(before, Some(ManualColor::Custom(_))))
-            .show(ui, |ui| {
-                let mut color = match before {
-                    Some(ManualColor::Custom([r, g, b])) => Color32::from_rgb(r, g, b),
-                    _ => displayed,
-                };
-                if egui::color_picker::color_picker_color32(ui, &mut color, egui::color_picker::Alpha::Opaque) {
-                    *selected = Some(ManualColor::Custom([color.r(), color.g(), color.b()]));
-                }
-            });
+        if ui.selectable_label(matches!(before, Some(ManualColor::Custom(_))), t("自定义颜色")).clicked() {
+            let draft = match before {
+                Some(ManualColor::Custom([r, g, b])) => Color32::from_rgb(r, g, b),
+                _ => displayed,
+            };
+            ui.ctx().data_mut(|d| d.insert_temp(editor, draft));
+            ui.memory_mut(|m| m.close_popup());
+            ui.ctx().request_repaint();
+        }
     });
     before != *selected
 }

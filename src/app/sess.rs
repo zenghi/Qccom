@@ -96,6 +96,7 @@ pub(super) struct Sess {
     tsel: Option<TSel>,
     drag_scroll: f32,
     log_scroll_y: f32,
+    log_top: Option<(u64, f32)>,
     at_bottom: bool,
     jump_bottom: bool,
     ov: (u64, Instant, Vec<u8>),
@@ -172,6 +173,7 @@ impl Sess {
             tsel: None,
             drag_scroll: 0.0,
             log_scroll_y: 0.0,
+            log_top: None,
             at_bottom: true,
             jump_bottom: false,
             ov: (0, Instant::now(), vec![]),
@@ -284,6 +286,7 @@ impl App {
         swap(&mut self.tsel, &mut s.tsel);
         swap(&mut self.drag_scroll, &mut s.drag_scroll);
         swap(&mut self.log_scroll_y, &mut s.log_scroll_y);
+        swap(&mut self.log_top, &mut s.log_top);
         swap(&mut self.at_bottom, &mut s.at_bottom);
         swap(&mut self.jump_bottom, &mut s.jump_bottom);
         swap(&mut self.ov, &mut s.ov);

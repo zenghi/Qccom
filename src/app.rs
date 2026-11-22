@@ -393,6 +393,7 @@ pub struct App {
     /// 拖选到日志区边缘时每帧滚动的距离
     drag_scroll: f32,
     log_scroll_y: f32,
+    log_top: Option<(u64, f32)>,
 
     send_text: String,
     hist_pos: Option<usize>,
@@ -626,6 +627,7 @@ impl App {
             tsel: None,
             drag_scroll: 0.0,
             log_scroll_y: 0.0,
+            log_top: None,
             send_text: String::new(),
             hist_pos: None,
             repeat: false,
@@ -767,7 +769,6 @@ impl App {
                 (k.to_string(), color)
             })
             .collect();
-        self.invalidate_log_views();
         self.repaint_log_windows(&self.ctx);
     }
 
@@ -3785,24 +3786,18 @@ impl App {
 
         let inner = card_rect.shrink2(vec2(1.0, 6.0));
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(inner));
-        child.spacing_mut().item_spacing = vec2(0.0, 0.0);
+        let spacing = child.spacing_mut();
+        spacing.item_spacing = vec2(0.0, 0.0);
+        // Virtual rows report the width of the currently visible lines. A scrollbar must never
+        // resize the viewport in response, or the next frame may measure a different set of rows.
+        spacing.scroll.floating = true;
+        spacing.scroll.floating_allocated_width = 0.0;
         let digits = (self.buf.total().max(1) as f64).log10().floor() as usize + 1;
         let char_w = ui.fonts(|f| f.glyph_width(&font, '0'));
         let gutter = if self.s.show_ln { (digits.max(4) as f32) * char_w + 22.0 } else { 10.0 };
 
         let dragging = self.tsel.is_some_and(|s| s.drag);
-        let mut sa = egui::ScrollArea::both()
-            .auto_shrink([false, false])
-            .stick_to_bottom(self.auto_scroll && self.scroll_to.is_none() && !dragging);
-        if dragging && self.drag_scroll != 0.0 {
-            sa = sa.vertical_scroll_offset((self.log_scroll_y + self.drag_scroll).max(0.0));
-        }
-        if let Some(id) = self.scroll_to.take() {
-            if let Some(i) = self.row_index(id) {
-                let y = (i as f32 * row_h - inner.height() / 3.0).max(0.0);
-                sa = sa.vertical_scroll_offset(y);
-            }
-        }
+        let mut sa = egui::ScrollArea::both().auto_shrink([false, false]);
         let shift = ui.input(|i| i.modifiers.shift);
         let (pressed, down, ptr) = ui.input(|i| (i.pointer.primary_pressed(), i.pointer.primary_down(), i.pointer.interact_pos()));
         let mut clicked: Option<u64> = None;
@@ -3826,7 +3821,24 @@ impl App {
         // —— 快速滚动：Alt+滚轮 十倍速、翻页 / 首尾键、中键自动滚动 ——
         let hovered = ui.rect_contains_pointer(inner);
         let max_y = (n as f32 * row_h - inner.height()).max(0.0);
-        let mut want: Option<f32> = None;
+        let mut want = if dragging {
+            Some(self.log_scroll_y + self.drag_scroll)
+        } else if self.auto_scroll && self.at_bottom {
+            Some(max_y)
+        } else {
+            // Keep the same record in view when the bounded buffer drops older lines.
+            self.log_top.and_then(|(id, fraction)| {
+                if id < self.buf.dropped {
+                    Some(0.0)
+                } else {
+                    let row = if open == Some(id) { n.checked_sub(1) } else { self.row_index(id) }?;
+                    Some((row as f32 + fraction) * row_h)
+                }
+            })
+        };
+        if let Some(row) = self.scroll_to.take().and_then(|id| self.row_index(id)) {
+            want = Some(row as f32 * row_h - inner.height() / 3.0);
+        }
         if hovered {
             let (alt, dy) = ui.input(|i| (i.modifiers.alt, i.raw_scroll_delta.y));
             if alt && dy != 0.0 {
@@ -3886,12 +3898,11 @@ impl App {
         } else if mid_down && hovered && n > 0 {
             self.auto_anchor = hover;
         }
+        if std::mem::take(&mut self.jump_bottom) {
+            want = Some(max_y);
+        }
         if let Some(y) = want {
             sa = sa.vertical_scroll_offset(y.clamp(0.0, max_y));
-        }
-        if self.jump_bottom {
-            sa = sa.vertical_scroll_offset(n as f32 * row_h + inner.height());
-            self.jump_bottom = false;
         }
         let now = chrono::Local::now();
         let mut fading = false;
@@ -3904,7 +3915,8 @@ impl App {
                 let job = self.line_job(id, l, &font, self.s.log_preset);
                 let galley = ui.fonts(|f| f.layout_job(job));
                 let w = min_w.max(gutter + galley.size().x + 24.0);
-                let (rect, resp) = ui.allocate_exact_size(vec2(w, row_h), Sense::click_and_drag());
+                let (_, rect) = ui.allocate_space(vec2(w, row_h));
+                let resp = ui.interact(rect, ui.id().with(("log-row", id)), Sense::click_and_drag());
                 if !ui.is_rect_visible(rect) {
                     continue;
                 }
@@ -4202,7 +4214,10 @@ impl App {
             ui.ctx().request_repaint_after(Duration::from_millis(33));
         }
         self.log_scroll_y = out.state.offset.y;
-        self.at_bottom = out.state.offset.y + out.inner_rect.height() >= out.content_size.y - row_h * 1.5;
+        let top = self.log_scroll_y / row_h;
+        let row = top.floor() as usize;
+        self.log_top = (row < n).then(|| (self.row_id(row, open), top.fract()));
+        self.at_bottom = self.log_scroll_y >= max_y - 1.0;
         if self.at_bottom {
             self.bottom_total = None;
         } else if self.bottom_total.is_none() {
@@ -5534,6 +5549,7 @@ impl eframe::App for App {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.snapshot_work_layout();
+        self.work.layout_changed_at = None;
         self.code.snapshot();
         self.s.code = self.code.s.clone();
         self.s.git = self.gitv.s.clone();
@@ -5543,6 +5559,14 @@ impl eframe::App for App {
         self.quiet_session(self.selected_serial);
         eframe::set_value(storage, eframe::APP_KEY, &self.s);
         self.quiet_session(current);
+    }
+
+    fn auto_save_interval(&self) -> Duration {
+        if self.work.layout_changed_at.is_some_and(|at| at.elapsed() >= work::LAYOUT_SAVE_DELAY) {
+            Duration::ZERO
+        } else {
+            Duration::from_secs(30)
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -5861,6 +5885,9 @@ impl eframe::App for App {
                     });
                 ctx.request_repaint_after(Duration::from_millis(30));
             }
+        }
+        if frame.storage().is_some() {
+            self.track_work_layout(ctx);
         }
     }
 }
@@ -6918,6 +6945,49 @@ pub fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn two_busy_serial_logs_keep_independent_scroll_anchors() {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let settings = Settings { port: "COM8".into(), telemetry: false, auto_update: false, max_lines: 400, ..Default::default() };
+        let mut app = App::with_settings(&cc, settings, vec![], vec![]);
+        let reading = app.session_slot;
+        app.serial_opened = true;
+        app.choose_serial_port("COM19", false);
+        let following = app.session_slot;
+        assert_ne!(reading, following);
+        for slot in [reading, following] {
+            app.with_session(slot, |app| app.buf.push_rx(&b"temperature=24.05 pressure=101.328\n".repeat(400), Encoding::Utf8));
+        }
+        app.with_session(reading, |app| app.scroll_to = Some(180));
+
+        let mut anchor = None;
+        for round in 0..6 {
+            if round > 0 {
+                let line: &[u8] = if round % 2 == 0 { b"temperature=24.05 pressure=101.328\n" } else { b"temperature=24.051 pressure=101.328    calibrated\n" };
+                for slot in [reading, following] {
+                    app.with_session(slot, |app| app.buf.push_rx(&line.repeat(20), Encoding::Utf8));
+                }
+            }
+            let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(646.0, 372.0));
+            let _ = ctx.run(egui::RawInput { screen_rect: Some(screen), ..Default::default() }, |ctx| {
+                egui::SidePanel::left("read-serial").exact_width(310.0).show(ctx, |ui| app.with_session(reading, |app| app.log_view(ui)));
+                egui::CentralPanel::default().show(ctx, |ui| app.with_session(following, |app| app.log_view(ui)));
+            });
+            app.with_session(reading, |app| {
+                let (id, fraction) = app.log_top.unwrap();
+                let first = *anchor.get_or_insert(id);
+                assert_eq!(id, first);
+                assert!(fraction.is_finite() && !app.at_bottom);
+            });
+            app.with_session(following, |app| {
+                assert!(app.at_bottom);
+                let (id, _) = app.log_top.unwrap();
+                assert!((1..40).contains(&(app.buf.total() - id)));
+            });
+        }
+    }
 
     #[test]
     fn hex_parse() {

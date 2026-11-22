@@ -391,7 +391,7 @@ impl App {
                 back = true;
             }
         });
-        if back {
+        if back && !ctx.input(|input| input.viewport().close_requested()) {
             // 关掉独立窗口 = 放回主窗口
             self.work.detached = false;
         }

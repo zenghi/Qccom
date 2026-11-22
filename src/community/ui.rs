@@ -1106,8 +1106,11 @@ impl Community {
                         let resp = self.reply_ui(ui, &p, r, &ctx);
                         if jump == Some(r.id) {
                             resp.scroll_to_me(Some(Align::Center));
-                            ctx.data_mut(|d| d.remove::<i64>(egui::Id::new("comm-jump-reply")));
-                            ctx.data_mut(|d| d.insert_temp(egui::Id::new(("comm-flash", r.id)), ctx.input(|i| i.time)));
+                            let now = ctx.input(|i| i.time);
+                            ctx.data_mut(|d| {
+                                d.remove::<i64>(egui::Id::new("comm-jump-reply"));
+                                d.insert_temp(egui::Id::new(("comm-flash", r.id)), now);
+                            });
                         }
                         if bottom && last == Some(r.id) {
                             resp.scroll_to_me(Some(Align::Max));
@@ -2136,4 +2139,31 @@ fn ctrl_enter(ui: &Ui) -> bool {
             .iter()
             .any(|e| matches!(e, egui::Event::Key { key: Key::Enter, pressed: true, modifiers, .. } if modifiers.command))
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn notification_can_scroll_to_and_flash_its_reply() {
+        let ctx = egui::Context::default();
+        set_font_preferences(&ctx, &Default::default());
+        let mut community = Community::default();
+        community.detail = Some(Post {
+            id: 4,
+            title: "A post with a new reply".into(),
+            replies: vec![Reply { id: 17, floor: 1, body: "New reply".into(), ..Default::default() }],
+            ..Default::default()
+        });
+        let jump = egui::Id::new("comm-jump-reply");
+        ctx.data_mut(|data| data.insert_temp(jump, 17_i64));
+        let _ = ctx.run(egui::RawInput { time: Some(2.0), ..Default::default() }, |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| community.detail_ui(ui, 4, false));
+        });
+        ctx.data(|data| {
+            assert_eq!(data.get_temp::<i64>(jump), None);
+            assert_eq!(data.get_temp::<f64>(egui::Id::new(("comm-flash", 17_i64))), Some(2.0));
+        });
+    }
 }

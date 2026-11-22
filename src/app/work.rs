@@ -226,6 +226,7 @@ pub(super) fn builtin_schemes() -> Vec<Scheme> {
 pub(super) const DEFAULT_FRAC: f32 = 0.35;
 /// 副页面最窄（再窄就收起）
 pub(super) const MIN_SIDE: f32 = 280.0;
+pub(super) const LAYOUT_SAVE_DELAY: Duration = Duration::from_millis(650);
 
 /// 设置里存的部分
 #[derive(Clone, Serialize, Deserialize)]
@@ -313,6 +314,16 @@ pub(super) enum DropAt {
     Center,
 }
 
+#[derive(PartialEq)]
+struct WindowLayout {
+    position: Option<egui::Pos2>,
+    size: Option<egui::Vec2>,
+    maximized: bool,
+    fullscreen: bool,
+    devices: bool,
+    commands: bool,
+}
+
 /// 运行时状态
 pub(super) struct Work {
     pub tabs: Vec<Pane>,
@@ -350,6 +361,8 @@ pub(super) struct Work {
     pub detached: bool,
     pub detached_geometry: Option<DetachedGeometry>,
     pub detached_launch: Option<DetachedGeometry>,
+    window_layout: Option<WindowLayout>,
+    pub layout_changed_at: Option<Instant>,
     pub proj_key: String,
     /// 打开动画
     pub opened_at: Option<Instant>,
@@ -395,6 +408,8 @@ impl Default for Work {
             detached: false,
             detached_geometry: None,
             detached_launch: None,
+            window_layout: None,
+            layout_changed_at: None,
             proj_key: String::new(),
             opened_at: None,
             sim_opened: false,
@@ -957,14 +972,40 @@ impl App {
         }
     }
 
-    pub(super) fn snapshot_work_layout(&mut self) {
-        let lay = self.current_layout();
-        if lay != self.s.work.last {
-            if !self.work.proj_key.is_empty() {
-                self.s.work.proj.insert(self.work.proj_key.clone(), lay.clone());
-            }
-            self.s.work.last = lay;
+    pub(super) fn track_work_layout(&mut self, ctx: &egui::Context) {
+        let window = ctx.input(|input| {
+            let view = input.viewport();
+            (view.minimized != Some(true)).then(|| WindowLayout {
+                position: view.outer_rect.map(|rect| rect.min.round()),
+                size: view.inner_rect.map(|rect| rect.size().round()),
+                maximized: view.maximized == Some(true),
+                fullscreen: view.fullscreen == Some(true),
+                devices: self.s.sidebar,
+                commands: self.s.cmd_panel,
+            })
+        });
+        let window_changed = window.is_some() && window != self.work.window_layout;
+        if window_changed {
+            self.work.window_layout = window;
         }
+        if self.snapshot_work_layout() || window_changed {
+            self.work.layout_changed_at = Some(Instant::now());
+        }
+        if let Some(at) = self.work.layout_changed_at {
+            ctx.request_repaint_after(LAYOUT_SAVE_DELAY.saturating_sub(at.elapsed()));
+        }
+    }
+
+    pub(super) fn snapshot_work_layout(&mut self) -> bool {
+        let lay = self.current_layout();
+        if lay == self.s.work.last {
+            return false;
+        }
+        if !self.work.proj_key.is_empty() {
+            self.s.work.proj.insert(self.work.proj_key.clone(), lay.clone());
+        }
+        self.s.work.last = lay;
+        true
     }
 
     pub(super) fn current_layout(&self) -> Layout {
@@ -1637,6 +1678,32 @@ mod tests {
         assert!(reopened.work.tabs.is_empty() && !reopened.work.detached);
         reopened.toggle_side();
         assert_eq!(reopened.pane_label(reopened.side_pane().unwrap()), "COM19");
+    }
+
+    #[test]
+    fn workspace_changes_schedule_one_save_before_exit() {
+        let ctx = egui::Context::default();
+        let cc = eframe::CreationContext::_new_kittest(ctx.clone());
+        let settings = Settings { telemetry: false, auto_update: false, ..Default::default() };
+        let mut app = App::with_settings(&cc, settings, vec![], vec![]);
+        app.set_page(Page::Code);
+        app.open_side(Pane::Git, Some(DockPos::Bottom), true);
+        app.work.frac = 0.42;
+        app.s.sidebar = false;
+
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.track_work_layout(ctx));
+        assert!(app.work.layout_changed_at.is_some());
+        assert_ne!(eframe::App::auto_save_interval(&app), Duration::ZERO);
+        app.work.layout_changed_at = Some(Instant::now() - LAYOUT_SAVE_DELAY);
+        assert_eq!(eframe::App::auto_save_interval(&app), Duration::ZERO);
+        let mut storage = TestStorage::default();
+        eframe::App::save(&mut app, &mut storage);
+
+        let _ = ctx.run(egui::RawInput::default(), |ctx| app.track_work_layout(ctx));
+        assert!(app.work.layout_changed_at.is_none());
+        let loaded: Settings = eframe::get_value(&storage, eframe::APP_KEY).unwrap();
+        assert_eq!(loaded.work.last, app.current_layout());
+        assert!(!loaded.sidebar);
     }
 
     #[test]

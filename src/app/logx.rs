@@ -1120,6 +1120,15 @@ impl App {
 
     /// 日志工具栏「更多」菜单
     pub(super) fn more_menu(&mut self, ui: &mut egui::Ui) {
+        if menu_item(ui, t("采集分析 · VOFA+ / CAN"), "") {
+            self.open_lab();
+            ui.close_menu();
+        }
+        if menu_item(ui, t("AI 连接 · MCP"), "") {
+            self.ai.dialog = true;
+            ui.close_menu();
+        }
+        ui.separator();
         let (k_mark, k_next, k_prev, k_rules) = (
             self.km.label(Act::LogMarker),
             self.km.label(Act::LogNextMark),

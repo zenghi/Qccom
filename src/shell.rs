@@ -148,6 +148,11 @@ pub struct Shell {
 }
 
 impl Shell {
+    fn at_prompt(&self) -> bool {
+        let line = self.tv.cursor_line();
+        self.exited.is_none() && self.pending_write.is_none() && self.pending_shortcut.is_none() && !line.is_empty() && prompt_of(&line).trim_end() == line
+    }
+
     pub fn spawn(ctx: &egui::Context, kind: &ShellKind, cwd: &Path, n: usize) -> Result<Shell, String> {
         Self::spawn_with_env(ctx, kind, cwd, n, None, None)
     }
@@ -497,6 +502,14 @@ struct PendingShell {
     task: Option<Task>,
 }
 
+struct PendingInstrument {
+    root: PathBuf,
+    id: usize,
+    flash: bool,
+    port: String,
+    since: std::time::Instant,
+}
+
 pub struct Shells {
     pub s: ShellSettings,
     pub tabs: Vec<Shell>,
@@ -518,9 +531,56 @@ pub struct Shells {
     edit_tasks: bool,
     env_dialog: EnvDialog,
     pending_shell: Option<PendingShell>,
+    instrument_pending: Option<PendingInstrument>,
 }
 
 impl Shells {
+    pub fn instrument_context(&self) -> serde_json::Value {
+        let mcu = self.tabs.get(self.active).and_then(|sh| sh.mcu.as_ref());
+        serde_json::json!({"profile":mcu.map(|m|m.profile.status_label()),"sdk":mcu.and_then(|m|m.location.as_ref()),
+            "firmware":mcu.map(|m|&m.options.firmware),"tools":mcu.map(|m|m.tool_paths()),"issues":self.problems.iter().take(50).map(|p|serde_json::json!({"file":p.file,"line":p.line,"error":p.error,"message":p.msg})).collect::<Vec<_>>()})
+    }
+    pub fn instrument_task(&mut self, ctx: &egui::Context, cwd: &Path, flash: bool, port: &str) -> Result<(), String> {
+        if self.instrument_pending.is_some() {
+            return Err(t("请等待当前工程的终端就绪").into());
+        }
+        if !self.tabs.get(self.active).is_some_and(|s| s.exited.is_none() && !s.remote && s.cwd == cwd) {
+            if let Some(p) = &self.pending_shell {
+                if p.cwd != cwd {
+                    return Err(t("请等待当前工程的终端就绪").into());
+                }
+            }
+            let id = self.next_id + 1;
+            if self.pending_shell.is_none() {
+                self.project_shell_pending = false;
+                self.launch(ctx, None, cwd, None);
+            }
+            if self.pending_shell.is_none() && !self.tabs.iter().any(|s| s.id == id) {
+                return Err(t("检测 MCU 工具链失败").into());
+            }
+            self.instrument_pending = Some(PendingInstrument {
+                root: cwd.to_owned(),
+                id,
+                flash,
+                port: port.into(),
+                since: std::time::Instant::now(),
+            });
+            return Ok(());
+        }
+        self.submit_instrument(cwd, flash, port)
+    }
+    fn submit_instrument(&mut self, cwd: &Path, flash: bool, port: &str) -> Result<(), String> {
+        let sh = self.tabs.get(self.active).ok_or_else(|| t("请先打开工程的 MCU 终端").to_owned())?;
+        let (m, syntax) = sh.mcu.as_ref().zip(sh.syntax).ok_or_else(|| t("请选择已识别工具链的 MCU 终端").to_owned())?;
+        if m.root != cwd || sh.remote || !sh.at_prompt() {
+            return Err(t("请等待当前工程的终端就绪").into());
+        }
+        let action = if flash { Action::Flash } else { Action::Build };
+        let cmd = m.command(syntax, action, port)?;
+        self.submit_task(self.active, Task { name: action.label().into(), cmd }, flash, (flash && !port.is_empty()).then(|| port.to_owned()));
+        Ok(())
+    }
+
     pub fn new(s: ShellSettings) -> Self {
         Self {
             s,
@@ -540,6 +600,7 @@ impl Shells {
             edit_tasks: false,
             env_dialog: Default::default(),
             pending_shell: None,
+            instrument_pending: None,
         }
     }
 
@@ -785,6 +846,21 @@ impl Shells {
     }
 
     pub fn ui(&mut self, ctx: &egui::Context, cwd: &Path, port: &str, ports: &[crate::serial::PortEntry]) {
+        if let Some(job) = self.instrument_pending.take() {
+            let same_tab = self.tabs.get(self.active).filter(|sh| sh.id == job.id);
+            if job.root != cwd || job.since.elapsed() > std::time::Duration::from_secs(30) {
+                self.events.push(ShellEvt::Toast(t("请等待当前工程的终端就绪").into()));
+            } else if same_tab.is_some_and(|sh| sh.mcu.is_none() || sh.at_prompt()) {
+                if let Err(e) = self.submit_instrument(cwd, job.flash, &job.port) {
+                    self.events.push(ShellEvt::Toast(e))
+                }
+            } else if self.pending_shell.is_some() || same_tab.is_some() {
+                self.instrument_pending = Some(job);
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            } else {
+                self.events.push(ShellEvt::Toast(t("请等待当前工程的终端就绪").into()));
+            }
+        }
         if !self.s.open {
             self.poll_launch(ctx);
             self.rect = None;
@@ -1190,12 +1266,7 @@ impl Shells {
                 }
                 if self.pending_shell.is_none() {
                     let syntax = sh.and_then(|sh| sh.syntax);
-                    let ready = sh.is_some_and(|sh| {
-                        sh.exited.is_none() && sh.pending_write.is_none() && sh.pending_shortcut.is_none() && {
-                            let line = sh.tv.cursor_line();
-                            !line.is_empty() && prompt_of(&line).trim_end() == line
-                        }
-                    });
+                    let ready = sh.is_some_and(Shell::at_prompt);
                     ui.menu_button(t("自定义命令"), |ui| {
                         if let Some((m, syntax)) = mcu.zip(syntax) {
                             for &action in m.actions().iter().filter(|&&a| !primary_action(a)) {

@@ -123,6 +123,9 @@ struct CubeIde {
 }
 
 impl Session {
+    pub(super) fn tool_paths(&self) -> &BTreeMap<&'static str, PathBuf> {
+        &self.tools
+    }
     pub(super) fn discover(root: PathBuf, options: Options) -> Self {
         discover::session(root, options)
     }

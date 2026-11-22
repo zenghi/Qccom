@@ -24,6 +24,10 @@
 
 QCCOM is a single portable executable written in Rust with [egui](https://github.com/emilk/egui). No installer, no runtime, no admin rights. It starts in well under a second and stays smooth with hundreds of thousands of log lines.
 
+## Signal acquisition and MCP
+
+Open **Debug → More → Acquisition** on the device connection to plot VOFA+ FireWater or JustFloat samples, tune parameters, capture threshold events and compare recordings. SLCAN frames and DBC signals share the timeline. The file menu supports CSV export, MDF4 numeric groups, snapshots and continuous disk recording. **More → AI connection** shares the selected session with a local stdio MCP client. Each double-click on the executable starts an independent QCCOM process. [Workbench guide](README.zh-CN.md)
+
 ## Port mappings on Windows
 
 Click the mapping button beside a physical COM port to create a share address. Paste the address into QCCOM on the other PC to connect without importing credentials. Flash the remote UART device through the virtual COM port shown in the device list, or use a local loopback port for MQTT and passive FTP. QCCOM attempts a direct connection first and uses the Rust relay when needed. Address sharing requires a rendezvous server with a publicly trusted TLS certificate. [Deployment and flashing guide (Chinese)](deploy/remote-com/README.md)

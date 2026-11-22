@@ -47,6 +47,7 @@ impl Series {
 }
 
 pub(super) struct Plot {
+    pub lab: super::lab::Lab,
     t0: Instant,
     pub series: BTreeMap<String, Series>,
     re: Option<regex_lite::Regex>,
@@ -61,6 +62,7 @@ pub(super) struct Plot {
 impl Default for Plot {
     fn default() -> Self {
         Plot {
+            lab: Default::default(),
             t0: Instant::now(),
             series: BTreeMap::new(),
             re: None,
@@ -174,6 +176,9 @@ impl App {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             ui.label(RichText::new(t("波形")).font(FontId::new(12.0, bold())).color(TEXT2()));
+            if ui.small_button(t("采集分析")).clicked() {
+                self.open_lab();
+            }
             if self.plot.series.is_empty() {
                 ui.label(RichText::new(t("等待数据：自动识别 temp=25.3、x:1,y:2 或逗号分隔的数字")).small().color(TEXT3()));
             }

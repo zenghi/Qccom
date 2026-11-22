@@ -63,6 +63,16 @@ jobs:
         shell: bash
         run: mkdir -p dist && cp "${{ matrix.bin }}" "dist/${{ matrix.name }}"
 
+      - name: Pack Windows x64 and verify byte-exact restoration
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP 'upx-5.3.0-win64.zip'
+          Invoke-WebRequest 'https://github.com/upx/upx/releases/download/v5.3.0/upx-5.3.0-win64.zip' -OutFile $archive
+          if ((Get-FileHash $archive).Hash -ne 'd127996c76615e431be810e9c8d2910dbe3dd400600c5c0c50276fc5a17a9705') { throw 'UPX checksum mismatch' }
+          Expand-Archive $archive $env:RUNNER_TEMP
+          ./deploy/windows/pack-release.ps1 -Executable '${{ matrix.bin }}' -Destination 'dist/${{ matrix.name }}' -Upx (Join-Path $env:RUNNER_TEMP 'upx-5.3.0-win64/upx.exe')
+
       - uses: actions/upload-artifact@v4
         id: upload
         with:

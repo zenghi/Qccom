@@ -8,6 +8,7 @@ mod bgimg;
 mod binview;
 mod ble;
 mod bridge;
+mod capture;
 mod checksum;
 mod cindex;
 mod circuit;
@@ -34,6 +35,7 @@ mod logbuf;
 mod lsp;
 #[cfg(windows)]
 mod mappings;
+mod mcp;
 mod modbus;
 mod net;
 mod pattern;
@@ -86,12 +88,13 @@ static INSTANCE: std::sync::OnceLock<(u16, Option<std::net::TcpListener>)> = std
 pub fn instance() -> u16 {
     INSTANCE
         .get_or_init(|| {
-            for n in 1..=9u16 {
+            for n in 1..=1024u16 {
                 if let Ok(l) = std::net::TcpListener::bind(("127.0.0.1", 29170 + n)) {
                     return (n, Some(l));
                 }
             }
-            (10, None)
+            let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("allocate instance slot");
+            (listener.local_addr().expect("instance address").port(), Some(listener))
         })
         .0
 }
@@ -127,8 +130,10 @@ fn main() -> eframe::Result {
     // Files and comparisons reuse the first window; projects open a separate workspace.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let startup = shellint::parse_args(&args);
-    let forward = if args.is_empty() { &[shellint::Req::Activate][..] } else { &startup };
-    if shellint::should_forward(&args, forward) && shellint::forward(forward) {
+    if args.first().map(String::as_str) == Some("--mcp") {
+        std::process::exit(mcp::stdio(&args[1..]));
+    }
+    if shellint::should_forward(&args, &startup) && shellint::forward(&startup) {
         return Ok(());
     }
     if let Some(dir) = portable_dir() {

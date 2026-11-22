@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.15
+
+- Launch a separate process and settings slot on each double-click. Explorer file and comparison requests can still reuse the primary window.
+- Add a per-connection acquisition workbench with FireWater and JustFloat numeric frames, raw logs, peak-preserving charts, A/B cursors, FFT, adjustable device commands and rising-edge capture.
+- Align serial traffic, decoded SLCAN signals and parameter changes on one timeline. Stream long sessions to disk and load selected time intervals. Open or compare QCCOM captures and supported MDF4 numeric groups.
+- Share a chosen session with local MCP clients over stdio. Enable capture, saved device commands, parameter sends or MCU actions from the session's access settings.
+- Pack Windows binaries with UPX NRV and verify byte-exact restoration before signing.
+
 ## 1.9.14
 
 - Label MCU toolchains other than ESP-IDF as untested for real-board use in the terminal and toolchain selector.

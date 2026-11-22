@@ -161,6 +161,7 @@ pub struct Settings {
     /// 右侧面板的标签：0 命令 1 应答 2 脚本
     pub dock_tab: u8,
     pub plot: plot::PlotCfg,
+    labs: std::collections::BTreeMap<String, lab::Config>,
     /// 侧边栏选了「API」标签（HTTP 接口调试），这时主区域换成请求编辑器
     pub api_mode: bool,
     pub api: crate::api::ApiSettings,
@@ -257,6 +258,7 @@ impl Default for Settings {
             scripts: vec![],
             dock_tab: 0,
             plot: Default::default(),
+            labs: Default::default(),
             api_mode: false,
             api: Default::default(),
             mb: Default::default(),
@@ -313,6 +315,7 @@ mod blex;
 mod dbgtools;
 mod diagnostics;
 mod dock;
+mod lab;
 mod logx;
 mod minitools;
 mod nav;
@@ -486,6 +489,7 @@ pub struct App {
     xf: dbgtools::Xf,
     calc: dbgtools::Calc,
     plot: plot::Plot,
+    ai: lab::Ai,
     /// 串口输入信号线 [CTS, DSR, RI, CD]
     signals: Option<[bool; 4]>,
     sniff: serialx::Sniff,
@@ -700,6 +704,7 @@ impl App {
             xf: Default::default(),
             calc: Default::default(),
             plot: Default::default(),
+            ai: Default::default(),
             signals: None,
             sniff: Default::default(),
             bridge: None,
@@ -850,6 +855,7 @@ impl App {
     }
 
     fn disconnect_with(&mut self, cmd: Cmd) {
+        self.plot.lab.reset_decoder();
         self.reconnect = None;
         if let Some(c) = self.conn.take() {
             let _ = c.cmd.send(cmd);
@@ -866,7 +872,8 @@ impl App {
     /// 收到数据（串口、TCP、回放都走这里）
     fn on_rx(&mut self, d: Vec<u8>) {
         self.note_rx(d.len());
-        let r = self.tv.feed(&d);
+        let logs = self.instrument_rx(&d);
+        let r = self.tv.feed(logs.as_deref().unwrap_or(&d));
         if !r.is_empty() {
             self.send_raw(r);
         }
@@ -877,7 +884,14 @@ impl App {
         if let Some(v) = self.vcom.as_ref().filter(|_| self.s.transport == Transport::Serial) {
             v.forward(&d);
         }
-        self.append_rx(d);
+        match logs {
+            Some(text) if self.buf.recording_path().is_none() => {
+                if !text.is_empty() {
+                    self.append_rx(text)
+                }
+            }
+            _ => self.append_rx(d),
+        }
     }
 
     fn note_rx(&mut self, len: usize) {
@@ -917,8 +931,16 @@ impl App {
                         SerialDirection::Rx => {
                             app.note_rx(packet.bytes.len());
                             // Observe the tunnel's bytes without echoing them into the tunnel or a local bridge.
-                            let _ = app.tv.feed(&packet.bytes);
-                            app.append_rx(packet.bytes);
+                            let logs = app.instrument_rx(&packet.bytes);
+                            let _ = app.tv.feed(logs.as_deref().unwrap_or(&packet.bytes));
+                            match logs {
+                                Some(text) if app.buf.recording_path().is_none() => {
+                                    if !text.is_empty() {
+                                        app.append_rx(text)
+                                    }
+                                }
+                                _ => app.append_rx(packet.bytes),
+                            }
                         }
                     }
                 }
@@ -1150,10 +1172,14 @@ impl App {
                     self.rx_bytes += d.len() as u64;
                     self.last_rx_at = Some(Instant::now());
                     self.rate_acc += d.len() as u64;
+                    let filtered=self.instrument_rx(&d);
+                    let bytes=filtered.as_deref().unwrap_or(&d);
+                    if bytes.is_empty() && self.buf.recording_path().is_none(){continue;}
+                    let bytes=if self.buf.recording_path().is_some(){d.as_slice()}else{bytes};
                     // 每包一行，前面带上来源（MQTT 主题 / UDP 对方地址）
                     let mut line = self.s.encoding.encode(&format!("\x1b[36m[{tag}]\x1b[0m "));
-                    let end = d.iter().rposition(|&b| b != b'\r' && b != b'\n').map_or(0, |i| i + 1);
-                    line.extend_from_slice(&d[..end]);
+                    let end = bytes.iter().rposition(|&b| b != b'\r' && b != b'\n').map_or(0, |i| i + 1);
+                    line.extend_from_slice(&bytes[..end]);
                     line.push(b'\n');
                     self.tv.feed(&line);
                     self.tv.feed(b"\r");
@@ -1374,7 +1400,15 @@ impl App {
                 }
             }
         }
+        self.instrument_tick();
         let committed = std::mem::take(&mut self.buf.committed);
+        if self.plot.lab.active {
+            for &id in &committed {
+                if let Some(line) = self.buf.get(id) {
+                    self.plot.lab.log_event(line);
+                }
+            }
+        }
         // 新收完的行：应答规则、脚本、波形图
         // 自动应答、脚本、波形图只跟当前显示的连接
         let want = !self.bg && (!self.dock.trig_rt.iter().all(Option::is_none) || self.dock.script.is_some() || self.s.plot.on);
@@ -4798,6 +4832,10 @@ impl App {
                 if self.s.transport == Transport::Serial && !fixed_serial {
                     self.serial_tab_bar(ui);
                 }
+                if self.plot.lab.visible {
+                    self.instrument_pane(ui);
+                    return;
+                }
                 let rest = if self.s.plot.on { self.plot_split(ui) } else { ui.available_rect_before_wrap() };
                 let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rest).id_salt(("log", self.session_slot)));
                 self.log_view(&mut child);
@@ -4898,7 +4936,9 @@ impl App {
             Req::Activate => return,
             Req::Open(p) => {
                 let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
-                if ext == "log" {
+                if matches!(ext.as_str(),"qcap"|"mf4"|"qrec"){
+                    self.set_page(Page::Debug); self.with_session(self.selected_serial,|app|{app.open_lab();app.plot.lab.open_path(p);});
+                } else if ext == "log" {
                     self.set_page(Page::Debug);
                     self.load_log_path(&p, false);
                 } else {
@@ -4929,7 +4969,6 @@ impl App {
             }
         }
         self.compare_events();
-
     }
 
     /// 打开比较页比较两边；带名字的一边是只读的临时文件
@@ -5656,6 +5695,7 @@ impl eframe::App for App {
             .frame(egui::Frame::new().fill(BG0()).inner_margin(egui::Margin::symmetric(14, 4)))
             .show_separator_line(true)
             .show(ctx, |ui| self.status_bar(ui));
+        self.ai_ui(ctx);
         self.shell_menu_notice(ctx);
         self.send_button_dialog(ctx);
         self.telemetry_notice(ctx);

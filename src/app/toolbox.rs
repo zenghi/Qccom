@@ -199,7 +199,7 @@ pub struct ToolboxUi {
     http: Option<crate::toolbox::Shared>,
     disc: discover::Shared,
     can: Option<slcan::Link>,
-    can_st: slcan::Shared,
+    pub(super) can_st: slcan::Shared,
     can_by_id: bool,
     can_repeat: Option<Instant>,
     hid: Option<hid::Hid>,

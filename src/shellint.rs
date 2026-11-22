@@ -401,6 +401,7 @@ mod tests {
 
     #[test]
     fn explorer_folder_opens_in_a_new_window() {
+        assert!(!should_forward(&[], &parse_args(&[])));
         let folder = std::env::temp_dir();
         for flag in ["--project", "--file"] {
             let args = vec![flag.into(), folder.to_string_lossy().into_owned()];

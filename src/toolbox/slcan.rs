@@ -85,7 +85,10 @@ impl Frame {
     }
 }
 
+#[derive(Clone)]
 pub struct TraceItem {
+    pub seq: u64,
+    pub at: Instant,
     pub t: f64,
     pub tx: bool,
     pub f: Frame,
@@ -135,7 +138,10 @@ fn record(st: &Shared, f: Frame, tx: bool, t0: Instant) {
     if s.trace.len() >= 20000 {
         s.trace.drain(..5000);
     }
+    let seq = s.rx + s.tx + 1;
     s.trace.push(TraceItem {
+        seq,
+        at: now,
         t: t0.elapsed().as_secs_f64(),
         tx,
         f: f.clone(),

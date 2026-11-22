@@ -3616,3 +3616,51 @@ CubeIDE 构建配置	CubeIDE build configuration
 设备串口正在被其他任务使用	Another task is using the device port	其他任務正在使用裝置串口							Outra tarefa está usando a porta do dispositivo
 未找到 GNU Make。请在 MCU 工具链选择 MounRiver Studio 安装目录，或安装 GNU Make。	GNU Make was not found. Select the MounRiver Studio installation under MCU toolchains, or install GNU Make.	找不到 GNU Make。請在 MCU 工具鏈選擇 MounRiver Studio 安裝目錄，或安裝 GNU Make。							GNU Make não encontrado. Selecione a instalação do MounRiver Studio nas ferramentas de MCU ou instale o GNU Make.
 {}（未测试）	{} (untested)	{}（未測試）	{}（未テスト）	{} (미테스트)	{} (ungetestet)	{} (non testé)	{} (sin probar)	{} (не проверено)	{} (não testado)
+采集分析 · VOFA+ / CAN	Acquisition · VOFA+ / CAN								Acquisition · VOFA+ / CAN
+AI 连接 · MCP	AI connection · MCP								AI connection · MCP
+采集分析	Acquisition								Acquisition
+采集对比	Compare captures								Compare captures
+配置	Configure								Configure
+采样与通道	Sampling and channels								Sampling and channels
+在线调参	Tune parameters								Tune parameters
+触发录制	Triggered capture								Triggered capture
+事件时间线	Event timeline								Event timeline
+打开采集	Open capture								Open capture
+载入对比采集	Load reference capture								Load reference capture
+载入 DBC	Load DBC								Load DBC
+返回日志	Back to log								Back to log
+调参模板	Parameter template								Parameter template
+触发通道	Trigger channel								Trigger channel
+前 	Pre 								Pre
+后 	Post 								Post
+布防	Arm trigger								Arm trigger
+撤防	Disarm								Disarm
+采集中	Capturing								Capturing
+录制	Record								Record
+实时	Live								Live
+固件的采样频率	Firmware sample rate								Firmware sample rate
+显示通道	Visible channels								Visible channels
+选择参考采集文件…	Choose reference capture…								Choose reference capture…
+等待采样数据	Waiting for samples								Waiting for samples
+共享当前调试会话	Share this debug session								Share this debug session
+启用只读连接	Enable read-only connection								Enable read-only connection
+复制客户端配置	Copy client configuration								Copy client configuration
+会话权限	Session permissions								Session permissions
+允许录制、发送已保存指令和调参	Allow capture and saved device controls								Allow capture and saved device controls
+允许编译和烧录	Allow build and flash								Allow build and flash
+断开共享	Disconnect session								Disconnect session
+请先打开工程的 MCU 终端	Open the project MCU terminal first								Open the project MCU terminal first
+请选择已识别工具链的 MCU 终端	Select a terminal with a detected MCU toolchain								Select a terminal with a detected MCU toolchain
+请等待当前工程的终端就绪	Wait for this project's terminal prompt								Wait for this project's terminal prompt
+保存会话	Save session								Save session
+导出 CSV	Export CSV								Export CSV
+导出 MDF4	Export MDF4								Export MDF4
+停止采集	Stop acquisition								Stop acquisition
+普通日志	Device messages								Device messages
+隐藏采样行	Hide sample frames in log								Hide sample frames in log
+持续写盘…	Stream to disk…								Stream to disk…
+结束写盘	Finish disk recording								Finish disk recording
+关联固件文件…	Attach firmware identity…								Attach firmware identity…
+按时间段载入	Load time interval	按時間段載入	時間範囲を指定	시간 범위 불러오기	Zeitfenster laden	Charger un intervalle	Cargar intervalo	Загрузить интервал	Carregar intervalo
+保存当前模板	Save current template	儲存目前範本	現在のテンプレートを保存	현재 템플릿 저장	Aktuelle Vorlage speichern	Enregistrer le modèle	Guardar plantilla	Сохранить шаблон	Salvar modelo
+部分数据超出内存窗口，长时间采集请使用持续写盘	Some samples exceeded the memory window. Use disk recording for long sessions.	部分資料超出記憶體視窗，長時間擷取請使用持續寫入							Algumas amostras excederam a janela de memória. Use a gravação contínua em disco.

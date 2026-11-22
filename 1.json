@@ -1,0 +1,9 @@
+{
+  "version": "1.9.12",
+  "url": "https://www.zenghi.com/1.exe",
+  "sha256": "ff4f7954bdd924c4615024114ecc05f8174e955b85a8b36d3b2ffbe8667e9c90",
+  "size": 15025664,
+  "date": "2026-11-22",
+  "notes": "版本管理可识别 SVN 工作副本，查看修订号和本地改动，并在现有比较页中与 SVN BASE 对比。\nWindows 可从版本管理页打开 TortoiseSVN 的日志、更新和提交窗口。内置状态与对比使用系统安装的 svn 命令。",
+  "force": false
+}

@@ -7,7 +7,7 @@
   "notes": "优化 Ctrl + 单击函数跳转，新增代码联想补全，默认展开上下文窗口。\n新增两个自定义文本或 HEX 发送按钮。终端可导入和命名工具链环境，供编译、烧录和清理任务使用。\n电路仿真默认展示示波器，支持八个电压探针通道和支路电流波形。首次启动可选择启用系统右键菜单。",
   "force": false,
   "pending_release": {
-    "version": "1.9.13",
-    "notes": "终端自动识别 ESP-IDF、STM32、沁恒微 WCH、PlatformIO、Zephyr、Pico SDK 和 Arduino 工具链，并按工程类型提供编译、烧录等操作。\n烧录端口跟随「设备」选中的串口。串口监视和设备打印在「调试」中查看，烧录后可自动接回串口。每条自定义命令会生成一个终端工具栏按钮。\n支持识别 MounRiver Studio 和 CH32 等沁恒微工程，可使用 WCH-Link、USB ISP、串口 ISP 或工程自带的烧录目标。"
+    "version": "1.9.14",
+    "notes": "MCU 工具链中保留 ESP-IDF 的实测状态，其它工具链在列表和终端上标记为「未测试」。\n补齐 MounRiver Studio 2/3 的 GNU Make 和 RISC-V 编译器路径，可在 QCCOM 的 PowerShell 中使用已有的工程构建规则执行 make -j8。\n首次启动默认最大化，后续恢复上次可见的窗口布局。再次启动或右键打开文件时会唤醒已最小化的窗口。"
   }
 }

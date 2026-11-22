@@ -3,6 +3,8 @@ use std::fs;
 use std::io::Read;
 
 mod esp;
+#[cfg(windows)]
+mod installed;
 pub(super) use esp::EspIdf;
 
 pub(super) fn session(root: PathBuf, options: Options) -> Session {
@@ -98,7 +100,8 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
             ]
         }
         Profile::Wch => {
-            wch_paths(&host, sdk.as_deref(), &mut paths);
+            let location = wch_paths(&host, sdk.as_deref(), &mut paths);
+            s.location = location.or(s.location);
             &[
                 ("cmake", &["cmake"]),
                 ("ninja", &["ninja"]),
@@ -106,6 +109,7 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
                 ("riscv-none-embed-gcc", &["riscv-none-embed-gcc"]),
                 ("riscv-none-elf-gcc", &["riscv-none-elf-gcc"]),
                 ("riscv-wch-elf-gcc", &["riscv-wch-elf-gcc"]),
+                ("riscv32-wch-elf-gcc", &["riscv32-wch-elf-gcc"]),
                 ("arm-none-eabi-gcc", &["arm-none-eabi-gcc"]),
                 ("wlink", &["wlink"]),
                 ("wchisp", &["wchisp"]),
@@ -176,6 +180,9 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
             for dir in host.program_files.iter().cloned().chain(host.var("LOCALAPPDATA").map(|p| p.join("Programs"))) {
                 paths.push(dir.join("Arduino IDE/resources/app/lib/backend/resources"));
             }
+            for dir in registered_dirs(&["arduino ide"]) {
+                paths.extend([dir.join("resources/app/lib/backend/resources"), dir]);
+            }
             &[("arduino-cli", &["arduino-cli"])]
         }
         Profile::CMake => &[("cmake", &["cmake"]), ("ninja", &["ninja"])],
@@ -187,11 +194,15 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
             paths.push(dir.join("CMake/bin"));
         }
     }
+    if matches!(profile, Profile::Stm32 | Profile::Wch | Profile::Pico | Profile::Zephyr | Profile::CMake) {
+        paths.extend(registered_dirs(&["cmake"]).into_iter().map(|p| p.join("bin")));
+    }
     paths.extend(host.path);
     paths.retain(|path| path.is_absolute() && path.is_dir());
     let mut seen = std::collections::HashSet::new();
     paths.retain(|dir| seen.insert(dir.clone()));
     if let Ok(path) = std::env::join_paths(&paths) {
+        s.env.insert("QCCOM_MCU_TOOL_DIRS".into(), path.clone());
         s.env.insert("PATH".into(), path);
     }
     for (key, names) in tools {
@@ -201,6 +212,9 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
     }
     if let Some(esp) = &s.esp {
         s.tools.insert("idf.py", esp.script.clone());
+    }
+    if profile == Profile::Wch && (s.make || !s.cmake) && !s.tools.contains_key("make") && s.issue.is_none() {
+        s.issue = Some(t("未找到 GNU Make。请在 MCU 工具链选择 MounRiver Studio 安装目录，或安装 GNU Make。").into());
     }
     s
 }
@@ -214,50 +228,144 @@ fn has_ioc(root: &Path) -> bool {
         .any(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("ioc")) && p.is_file())
 }
 
+const WCH_CHIP_PREFIXES: &[&str] = &["ch32v", "ch32f", "ch56", "ch57", "ch58", "ch59", "ch641", "ch643", "ch32l", "ch32x", "ch32h"];
+
 fn wch_project(root: &Path, eclipse: &str, cmake: &str, makefile: Option<&Path>) -> bool {
-    let chip = |text: &str| {
-        ["ch32v", "ch32f", "ch56", "ch57", "ch58", "ch59", "ch641", "ch643", "ch32l", "ch32x", "ch32h"]
-            .iter()
-            .any(|prefix| text.contains(prefix))
-    };
-    if eclipse.to_ascii_lowercase().contains("mounriver") || chip(cmake) || makefile.is_some_and(|file| chip(&read_prefix(file).to_ascii_lowercase())) {
+    let chip = |text: &str| WCH_CHIP_PREFIXES.iter().any(|prefix| text.contains(prefix));
+    let named_for_chip = root.file_name().is_some_and(|name| {
+        let name = name.to_string_lossy().to_ascii_lowercase();
+        WCH_CHIP_PREFIXES.iter().any(|prefix| name.starts_with(prefix))
+    });
+    if named_for_chip
+        || eclipse.to_ascii_lowercase().contains("mounriver")
+        || chip(cmake)
+        || chip(&read_prefix(&root.join(".cproject")).to_ascii_lowercase())
+        || makefile.is_some_and(|file| chip(&read_prefix(file).to_ascii_lowercase()))
+    {
         return true;
     }
     for dir in ["", "Startup", "Core", "User", "Peripheral/inc", "EVT/EXAM/SRC/Startup"] {
-        let found = fs::read_dir(root.join(dir)).into_iter().flatten().flatten().any(|entry| {
+        if fs::read_dir(root.join(dir)).into_iter().flatten().flatten().any(|entry| {
             let name = entry.file_name().to_string_lossy().to_ascii_lowercase();
             name.ends_with(".wvproj") || ((name.ends_with(".s") || name.ends_with(".h") || name.ends_with(".ld")) && chip(&name))
-        });
-        if found {
+        }) {
             return true;
         }
     }
     false
 }
 
-fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) {
-    let mut roots: Vec<_> = sdk.into_iter().map(Path::to_owned).collect();
-    roots.extend(host.var("MRS_PATH"));
-    roots.extend(host.var("MOUNRIVER_HOME"));
-    roots.extend(host.var("WCH_TOOLCHAIN_ROOT"));
+fn registered_dirs(_names: &[&str]) -> Vec<PathBuf> {
+    #[cfg(windows)]
+    return installed::directories(_names);
+    #[cfg(not(windows))]
+    Vec::new()
+}
+
+fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> Option<PathBuf> {
+    let mut roots: Vec<_> = sdk.into_iter().flat_map(|p| p.ancestors().take(8)).map(Path::to_owned).collect();
+    for key in ["MRS2_HOME", "MRS3_HOME", "MRS_PATH", "MOUNRIVER_HOME", "WCH_TOOLCHAIN_ROOT"] {
+        roots.extend(host.var(key));
+    }
+    roots.extend(registered_dirs(&["mounriver"]));
     if let Some(home) = &host.home {
         paths.extend([home.join(".cargo/bin"), home.join(".local/bin")]);
-        roots.extend([home.join("MounRiver_Studio"), home.join("MounRiver Studio")]);
+        roots.extend(child_dirs(home, "mounriver"));
     }
-    let common = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/opt") };
-    for parent in std::iter::once(common.to_owned()).chain(host.program_files.iter().cloned()) {
+    let mut parents = host.program_files.clone();
+    parents.extend(host.var("LOCALAPPDATA").map(|path| path.join("Programs")));
+    if cfg!(windows) {
+        let system_drive = host.var("SystemRoot").and_then(|p| p.parent().map(Path::to_owned)).unwrap_or_else(|| PathBuf::from(r"C:\"));
+        parents.push(system_drive);
+    } else {
+        parents.push(PathBuf::from("/opt"));
+        roots.push(PathBuf::from("/usr/share/MRS2/MRS-linux-x64"));
+        roots.push(PathBuf::from("/usr/share/MRS3/MRS-linux-x64"));
+    }
+    for parent in parents {
         roots.extend(child_dirs(&parent, "mounriver"));
     }
+    let mut seen = std::collections::HashSet::new();
+    let mut location = None;
     for root in roots {
-        for install in std::iter::once(root.clone()).chain(child_dirs(&root, "mounriver")) {
-            paths.extend([install.clone(), install.join("bin"), install.join("tools/bin")]);
-            for packages in ["toolchain", "toolchains", "resources/app/resources/toolchain", "resources/toolchain"] {
-                let base = install.join(packages);
-                paths.push(base.join("bin"));
-                paths.extend(child_dirs(&base, "").into_iter().map(|package| package.join("bin")));
+        for install in std::iter::once(root.clone()).chain(child_dirs(&root, "mounriver")).chain(child_dirs(&root, "mrs-linux")) {
+            if !seen.insert(install.clone()) {
+                continue;
+            }
+            let before = paths.len();
+            collect_wch_paths(&install, paths);
+            if paths.len() > before {
+                location.get_or_insert(install);
             }
         }
     }
+    location
+}
+
+fn collect_wch_paths(install: &Path, paths: &mut Vec<PathBuf>) {
+    let platform = if cfg!(windows) {
+        "win32"
+    } else if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "linux"
+    };
+    let platform_dirs = [
+        install.join("resources/app/resources").join(platform),
+        install.join("Contents/Resources/app/resources").join(platform),
+        install.to_owned(),
+    ];
+    let mut found = Vec::new();
+    for layer in platform_dirs {
+        let wch = layer.join("components/WCH");
+        let bundled_make = layer.join("others/Build_Tools/Make/bin");
+        if locate(std::slice::from_ref(&bundled_make), &["make"]).is_some() {
+            found.push(bundled_make);
+        }
+        found.extend([wch.join("OpenOCD/OpenOCD/bin"), layer.join("OpenOCD/OpenOCD/bin")]);
+        for base in [
+            wch.join("Toolchain"),
+            layer.join("Toolchain"),
+            layer.join("toolchains"),
+            layer.join("resources/app/resources/toolchain"),
+            layer.join("resources/toolchain"),
+        ] {
+            found.push(base.join("bin"));
+            found.extend(child_dirs(&base, "").into_iter().map(|package| package.join("bin")));
+        }
+    }
+    for relative in [
+        "bin",
+        "tools/bin",
+        "build_tools/bin",
+        "build_tools/make/bin",
+        "toolchain/Build Tools/bin",
+        "toolchain/Build Tools/Make/bin",
+    ] {
+        found.push(install.join(relative));
+    }
+    found.push(install.to_owned());
+    // Keep build helper programs from the same directory as the detected tool.
+    found.retain(|dir| {
+        locate(
+            std::slice::from_ref(dir),
+            &[
+                "make",
+                "gmake",
+                "mingw32-make",
+                "riscv-none-embed-gcc",
+                "riscv-none-elf-gcc",
+                "riscv-wch-elf-gcc",
+                "riscv32-wch-elf-gcc",
+                "arm-none-eabi-gcc",
+                "openocd",
+                "wlink",
+                "wchisp",
+            ],
+        )
+        .is_some()
+    });
+    paths.extend(found);
 }
 
 fn eclipse_project_name(text: &str) -> Option<String> {
@@ -304,6 +412,7 @@ fn stm32_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) {
     };
     roots.extend(sdk.map(Path::to_owned));
     roots.extend(host.program_files.iter().map(|p| p.join("STMicroelectronics")));
+    roots.extend(registered_dirs(&["stm32cubeide", "stm32cubeprogrammer", "stm32cubeclt"]));
     for root in roots {
         paths.extend([root.join("STM32Cube/STM32CubeProgrammer/bin"), root.join("STM32CubeProgrammer/bin")]);
         for clt in std::iter::once(root.clone()).chain(child_dirs(&root, "stm32cubeclt")) {

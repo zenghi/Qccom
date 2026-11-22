@@ -3614,3 +3614,5 @@ CubeIDE 构建配置	CubeIDE build configuration
 烧录和监视跟随调试区选中的设备串口	Flash and monitor use the serial device selected in Debug	燒錄和監視使用除錯區選取的裝置串口							Gravação e monitoramento usam a porta serial selecionada em Depuração
 命令里的串口与当前设备 {} 不一致	The port in the command differs from the selected device {}	命令中的串口與目前裝置 {} 不一致							A porta no comando difere do dispositivo selecionado {}
 设备串口正在被其他任务使用	Another task is using the device port	其他任務正在使用裝置串口							Outra tarefa está usando a porta do dispositivo
+未找到 GNU Make。请在 MCU 工具链选择 MounRiver Studio 安装目录，或安装 GNU Make。	GNU Make was not found. Select the MounRiver Studio installation under MCU toolchains, or install GNU Make.	找不到 GNU Make。請在 MCU 工具鏈選擇 MounRiver Studio 安裝目錄，或安裝 GNU Make。							GNU Make não encontrado. Selecione a instalação do MounRiver Studio nas ferramentas de MCU ou instale o GNU Make.
+{}（未测试）	{} (untested)	{}（未測試）	{}（未テスト）	{} (미테스트)	{} (ungetestet)	{} (non testé)	{} (sin probar)	{} (не проверено)	{} (não testado)

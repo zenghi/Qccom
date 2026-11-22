@@ -3,6 +3,7 @@ mod commands;
 mod discover;
 
 use super::*;
+use std::borrow::Cow;
 use std::collections::BTreeMap;
 use std::ffi::OsString;
 
@@ -40,7 +41,7 @@ impl Profile {
         Self::Make,
     ];
 
-    pub(super) fn label(self) -> &'static str {
+    fn label(self) -> &'static str {
         match self {
             Self::Auto => t("自动识别工程"),
             Self::System => t("系统环境"),
@@ -53,6 +54,13 @@ impl Profile {
             Self::Arduino => "Arduino CLI",
             Self::CMake => "CMake",
             Self::Make => "Make",
+        }
+    }
+
+    pub(super) fn status_label(self) -> Cow<'static, str> {
+        match self {
+            Self::Auto | Self::System | Self::EspIdf => self.label().into(),
+            _ => tf("{}（未测试）", &[&self.label()]).into(),
         }
     }
 }
@@ -141,11 +149,41 @@ impl Session {
                     cmd.env("PATH", path);
                 }
             }
-            match syntax {
-                Syntax::PowerShell => cmd.args(["-NoExit", "-Command", commands::POWERSHELL_INIT]),
-                Syntax::Cmd => cmd.args(["/K", r#"chcp 65001 >nul & doskey idf.py="%QCCOM_IDF_PYTHON%" "%QCCOM_IDF_SCRIPT%" $*"#]),
-                _ => {}
+            if syntax == Syntax::Cmd {
+                cmd.args(["/K", r#"chcp 65001 >nul & doskey idf.py="%QCCOM_IDF_PYTHON%" "%QCCOM_IDF_SCRIPT%" $*"#]);
             }
+        }
+        if syntax == Syntax::PowerShell && self.starts_shell(syntax) {
+            let mut script = String::from(commands::POWERSHELL_ENV);
+            if self.has_esp() {
+                script.push_str(commands::POWERSHELL_ESP);
+            } else if let Some(make) = self.tools.get("make") {
+                cmd.env("QCCOM_REAL_MAKE", make);
+                cmd.env("QCCOM_MCU_PROJECT", &self.root);
+                if self.profile == Profile::Wch {
+                    if let Some(dir) = &self.wch_make_dir {
+                        cmd.env("QCCOM_MCU_MAKE_DIR", dir);
+                    } else if !self.make && !self.cmake {
+                        cmd.env("QCCOM_MCU_NO_MAKEFILE", t("请先在 MounRiver Studio 生成工程的 Makefile，或提供 Make/CMake 工程。"));
+                    }
+                }
+                script.push_str(commands::POWERSHELL_MAKE);
+            }
+            if let Some(pio) = self.tools.get("pio") {
+                cmd.env("QCCOM_REAL_PIO", pio);
+                script.push_str(commands::POWERSHELL_PIO);
+            }
+            cmd.arg("-NoExit");
+            cmd.arg("-Command");
+            cmd.arg(script);
+        }
+    }
+
+    pub(super) fn starts_shell(&self, syntax: Syntax) -> bool {
+        match syntax {
+            Syntax::PowerShell => !self.actions().is_empty(),
+            Syntax::Cmd => self.has_esp(),
+            _ => false,
         }
     }
 

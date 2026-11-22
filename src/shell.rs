@@ -165,7 +165,7 @@ impl Shell {
         let mut cmd = CommandBuilder::new(&kind.program);
         cmd.args(&kind.args);
         let syntax = Syntax::for_shell(kind);
-        if !mcu.as_ref().is_some_and(|m| m.has_esp()) || !matches!(syntax, Some(Syntax::PowerShell | Syntax::Cmd)) {
+        if !mcu.as_ref().zip(syntax).is_some_and(|(m, syntax)| m.starts_shell(syntax)) {
             utf8_args(&mut cmd, &kind.program);
         }
         cmd.cwd(cwd);
@@ -1163,13 +1163,13 @@ impl Shells {
                 let sh = self.tabs.get(self.active);
                 let mcu = sh.and_then(|sh| sh.mcu.as_ref()).filter(|m| !m.actions().is_empty());
                 let name = if self.pending_shell.is_some() {
-                    t("检测工具链…")
+                    t("检测工具链…").into()
                 } else if let Some(env) = sh.and_then(|sh| sh.environment.as_ref()) {
-                    &env.name
+                    crate::app::truncate(&env.name, 22).into()
                 } else {
-                    mcu.map_or(t("MCU 工具链"), |m| m.profile.label())
+                    mcu.map_or_else(|| t("MCU 工具链").into(), |m| m.profile.status_label())
                 };
-                if ui.small_button(crate::app::truncate(name, 22)).on_hover_text(t("MCU 工具链")).clicked() {
+                if ui.small_button(name).on_hover_text(t("MCU 工具链")).clicked() {
                     self.env_dialog.open = true;
                 }
                 if mcu.is_some() {

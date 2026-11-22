@@ -61,9 +61,15 @@ impl Syntax {
     }
 }
 
-pub(super) const POWERSHELL_INIT: &str = r#"
+pub(super) const POWERSHELL_ENV: &str = r#"
 chcp 65001 > $null;
 [Console]::InputEncoding = [Console]::OutputEncoding = $OutputEncoding = New-Object System.Text.UTF8Encoding $false;
+if ($env:QCCOM_MCU_TOOL_DIRS -and $env:PATH -ne $env:QCCOM_MCU_TOOL_DIRS) {
+    $env:PATH = $env:QCCOM_MCU_TOOL_DIRS + [IO.Path]::PathSeparator + $env:PATH;
+}
+"#;
+
+pub(super) const POWERSHELL_ESP: &str = r#"
 function global:idf.py { & $env:QCCOM_IDF_PYTHON $env:QCCOM_IDF_SCRIPT @args }
 function global:make {
     $target = if ($args.Count -eq 0) { 'build' } else { $args[0] };
@@ -80,6 +86,25 @@ function global:make {
     }
 }
 "#;
+
+pub(super) const POWERSHELL_MAKE: &str = r#"
+function global:make {
+    $projectArgs = @();
+    if ($PWD.ProviderPath -eq $env:QCCOM_MCU_PROJECT -and
+        !(Test-Path -LiteralPath 'Makefile','makefile','GNUmakefile' -PathType Leaf | Where-Object { $_ }) -and
+        !($args -cmatch '^(-C|-f|--directory|--file|--makefile)')) {
+        if ($env:QCCOM_MCU_MAKE_DIR) {
+            $projectArgs = @('-C', $env:QCCOM_MCU_MAKE_DIR);
+        } elseif ($env:QCCOM_MCU_NO_MAKEFILE) {
+            Write-Error $env:QCCOM_MCU_NO_MAKEFILE;
+            return;
+        }
+    }
+    & $env:QCCOM_REAL_MAKE @projectArgs @args;
+}
+"#;
+
+pub(super) const POWERSHELL_PIO: &str = "function global:pio { & $env:QCCOM_REAL_PIO @args }";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(in crate::shell) enum Action {
@@ -544,6 +569,43 @@ mod tests {
         s.options.wch_programmer = WchProgrammer::SerialIsp;
         assert!(s.plan(Action::Flash, "").is_err());
         assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["--serial", "--port", "COM31", "flash", image.to_str().unwrap()]);
+    }
+
+    #[test]
+    fn discovers_mrs_bundled_make_and_gcc_for_plain_powershell() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("CH582M_LOCK");
+        let sdk = dir.path().join("MounRiver Studio 3");
+        let platform = if cfg!(windows) { "win32" } else { "linux" };
+        let resources = sdk.join("resources/app/resources").join(platform);
+        let make_bin = resources.join("others/Build_Tools/Make/bin");
+        let gcc_bin = resources.join("components/WCH/Toolchain/RISC-V Embedded GCC15/bin");
+        let fake_exe = |dir: &Path, name: &str| {
+            fs::create_dir_all(dir).unwrap();
+            let path = dir.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
+            fs::write(&path, "").unwrap();
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&path, fs::Permissions::from_mode(0o700)).unwrap();
+            }
+            path
+        };
+        let make = fake_exe(&make_bin, "make");
+        let gcc = fake_exe(&gcc_bin, "riscv32-wch-elf-gcc");
+        fs::create_dir_all(root.join("obj")).unwrap();
+        fs::write(root.join("obj/makefile"), "").unwrap();
+        let session = Session::discover(root, Options { sdk, ..Default::default() });
+        assert_eq!(session.profile, Profile::Wch);
+        assert_eq!(session.tools.get("make"), Some(&make));
+        assert_eq!(session.tools.get("riscv32-wch-elf-gcc"), Some(&gcc));
+        let mut builder = CommandBuilder::new("powershell");
+        session.apply(&mut builder, Syntax::PowerShell);
+        assert_eq!(builder.get_env("QCCOM_REAL_MAKE"), Some(make.as_os_str()));
+        assert_eq!(builder.get_env("QCCOM_MCU_MAKE_DIR"), Some(Path::new("obj").as_os_str()));
+        let path = builder.get_env("PATH").unwrap();
+        assert!(std::env::split_paths(path).any(|p| p == gcc_bin));
+        assert!(builder.get_argv().last().unwrap().to_string_lossy().contains("function global:make"));
     }
 
     #[test]

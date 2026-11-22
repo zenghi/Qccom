@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.14
+
+- Label MCU toolchains other than ESP-IDF as untested for real-board use in the terminal and toolchain selector.
+- Find GNU Make and the RISC-V compilers in MounRiver Studio 2 and 3. Run `make -j8` in the project directory with an existing generated Makefile.
+- Start maximized on first launch and retain the last visible placement across restarts. Restore an existing minimized window when opening QCCOM or using the system context menu to open a file.
+
 ## 1.9.13
 
 - Detect installed ESP-IDF, STM32, WCH / MounRiver Studio, PlatformIO, Zephyr, Pico SDK and Arduino toolchains in the built-in terminal. Use each project's native build and flash commands.

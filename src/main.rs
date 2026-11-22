@@ -56,6 +56,7 @@ mod update;
 mod vcom;
 mod viewer;
 mod vim;
+mod window;
 mod ws;
 mod xfer;
 
@@ -126,26 +127,30 @@ fn main() -> eframe::Result {
     // Files and comparisons reuse the first window; projects open a separate workspace.
     let args: Vec<String> = std::env::args().skip(1).collect();
     let startup = shellint::parse_args(&args);
-    if shellint::should_forward(&args, &startup) && shellint::forward(&startup) {
+    let forward = if args.is_empty() { &[shellint::Req::Activate][..] } else { &startup };
+    if shellint::should_forward(&args, forward) && shellint::forward(forward) {
         return Ok(());
+    }
+    if let Some(dir) = portable_dir() {
+        std::fs::create_dir_all(&dir).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
+    } else {
+        migrate_storage();
     }
     let n = instance();
     let title = if n == 1 { "QCCOM".to_string() } else { format!("QCCOM ({n})") };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title(title)
-            .with_inner_size([1300.0, 803.0]) // 首次启动时再最大化（见 App::place_window）
+            .with_inner_size(window::DEFAULT_SIZE)
+            .with_maximized(true)
             .with_min_inner_size([480.0, 520.0])
             .with_icon(icon()),
         vsync: true,
         persistence_path: persistence_path(),
+        persist_window: false, // App::save keeps the last visible placement.
+        window_builder: Some(Box::new(window::startup_builder)),
         ..Default::default()
     };
-    if let Some(dir) = portable_dir() {
-        std::fs::create_dir_all(&dir).map_err(|e| eframe::Error::AppCreation(Box::new(e)))?;
-    } else {
-        migrate_storage();
-    }
     diagnostics::init(data_dir(), n);
     eframe::run_native(
         "qccom",

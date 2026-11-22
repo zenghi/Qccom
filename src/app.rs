@@ -96,7 +96,6 @@ pub struct Settings {
     /// 设置的版本号，用来迁移旧默认值
     pub rev: u32,
     /// 是否已经按黄金比例摆过窗口（只在第一次启动时做）
-    pub window_placed: bool,
     /// 发送匿名使用统计（设备随机 ID、版本、系统、语言、使用时长、页面打开次数）
     pub telemetry: bool,
     /// 已经提示过一次「会发送匿名统计」
@@ -216,7 +215,6 @@ impl Default for Settings {
             serial_link_open: false,
             bg: Default::default(),
             rev: SETTINGS_REV,
-            window_placed: false,
             telemetry: true,
             telemetry_noticed: false,
             seen_notice: 0,
@@ -469,8 +467,7 @@ pub struct App {
     /// 打开设置前所在的页面（关闭设置时回去）
     prev_page: Page,
     nav: nav::Nav,
-    /// 第一次启动：再过几帧最大化
-    maximize_in: u8,
+    startup_window_frames: u8,
     /// 命令面板选中后、需要下一帧在对应页面执行的命令
     pending_acts: Vec<Act>,
     bitcalc: crate::tools::BitCalc,
@@ -687,7 +684,7 @@ impl App {
             last_project,
             prev_page: Page::Debug,
             nav: Default::default(),
-            maximize_in: 0,
+            startup_window_frames: 2,
             pending_acts: Vec::new(),
             bitcalc: Default::default(),
             tb: Default::default(),
@@ -735,11 +732,13 @@ impl App {
             app.code.open_root(d);
             app.set_page(Page::Code);
         }
+        app.load_window_layout(cc.storage);
         if let Some(l) = crate::instance_listener() {
+            crate::shellint::register_window(cc);
             app.fwd = Some(crate::shellint::listen(l, cc.egui_ctx.clone()));
         }
         for r in startup {
-            app.handle_req(r, false);
+            app.handle_req(r);
         }
         app.restore_startup_dock();
         if just_updated {
@@ -2410,21 +2409,6 @@ impl App {
             }
             Transport::Serial | Transport::Ble => {}
         }
-    }
-
-    /// 第一次启动：直接最大化。先把「还原」尺寸设成屏幕的 80% 居中，取消最大化时不会缩成小窗口。
-    /// 以后由 eframe 记住上次关闭时的大小、位置和是否最大化
-    fn place_window(&mut self, ctx: &egui::Context) {
-        let Some(screen) = ctx.input(|i| i.viewport().monitor_size) else {
-            ctx.request_repaint(); // 屏幕尺寸下一帧才拿得到
-            return;
-        };
-        let size = vec2((screen.x * 0.8).max(900.0).min(screen.x), (screen.y * 0.8).max(560.0).min(screen.y));
-        ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(size));
-        ctx.send_viewport_cmd(egui::ViewportCommand::OuterPosition(pos2((screen.x - size.x) / 2.0, (screen.y - size.y) / 2.0)));
-        // 窗口管理器处理完改大小再最大化，否则最大化会被上面的改大小覆盖
-        self.maximize_in = 3;
-        self.s.window_placed = true;
     }
 
     /// 外部文件拖在窗口上时，提示松手会做什么
@@ -4907,10 +4891,11 @@ impl App {
         }
     }
 
-    /// 系统右键菜单 / 命令行的请求；forwarded = 从别的进程转来的，要把窗口提到前面
-    fn handle_req(&mut self, r: crate::shellint::Req, forwarded: bool) {
+    /// 系统右键菜单 / 命令行的请求
+    fn handle_req(&mut self, r: crate::shellint::Req) {
         use crate::shellint::Req;
         match r {
+            Req::Activate => return,
             Req::Open(p) => {
                 let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
                 if ext == "log" {
@@ -4944,11 +4929,7 @@ impl App {
             }
         }
         self.compare_events();
-        if forwarded {
-            crate::shellint::raise_window();
-            self.ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
-            self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
-        }
+
     }
 
     /// 打开比较页比较两边；带名字的一边是只读的临时文件
@@ -5559,6 +5540,7 @@ impl eframe::App for App {
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {
         self.snapshot_work_layout();
+        self.persist_window_layout(storage);
         self.work.layout_changed_at = None;
         self.code.snapshot();
         self.s.code = self.code.s.clone();
@@ -5603,17 +5585,7 @@ impl eframe::App for App {
         }
         crate::titlebar::apply(frame, !crate::theme::is_light(), BG0(), TEXT(), LINE());
         crate::bgimg::set(&self.s.bg);
-        if !self.s.window_placed {
-            self.place_window(ctx);
-        }
-        if self.maximize_in > 0 {
-            self.maximize_in -= 1;
-            if self.maximize_in == 0 {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
-            } else {
-                ctx.request_repaint_after(std::time::Duration::from_millis(50));
-            }
-        }
+        self.restore_startup_window(ctx);
         self.nav_tick(ctx);
         self.work_tick(ctx);
         // 调试页显示串口；工具箱里选了网络工具就显示那个连接；主页面不用连接时看副页面
@@ -5637,8 +5609,11 @@ impl eframe::App for App {
             self.toast(t("比较页有未保存的修改；再关一次会直接退出"), WARN());
         }
         let reqs: Vec<crate::shellint::Req> = self.fwd.as_ref().map(|q| std::mem::take(&mut *q.lock().unwrap())).unwrap_or_default();
-        for r in reqs {
-            self.handle_req(r, true);
+        if !reqs.is_empty() {
+            crate::shellint::show_forwarded_window(ctx);
+            for r in reqs {
+                self.handle_req(r);
+            }
         }
         let port_updates = self.port_updates.try_iter().last();
         if let Some(ports) = port_updates {

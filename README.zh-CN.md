@@ -134,6 +134,8 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 
 在代码页打开工程根目录，再打开底部终端。QCCOM 会根据工程文件查找已安装的工具链。 **MCU 工具链** 可调整 SDK、构建目录、开发板等工程设置。
 
+ESP32 的 ESP-IDF 流程已有实板验证。其它工具链在选择列表和终端工具栏上标为「未测试」。
+
 在 **调试 → 设备** 选择串口，或用终端工具栏上的串口下拉框切换同一设备。烧录命令会读取当前设备，**串口监视** 在调试页打开该设备，并使用调试会话的波特率。终端会等已连接的串口释放后才开始烧录。
 
 ESP32 工程可把构建目录设为 `build/field-itwt-qq7-tcp-5s-8ms`，在设备列表选中 `COM30` 后点 **自定义命令 → 烧录应用并监视**。也可以在 QCCOM 的 ESP-IDF 终端直接执行
@@ -148,12 +150,14 @@ idf.py -B build/field-itwt-qq7-tcp-5s-8ms -p COM30 app-flash monitor
 | --- | --- |
 | ESP-IDF（ESP32、S2、S3、C3、C6、H2 等） | 从 `IDF_PATH`、Espressif 安装管理器或常见安装目录加载 SDK 和 Python 环境。支持编译、整包烧录、仅烧录应用、清理、`menuconfig` 和固件大小。具体芯片取决于 SDK 版本。 |
 | STM32CubeMX / CubeIDE | 用 Makefile、CMake 或 CubeIDE 的命令行构建。选择固件后用 STM32CubeProgrammer 烧录，默认 SWD。选择「设备串口」可用串口烧录。`.bin` 需要填写起始地址。 |
-| 沁恒微 WCH / MounRiver Studio | 识别 `.wvproj` 和常见 CH32、CH5xx 工程。用 Make/CMake 或 MounRiver 已生成的 Makefile 编译，选择 WCH-Link、USB ISP 或串口 ISP。需要本机安装对应的 `wlink` 或 `wchisp`，芯片支持范围取决于烧录工具。也可使用工程自己的烧录目标。 |
+| 沁恒微 WCH / MounRiver Studio | 识别 `.wvproj` 和常见 CH32、CH5xx 工程。自动查找 MRS2/MRS3 安装目录，将其中的 GNU Make 和对应的 RISC-V 工具加入新终端。PowerShell 中在工程根目录执行 `make -j8`，可直接使用根目录 Makefile 或 MRS 已生成的 `obj/`、`Debug/`、`Release/` Makefile。烧录可选择 `wlink`、`wchisp` 或工程自己的目标。 |
 | PlatformIO | 用 `pio run` 编译、上传和清理。使用 ST-Link 或网络上传等工程专用方式时，可勾选「烧录接口由 platformio.ini 指定」。 |
 | Zephyr | 用 `west` 编译和烧录。填写开发板名称，烧录使用该板的 runner。可覆盖 Nordic nRF、NXP、STM32 等 Zephyr 支持的板卡。 |
 | Raspberry Pi Pico SDK | 用 CMake 编译 RP2040 / RP2350 工程，选择 `.uf2` 后用 `picotool` 烧录。 |
 | Arduino CLI | 填写 FQBN，通过已安装的 board core 编译并使用当前设备串口上传。 |
 | 通用 Make / CMake | 编译、清理以及工程定义的烧录目标，适用于已配置好编译器及烧录程序的工程。 |
+
+MRS 工程如果还没有生成 Makefile，可先在 MounRiver Studio 构建一次，再打开新的 QCCOM 终端。工具没有加入系统 PATH 时，QCCOM 会尝试通过安装记录查找，也可以在 **MCU 工具链** 中选择 MounRiver Studio 的安装根目录。
 
 通过 **自定义命令 → 编辑任务** 添加命令，例如 `idf.py size-components`。每条保存的命令都会在终端工具栏生成按钮，右键可编辑。Keil、IAR 等其他工具可从 **手动导入环境** 配置路径，再添加工程的编译和烧录命令。
 

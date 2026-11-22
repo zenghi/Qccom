@@ -316,10 +316,7 @@ pub(super) enum DropAt {
 
 #[derive(PartialEq)]
 struct WindowLayout {
-    position: Option<egui::Pos2>,
-    size: Option<egui::Vec2>,
-    maximized: bool,
-    fullscreen: bool,
+    placement: crate::window::Placement,
     devices: bool,
     commands: bool,
 }
@@ -972,17 +969,47 @@ impl App {
         }
     }
 
+    pub(super) fn load_window_layout(&mut self, storage: Option<&dyn eframe::Storage>) {
+        self.work.window_layout = crate::window::Placement::load(storage).map(|placement| WindowLayout {
+            placement,
+            devices: self.s.sidebar,
+            commands: self.s.cmd_panel,
+        });
+    }
+
+    pub(super) fn persist_window_layout(&self, storage: &mut dyn eframe::Storage) {
+        if let Some(layout) = &self.work.window_layout {
+            layout.placement.save(storage);
+        }
+    }
+
+    pub(super) fn restore_startup_window(&mut self, ctx: &egui::Context) {
+        if self.startup_window_frames == 0 {
+            return;
+        }
+        self.startup_window_frames -= 1;
+        let (minimized, maximized, fullscreen) = ctx.input(|i| {
+            let view = i.viewport();
+            (view.minimized == Some(true), view.maximized == Some(true), view.fullscreen == Some(true))
+        });
+        if minimized {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        }
+        let wants_maximized = self.work.window_layout.as_ref().is_none_or(|layout| layout.placement.maximized());
+        if (minimized || self.work.window_layout.is_none()) && wants_maximized && !maximized && !fullscreen {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
+        }
+        if self.startup_window_frames > 0 || minimized {
+            ctx.request_repaint();
+        }
+    }
+
     pub(super) fn track_work_layout(&mut self, ctx: &egui::Context) {
-        let window = ctx.input(|input| {
-            let view = input.viewport();
-            (view.minimized != Some(true)).then(|| WindowLayout {
-                position: view.outer_rect.map(|rect| rect.min.round()),
-                size: view.inner_rect.map(|rect| rect.size().round()),
-                maximized: view.maximized == Some(true),
-                fullscreen: view.fullscreen == Some(true),
-                devices: self.s.sidebar,
-                commands: self.s.cmd_panel,
-            })
+        let previous = self.work.window_layout.as_ref().map(|layout| layout.placement);
+        let window = ctx.input(|input| crate::window::Placement::observe(input, previous)).map(|placement| WindowLayout {
+            placement,
+            devices: self.s.sidebar,
+            commands: self.s.cmd_panel,
         });
         let window_changed = window.is_some() && window != self.work.window_layout;
         if window_changed {

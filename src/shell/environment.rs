@@ -86,9 +86,9 @@ impl Shells {
                 let found = self.tabs.get(self.active).filter(|sh| sh.cwd == cwd).and_then(|sh| sh.mcu.as_deref());
                 let (_, project) = self.env_dialog.project.as_mut().unwrap();
                 let detected = found.map_or(mcu::Profile::Auto, |m| m.profile);
-                egui::ComboBox::from_label(t("工程类型")).selected_text(project.profile.label()).show_ui(ui, |ui| {
+                egui::ComboBox::from_label(t("工程类型")).selected_text(project.profile.status_label()).show_ui(ui, |ui| {
                     for &profile in mcu::Profile::ALL {
-                        ui.selectable_value(&mut project.profile, profile, profile.label());
+                        ui.selectable_value(&mut project.profile, profile, profile.status_label());
                     }
                 });
                 let profile = if project.profile == mcu::Profile::Auto { detected } else { project.profile };
@@ -113,7 +113,7 @@ impl Shells {
                         ui.label(t("检测工具链…"));
                     });
                 } else if let Some(session) = found {
-                    ui.label(tf("当前终端：{}", &[&session.profile.label()]));
+                    ui.label(tf("当前终端：{}", &[&session.profile.status_label()]));
                     if let Some(dir) = &session.location {
                         ui.label(dir.display().to_string());
                     }

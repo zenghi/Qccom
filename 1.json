@@ -1,0 +1,9 @@
+{
+  "version": "1.9.14",
+  "url": "https://www.zenghi.com/1.exe",
+  "sha256": "7ba878d2403b4cddcce170cbd7be94c02fb4cfc07234d731bd0a083f3c5f7a90",
+  "size": 15208960,
+  "date": "2026-11-22",
+  "notes": "MCU 工具链中保留 ESP-IDF 的实测状态，其它工具链在列表和终端上标记为「未测试」。\n补齐 MounRiver Studio 2/3 的 GNU Make 和 RISC-V 编译器路径，可在 QCCOM 的 PowerShell 中使用已有的工程构建规则执行 make -j8。\n首次启动默认最大化，后续恢复上次可见的窗口布局。再次启动或右键打开文件时会唤醒已最小化的窗口。",
+  "force": false
+}

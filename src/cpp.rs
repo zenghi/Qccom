@@ -1,6 +1,6 @@
 //! 预处理条件分析：找出 #if / #ifdef 里不生效的分支（编辑器里灰显）、#if 配对跳转、光标所在的 #if 块。
 //!
-//! 只做编辑器需要的近似：宏是否定义、宏的值来自本文件前面的 #define 和外部（工程索引、设置里的额外宏）；
+//! 只做编辑器需要的近似：按编译参数、当前文件及包含的头文件顺序追踪宏。
 //! 算不出来的条件（用了未知的宏、函数式宏、__has_include 等）一律当作生效，宁可不灰也不灰错。
 
 use std::collections::HashMap;
@@ -12,8 +12,6 @@ fn directive(line: &str) -> Option<(&str, &str)> {
     let t = line.trim_start().strip_prefix('#')?.trim_start();
     let n = t.find(|c: char| !is_ident(c)).unwrap_or(t.len());
     let (kw, rest) = t.split_at(n);
-    let rest = rest.split("//").next().unwrap_or("");
-    let rest = rest.split("/*").next().unwrap_or("");
     Some((kw, rest.trim()))
 }
 
@@ -32,31 +30,96 @@ impl Group {
     }
 }
 
-/// 逐行，跳过块注释里的内容，回调 (行号, 关键字, 条件)
-fn scan<'a>(text: &'a str, mut f: impl FnMut(usize, &'a str, &'a str)) {
-    let mut in_comment = false;
-    for (i, line) in text.split('\n').enumerate() {
-        if in_comment {
-            if let Some(p) = line.find("*/") {
-                in_comment = false;
-                if let Some(d) = directive(&line[p + 2..]) {
-                    f(i, d.0, d.1);
+// Drop C comments without interpreting comment markers inside string literals.
+fn clean<'a>(line: &'a str, block: &mut bool) -> std::borrow::Cow<'a, str> {
+    use std::borrow::Cow;
+    if !*block && !line.contains('/') {
+        return Cow::Borrowed(line);
+    }
+    let bytes = line.as_bytes();
+    let (mut start, mut i) = (0, 0);
+    let mut quote = 0;
+    let mut result: Option<String> = None;
+    while i < bytes.len() {
+        if *block {
+            let Some(end) = line[i..].find("*/") else { return Cow::Owned(result.unwrap_or_default()) };
+            i += end + 2;
+            start = i;
+            *block = false;
+        } else if quote != 0 {
+            if bytes[i] == b'\\' {
+                i = (i + 2).min(bytes.len());
+                continue;
+            }
+            if bytes[i] == quote {
+                quote = 0;
+            }
+            i += 1;
+        } else if matches!(bytes[i], b'"' | b'\'') {
+            quote = bytes[i];
+            i += 1;
+        } else if bytes[i..].starts_with(b"//") {
+            return match result {
+                Some(mut r) => {
+                    r.push_str(&line[start..i]);
+                    Cow::Owned(r)
                 }
-            }
-            continue;
-        }
-        if let Some((kw, rest)) = directive(line) {
-            f(i, kw, rest);
-        }
-        // 只看行内最后一个 /* 有没有闭合，足够判断下一行是不是在注释里
-        if let Some(p) = line.rfind("/*") {
-            let tail = &line[p + 2..];
-            let quoted = line[..p].matches('"').count() % 2 == 1 || line[..p].contains("//");
-            if !quoted && !tail.contains("*/") {
-                in_comment = true;
-            }
+                None => Cow::Borrowed(&line[start..i]),
+            };
+        } else if bytes[i..].starts_with(b"/*") {
+            let r = result.get_or_insert_with(String::new);
+            r.push_str(&line[start..i]);
+            r.push(' ');
+            *block = true;
+            i += 2;
+        } else {
+            i += 1;
         }
     }
+    match result {
+        Some(mut r) => {
+            if !*block {
+                r.push_str(&line[start..]);
+            }
+            Cow::Owned(r)
+        }
+        None => Cow::Borrowed(&line[start..]),
+    }
+}
+
+/// Report a logical directive at its first physical line.
+fn scan(text: &str, mut f: impl FnMut(usize, &str, &str)) {
+    let mut block = false;
+    let mut lines = text.split('\n').enumerate();
+    while let Some((i, raw)) = lines.next() {
+        let mut line = clean(raw, &mut block);
+        if !line.trim_start().starts_with('#') {
+            continue;
+        }
+        while line.trim_end().ends_with('\\') {
+            let Some((_, next)) = lines.next() else { break };
+            let n = line.trim_end().len() - 1;
+            let dst = line.to_mut();
+            dst.truncate(n);
+            dst.push_str(&clean(next, &mut block));
+        }
+        if let Some((kw, rest)) = directive(&line) {
+            f(i, kw, rest);
+        }
+    }
+}
+
+/// Included files only contribute preprocessor directives; their source lines are never rendered here.
+pub fn header_directives(text: &str) -> String {
+    let mut out = String::new();
+    scan(text, |_, kw, rest| {
+        out.push('#');
+        out.push_str(kw);
+        out.push(' ');
+        out.push_str(rest);
+        out.push('\n');
+    });
+    out
 }
 
 pub fn groups(text: &str) -> Vec<Group> {
@@ -114,120 +177,207 @@ struct Frame {
     active: bool,
 }
 
-/// 不生效的行范围（含首尾，按行号排序）。`ext` 查外部定义的宏：定义了返回 Some(值)
-pub fn inactive(text: &str, ext: &dyn Fn(&str) -> Option<String>) -> Vec<(usize, usize)> {
-    // 本文件里的 #define / #undef：None 表示被 #undef 了
-    let mut local: HashMap<String, Option<String>> = HashMap::new();
-    let mut stack: Vec<Frame> = vec![];
-    let is_on = |s: &[Frame]| s.last().is_none_or(|f| f.parent && f.active);
-    let n_lines = text.split('\n').count();
-    let mut dead = vec![false; n_lines];
-    let mut events: Vec<(usize, &str, &str)> = vec![];
-    scan(text, |i, kw, rest| events.push((i, kw, rest)));
-    // 上一条指令之后的行从哪开始、那时是否生效
-    let mut from = 0usize;
-    let mut on = true;
-    for (i, kw, rest) in events {
-        if !on {
-            dead[from..i].iter_mut().for_each(|d| *d = true);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Binding {
+    Defined(String),
+    Undefined,
+    Unknown,
+}
+
+impl Binding {
+    fn defined(&self) -> Option<bool> {
+        match self {
+            Self::Defined(_) => Some(true),
+            Self::Undefined => Some(false),
+            Self::Unknown => None,
         }
-        let on_before = is_on(&stack);
-        let lookup = |name: &str| -> Option<String> {
-            match local.get(name) {
-                Some(v) => v.clone(),
-                None => ext(name),
+    }
+}
+
+pub type Include = (std::path::PathBuf, std::sync::Arc<str>);
+type Resolver<'a> = dyn FnMut(&std::path::Path, &str, bool) -> Option<Include> + 'a;
+
+pub struct Unit {
+    pub macros: HashMap<String, Binding>,
+    pub incomplete: bool,
+    once: std::collections::HashSet<std::path::PathBuf>,
+    stack: Vec<std::path::PathBuf>,
+    files: usize,
+}
+
+impl Unit {
+    pub fn new(macros: HashMap<String, Binding>) -> Self {
+        Self {
+            macros,
+            incomplete: false,
+            once: Default::default(),
+            stack: Vec::new(),
+            files: 0,
+        }
+    }
+
+    fn lookup(&self, name: &str) -> Binding {
+        self.macros
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| if self.incomplete || name.starts_with("__") { Binding::Unknown } else { Binding::Undefined })
+    }
+
+    pub fn include(&mut self, from: &std::path::Path, name: &str, quoted: bool, resolve: &mut Resolver<'_>, certain: bool) {
+        // Bound pathological include graphs, even if files include themselves through aliases.
+        if self.stack.len() >= 48 || self.files >= 1024 {
+            self.incomplete = true;
+            return;
+        }
+        if let Some((path, text)) = resolve(from, name, quoted) {
+            if !self.once.contains(&path) && !self.stack.contains(&path) {
+                self.files += 1;
+                self.process(&path, &text, resolve, certain, false);
+            }
+        } else {
+            self.incomplete = true;
+        }
+    }
+
+    pub fn ranges(&mut self, path: &std::path::Path, text: &str, resolve: &mut Resolver<'_>) -> Vec<(usize, usize)> {
+        self.process(path, text, resolve, true, true)
+    }
+
+    fn process(&mut self, path: &std::path::Path, text: &str, resolve: &mut Resolver<'_>, certain: bool, mark: bool) -> Vec<(usize, usize)> {
+        self.stack.push(path.to_path_buf());
+        let mut stack: Vec<Frame> = vec![];
+        let mut ranges: Vec<(usize, usize)> = Vec::new();
+        let mut dim = |start: usize, end: usize| {
+            if !mark || start >= end {
+                return;
+            }
+            if let Some(r) = ranges.last_mut().filter(|r| r.1 + 1 == start) {
+                r.1 = end - 1;
+            } else {
+                ranges.push((start, end - 1));
             }
         };
-        // 指令行本身：所在组的外层生效就正常显示
-        let mut line_on = on_before;
-        match kw {
-            "if" | "ifdef" | "ifndef" => {
-                let cond = if !on_before {
-                    Some(false)
-                } else {
-                    match kw {
-                        "ifdef" => Some(lookup(first_ident(rest)).is_some()),
-                        "ifndef" => Some(lookup(first_ident(rest)).is_none()),
-                        _ => eval_cond(rest, &lookup),
-                    }
-                };
-                stack.push(Frame {
-                    parent: on_before,
-                    known: cond.is_some(),
-                    taken: cond != Some(false),
-                    active: cond != Some(false),
-                });
+        let mut from = 0;
+        let mut on = true;
+        // Following an unresolved SDK include, a fresh header's own include guard
+        // can still be entered. Do not assume that an arbitrary #ifndef is a guard.
+        let mut block = false;
+        let mut directives = text.lines().filter_map(|l| {
+            let line = clean(l, &mut block);
+            let (kw, rest) = directive(&line)?;
+            (kw != "pragma" || rest != "once").then(|| (kw.to_owned(), rest.to_owned()))
+        });
+        let guard = match (directives.next(), directives.next()) {
+            (Some((kw, g)), Some((define, d))) if define == "define" => {
+                let n = first_ident(&d);
+                let normalized: String = g.split_whitespace().collect();
+                ((kw == "ifndef" && g == n) || (kw == "if" && normalized == format!("!defined({n})"))).then(|| n.to_owned())
             }
-            "elif" | "elifdef" | "elifndef" => {
-                if let Some(f) = stack.last_mut() {
-                    line_on = f.parent;
-                    if !f.known {
-                        f.active = true;
-                    } else if f.taken {
-                        f.active = false;
-                    } else if f.parent {
-                        let cond = match kw {
-                            "elifdef" => Some(lookup(first_ident(rest)).is_some()),
-                            "elifndef" => Some(lookup(first_ident(rest)).is_none()),
-                            _ => eval_cond(rest, &lookup),
-                        };
-                        match cond {
-                            Some(c) => {
-                                f.active = c;
-                                f.taken = c;
-                            }
-                            None => {
-                                // 后面的分支也说不准了
-                                f.known = false;
-                                f.active = true;
+            _ => None,
+        };
+        scan(text, |i, kw, rest| {
+            if !on {
+                dim(from, i);
+            }
+            let mut line_on = on;
+            let condition = || {
+                let name = first_ident(rest);
+                let def = || self.lookup(name).defined();
+                if stack.is_empty()
+                    && matches!(kw, "if" | "ifndef")
+                    && guard
+                        .as_ref()
+                        .is_some_and(|g| !self.macros.contains_key(g) && (kw == "ifndef" && name == g || kw == "if" && rest.split_whitespace().collect::<String>() == format!("!defined({g})")))
+                {
+                    return Some(true);
+                }
+                match kw {
+                    "ifdef" | "elifdef" => def(),
+                    "ifndef" | "elifndef" => def().map(|v| !v),
+                    _ => eval_cond(rest, &|n| self.lookup(n)),
+                }
+            };
+            match kw {
+                "if" | "ifdef" | "ifndef" => {
+                    let cond = if on { condition() } else { Some(false) };
+                    stack.push(Frame {
+                        parent: on,
+                        known: cond.is_some(),
+                        taken: cond == Some(true),
+                        active: cond != Some(false),
+                    });
+                }
+                "elif" | "elifdef" | "elifndef" => {
+                    let cond = if stack.last().is_some_and(|f| f.parent && !f.taken && f.known) { condition() } else { None };
+                    if let Some(f) = stack.last_mut() {
+                        line_on = f.parent;
+                        f.active = !f.taken && cond != Some(false);
+                        if !f.taken {
+                            f.known &= cond.is_some();
+                        }
+                        f.taken |= cond == Some(true);
+                    }
+                }
+                "else" => {
+                    if let Some(f) = stack.last_mut() {
+                        line_on = f.parent;
+                        f.active = !f.taken;
+                        f.taken = true;
+                    }
+                }
+                "endif" => {
+                    if let Some(f) = stack.pop() {
+                        line_on = f.parent;
+                    }
+                }
+                _ if on => {
+                    let definite = certain && stack.iter().all(|f| f.known);
+                    match kw {
+                        "define" | "undef" => {
+                            let name = first_ident(rest);
+                            if !name.is_empty() {
+                                let val = if kw == "undef" {
+                                    Binding::Undefined
+                                } else {
+                                    let body = &rest[name.len()..];
+                                    Binding::Defined(if body.starts_with('(') { "\0".into() } else { body.trim().into() })
+                                };
+                                let val = if definite || self.lookup(name) == val { val } else { Binding::Unknown };
+                                self.macros.insert(name.into(), val);
                             }
                         }
+                        "include" => {
+                            let spec = rest.trim();
+                            let part = spec
+                                .strip_prefix('"')
+                                .and_then(|s| s.split_once('"').map(|(n, _)| (n, true)))
+                                .or_else(|| spec.strip_prefix('<').and_then(|s| s.split_once('>').map(|(n, _)| (n, false))));
+                            if let Some((name, quoted)) = part {
+                                self.include(path, name, quoted, resolve, definite);
+                            } else {
+                                self.incomplete = true;
+                            }
+                        }
+                        "pragma" if definite && rest == "once" => {
+                            self.once.insert(path.to_owned());
+                        }
+                        _ => {}
                     }
                 }
+                _ => {}
             }
-            "else" => {
-                if let Some(f) = stack.last_mut() {
-                    line_on = f.parent;
-                    f.active = !f.known || !f.taken;
-                    f.taken = true;
-                }
+            if !line_on {
+                dim(i, i + 1);
             }
-            "endif" => {
-                if let Some(f) = stack.pop() {
-                    line_on = f.parent;
-                }
-            }
-            "define" if on_before => {
-                let name = first_ident(rest).to_string();
-                if !name.is_empty() {
-                    let after = &rest[rest.find(name.as_str()).unwrap_or(0) + name.len()..];
-                    // 函数式宏不参与条件计算
-                    let val = if after.starts_with('(') { String::from("\u{0}") } else { after.trim().to_string() };
-                    local.insert(name, Some(val));
-                }
-            }
-            "undef" if on_before => {
-                local.insert(first_ident(rest).to_string(), None);
-            }
-            _ => {}
+            from = i + 1;
+            on = stack.last().is_none_or(|f| f.parent && f.active);
+        });
+        if mark && !on {
+            dim(from, text.split('\n').count());
         }
-        dead[i] = !line_on;
-        from = i + 1;
-        on = is_on(&stack);
+        self.stack.pop();
+        ranges
     }
-    if !on && from < n_lines {
-        dead[from..].iter_mut().for_each(|d| *d = true);
-    }
-    let mut out: Vec<(usize, usize)> = vec![];
-    for (i, d) in dead.iter().enumerate() {
-        if *d {
-            match out.last_mut() {
-                Some(l) if l.1 + 1 == i => l.1 = i,
-                _ => out.push((i, i)),
-            }
-        }
-    }
-    out
 }
 
 fn first_ident(s: &str) -> &str {
@@ -237,12 +387,12 @@ fn first_ident(s: &str) -> &str {
 }
 
 /// 算 #if 后面的条件；算不出来返回 None
-pub fn eval_cond(expr: &str, lookup: &dyn Fn(&str) -> Option<String>) -> Option<bool> {
+fn eval_cond(expr: &str, lookup: &dyn Fn(&str) -> Binding) -> Option<bool> {
     let e = subst(expr, lookup, 0)?;
     crate::cindex::eval(&e).map(|v| v != 0)
 }
 
-fn subst(expr: &str, lookup: &dyn Fn(&str) -> Option<String>, depth: usize) -> Option<String> {
+fn subst(expr: &str, lookup: &dyn Fn(&str) -> Binding, depth: usize) -> Option<String> {
     if depth > 8 {
         return None;
     }
@@ -274,7 +424,7 @@ fn subst(expr: &str, lookup: &dyn Fn(&str) -> Option<String>, depth: usize) -> O
                 if name.is_empty() {
                     return None;
                 }
-                out.push_str(if lookup(name).is_some() { " 1 " } else { " 0 " });
+                out.push_str(if lookup(name).defined()? { " 1 " } else { " 0 " });
                 i += skipped + used;
                 continue;
             }
@@ -282,7 +432,7 @@ fn subst(expr: &str, lookup: &dyn Fn(&str) -> Option<String>, depth: usize) -> O
             if expr[i..].trim_start().starts_with('(') {
                 return None; // 函数式宏
             }
-            let v = lookup(w)?;
+            let Binding::Defined(v) = lookup(w) else { return None };
             if v.contains('\u{0}') || v.trim().is_empty() {
                 return None;
             }
@@ -325,45 +475,44 @@ fn subst(expr: &str, lookup: &dyn Fn(&str) -> Option<String>, depth: usize) -> O
 mod tests {
     use super::*;
 
-    fn none(_: &str) -> Option<String> {
-        None
+    fn inactive(text: &str, defs: &[(&str, &str)]) -> Vec<(usize, usize)> {
+        let macros = defs.iter().map(|(n, v)| (n.to_string(), Binding::Defined(v.to_string()))).collect();
+        Unit::new(macros).ranges(std::path::Path::new("main.c"), text, &mut |_, _, _| None)
     }
 
     #[test]
     fn if0_and_else() {
         let t = "a\n#if 0\nb\nc\n#else\nd\n#endif\ne";
-        assert_eq!(inactive(t, &none), vec![(2, 3)]);
+        assert_eq!(inactive(t, &[]), vec![(2, 3)]);
         let t = "#if 1\na\n#else\nb\n#endif";
-        assert_eq!(inactive(t, &none), vec![(3, 3)]);
+        assert_eq!(inactive(t, &[]), vec![(3, 3)]);
     }
 
     #[test]
     fn ifdef_and_guard() {
         let t = "#ifndef FOO_H\n#define FOO_H\nint x;\n#ifdef DEBUG\nlog();\n#endif\n#endif";
-        assert_eq!(inactive(t, &none), vec![(4, 4)]);
-        let dbg = |n: &str| (n == "DEBUG").then(String::new);
-        assert_eq!(inactive(t, &dbg), vec![]);
+        assert_eq!(inactive(t, &[]), vec![(4, 4)]);
+        assert_eq!(inactive(t, &[("DEBUG", "")]), vec![]);
     }
 
     #[test]
     fn unknown_stays_active() {
         let t = "#if FOO > 3\na\n#else\nb\n#endif";
-        assert_eq!(inactive(t, &none), vec![]);
-        let foo = |n: &str| (n == "FOO").then(|| "2".to_string());
-        assert_eq!(inactive(t, &foo), vec![(1, 1)]);
+        assert_eq!(inactive(t, &[]), vec![]);
+        assert_eq!(inactive(t, &[("FOO", "2")]), vec![(1, 1)]);
     }
 
     #[test]
     fn nested_and_elif() {
         let t = "#if 0\n#if 1\na\n#endif\nb\n#elif defined(X)\nc\n#elif 1\nd\n#else\ne\n#endif";
         // X 未定义：#elif defined(X) 不生效，#elif 1 生效，#else 不生效
-        assert_eq!(inactive(t, &none), vec![(1, 4), (6, 6), (10, 10)]);
+        assert_eq!(inactive(t, &[]), vec![(1, 4), (6, 6), (10, 10)]);
     }
 
     #[test]
     fn local_define() {
         let t = "#define MODE 2\n#if MODE == 2\na\n#else\nb\n#endif\n#undef MODE\n#ifdef MODE\nc\n#endif";
-        assert_eq!(inactive(t, &none), vec![(4, 4), (8, 8)]);
+        assert_eq!(inactive(t, &[]), vec![(4, 4), (8, 8)]);
     }
 
     #[test]

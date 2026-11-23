@@ -5,6 +5,9 @@
 //! 坐标约定：位置一律用字节偏移；屏幕上按"格"排列（等宽字体一格，中文等全角字符两格，Tab 对齐到 4 格），
 //! 所以光标、选区、参考线的位置都能直接算出来，不依赖字体排版结果。
 
+mod json;
+pub(crate) use json::keys as json_keys;
+
 use std::collections::{BTreeSet, HashMap};
 use std::ops::Range;
 
@@ -378,6 +381,8 @@ pub struct View<'a> {
     pub find_cur: Option<usize>,
     /// 索引里的符号种类，用来给函数、宏、类型、全局变量上色
     pub sem: Option<&'a HashMap<String, Kind>>,
+    pub words: &'a [String],
+    pub live_words: &'a [std::sync::Arc<[String]>],
     /// 行的 Git 改动标记：(起始行, 结束行, 'A' 新增 / 'M' 修改 / 'D' 删除)
     pub git: &'a [(usize, usize, char)],
     pub big: bool,
@@ -407,31 +412,47 @@ struct Completion {
 }
 
 impl Completion {
-    fn new(buf: &Buf, caret: usize, lang: Lang, symbols: Option<&HashMap<String, Kind>>) -> Option<Self> {
-        let (start, end) = buf.word_at(caret)?;
+    fn new(buf: &Buf, caret: usize, lang: Lang, indexed: &[String], live: &[std::sync::Arc<[String]>]) -> Option<Self> {
+        if matches!(lang, Lang::Markdown | Lang::Plain) {
+            return None;
+        }
+        let line = buf.line_of(caret);
+        let ls = buf.start(line);
+        let quoted = (lang == Lang::Json).then(|| json::quoted_range(buf.line(line), caret - ls)).flatten();
+        let in_string = quoted.is_some();
+        if let Some(r) = &quoted {
+            let before = &buf.text[ls..ls+r.start-1];
+            if before.trim_end().ends_with([':', '[']) { return None; }
+        }
+        let (start, end) = match quoted {
+            Some(r) => (ls + r.start, ls + r.end),
+            None => buf.word_at(caret)?,
+        };
         let prefix = &buf.text[start..caret];
         if prefix.chars().take(2).count() < 2 {
             return None;
         }
-        let line = buf.line_of(caret);
-        let near = &buf.text[buf.start(line.saturating_sub(120))..buf.end((line + 120).min(buf.lines() - 1))];
+        let current = &buf.text[start..end];
         let mut words = Vec::new();
         let mut add = |word: &str| {
-            if words.len() < 7 && word.starts_with(prefix) && word != &buf.text[start..end] && !words.iter().any(|w| w == word) {
+            if words.len() < 7 && word.starts_with(prefix) && word != current && !words.iter().any(|w| w == word) {
                 words.push(word.to_owned());
             }
+            words.len() == 7
         };
-        for word in near.split(|c| !is_ident(c)) {
-            add(word);
+        if lang != Lang::Json {
+            let left = buf.start(line.saturating_sub(120)).max(buf.text.ceil_char_boundary(caret.saturating_sub(16384)));
+            let right = buf.end((line + 120).min(buf.lines() - 1)).min(buf.text.floor_char_boundary((caret + 16384).min(buf.text.len())));
+            let near = &buf.text[left..right];
+            near.split(|c| !is_ident(c)).any(&mut add);
         }
-        for word in lang.completion_words() {
-            add(word);
+        if !in_string {
+            lang.completion_words().any(&mut add);
         }
-        if let Some(sem) = symbols {
-            let mut project: Vec<_> = sem.keys().filter(|w| w.starts_with(prefix)).collect();
-            project.sort_unstable();
-            for w in project.into_iter().take(12) {
-                add(w);
+        if lang != Lang::Json || in_string {
+            for source in live.iter().map(AsRef::as_ref).chain(std::iter::once(indexed)) {
+                let i = source.partition_point(|w| w.as_str() < prefix);
+                if source[i..].iter().take_while(|w| w.starts_with(prefix)).any(|w| add(w)) { break; }
             }
         }
         words.truncate(7);
@@ -2047,8 +2068,8 @@ impl Editor {
                     Event::Text(s) => {
                         if !s.chars().any(|c| c.is_control()) && !s.is_empty() {
                             self.insert_text(buf, &s, v.lang, now);
-                            self.completion = if v.lang.is_code() && !v.big && self.sels.len() == 1 && s.chars().all(is_ident) {
-                                Completion::new(buf, self.primary_sel().h, v.lang, v.sem)
+                            self.completion = if !v.big && self.sels.len() == 1 && (s.chars().all(is_ident) || v.lang == Lang::Json && matches!(s.as_str(), "-" | ".")) {
+                                Completion::new(buf, self.primary_sel().h, v.lang, v.words, v.live_words)
                             } else {
                                 None
                             };
@@ -3323,14 +3344,28 @@ mod tests {
     fn completion_replaces_whole_identifier_and_undo_restores_it() {
         let (mut ed, mut buf) = ed("int sensor_read();\nint X = senXX;");
         let start = buf.text.rfind("sen").unwrap();
-        let symbols = HashMap::from([("sensor_init".to_string(), Kind::Func)]);
-        let c = Completion::new(&buf, start + 3, Lang::C, Some(&symbols)).unwrap();
+        let symbols = ["sensor_init".to_string()];
+        let c = Completion::new(&buf, start + 3, Lang::C, &symbols, &[]).unwrap();
         assert_eq!(c.words, ["sensor_read", "sensor_init"]);
         ed.replace_at(&mut buf, c.range, c.words[0].clone(), None, 0.0);
         assert!(buf.text.ends_with("sensor_read;"));
         ed.undo(&mut buf);
         assert!(buf.text.ends_with("senXX;"));
-        assert!(Completion::new(&buf, start + 1, Lang::C, None).is_none());
+        assert!(Completion::new(&buf, start + 1, Lang::C, &[], &[]).is_none());
+    }
+
+    #[test]
+    fn json_completion_preserves_quotes_and_suffix_and_does_not_offer_c_symbols() {
+        let (mut e, mut b) = ed(r#"{"serial.port-name":true,"serial.poXX":false}"#);
+        let start = b.text.rfind("serial.po").unwrap();
+        let words = json_keys(&b.text);
+        let menu = Completion::new(&b, start + "serial.po".len(), Lang::Json, &words, &[]).unwrap();
+        assert_eq!(menu.words, ["serial.port-name"]);
+        e.replace_at(&mut b, menu.range, menu.words[0].clone(), None, 0.0);
+        assert_eq!(b.text,r#"{"serial.port-name":true,"serial.port-name":false}"#);
+        let (_, partial) = ed(r#"{"enabled": fa}"#);
+        let c = Completion::new(&partial, partial.text.len()-1, Lang::Json, &words, &[]).unwrap();
+        assert_eq!(c.words, ["false"]);
     }
 
     #[test]

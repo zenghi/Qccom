@@ -69,6 +69,9 @@ pub struct Index {
     pub files: Vec<PathBuf>,
     pub syms: Vec<Sym>,
     pub by_name: HashMap<String, Vec<u32>>,
+    pub c_words: Vec<String>,
+    pub rust_words: Vec<String>,
+    pub include_paths: HashMap<std::ffi::OsString, Vec<PathBuf>>,
     /// syms 里引用的文件路径表
     pub sym_files: Vec<PathBuf>,
 }
@@ -131,6 +134,9 @@ pub fn build(root: &Path, prog: &Progress) -> Index {
                 idx.files.push(rel.to_path_buf());
             }
             let lang = Lang::from_path(&p);
+            if matches!(lang, Lang::C | Lang::Asm) {
+                idx.include_paths.entry(e.file_name()).or_default().push(p.clone());
+            }
             if !lang.is_code() || matches!(lang, Lang::Make | Lang::Shell | Lang::Kconfig | Lang::Dts | Lang::Ld) {
                 continue;
             }
@@ -146,10 +152,22 @@ pub fn build(root: &Path, prog: &Progress) -> Index {
                 parse_generic(&text, fi, &mut idx.syms);
             }
             if idx.syms.len() > before {
+                let words = match lang {
+                    Lang::C | Lang::Asm => Some(&mut idx.c_words),
+                    Lang::Rust => Some(&mut idx.rust_words),
+                    _ => None,
+                };
+                if let Some(words) = words {
+                    words.extend(idx.syms[before..].iter().map(|sym| sym.name.clone()));
+                }
                 idx.sym_files.push(p);
             }
             prog.files.fetch_add(1, Ordering::Relaxed);
         }
+    }
+    for words in [&mut idx.c_words, &mut idx.rust_words] {
+        words.sort_unstable();
+        words.dedup();
     }
     idx.files.sort();
     for (i, s) in idx.syms.iter().enumerate() {
@@ -583,6 +601,7 @@ pub fn parse_generic(text: &str, fi: u32, out: &mut Vec<Sym>) {
         let t = l.trim_start();
         let ids = idents(t);
         for (k, &(pos, w)) in ids.iter().enumerate() {
+            if w == "const" && ids[k+1..].iter().take_while(|(_, w)| matches!(*w, "unsafe" | "fn")).any(|(_, w)| *w == "fn") { continue; }
             let kind = match w {
                 "fn" | "def" | "function" | "func" => Kind::Func,
                 "class" | "interface" | "trait" | "object" => Kind::Class,
@@ -610,6 +629,9 @@ pub fn parse_generic(text: &str, fi: u32, out: &mut Vec<Sym>) {
                         | "data"
                         | "open"
                         | "crate"
+                        | "super"
+                        | "self"
+                        | "const"
                         | "extern"
                         | "inline"
                         | "override"
@@ -627,6 +649,7 @@ pub fn parse_generic(text: &str, fi: u32, out: &mut Vec<Sym>) {
                 rest
             };
             let rest = rest.trim_start_matches(['!', ' ', '\t', '*']);
+            let rest = if w == "static" { rest.strip_prefix("mut ").unwrap_or(rest).trim_start() } else { rest };
             let name_len = rest.find(|c: char| !is_ident(c)).unwrap_or(rest.len());
             if name_len > 0 && rest.starts_with(is_ident_start) {
                 let name = &rest[..name_len];
@@ -650,6 +673,14 @@ pub fn parse_generic(text: &str, fi: u32, out: &mut Vec<Sym>) {
 // ---------------------------------------------------------------- 查询
 
 impl Index {
+    pub fn completion_words(&self, lang: Lang) -> &[String] {
+        match lang {
+            Lang::C | Lang::Asm => &self.c_words,
+            Lang::Rust => &self.rust_words,
+            _ => &[],
+        }
+    }
+
     pub fn lookup(&self, name: &str) -> Vec<&Sym> {
         let mut v: Vec<&Sym> = self.by_name.get(name).map(|ids| ids.iter().map(|&i| &self.syms[i as usize]).collect()).unwrap_or_default();
         v.sort_by_key(|s| s.kind.rank());
@@ -1068,7 +1099,7 @@ impl Default for Scope {
     }
 }
 
-pub const C_FILES: &[&str] = &["*.c", "*.h", "*.cpp", "*.hpp", "*.cc", "*.hh", "*.cxx", "*.s", "*.S", "*.asm", "*.inc"];
+pub const C_FILES: &[&str] = &["*.c", "*.h", "*.cpp", "*.hpp", "*.cc", "*.hh", "*.cxx", "*.hxx", "*.c++", "*.h++", "*.ipp", "*.inl", "*.tpp", "*.tcc", "*.txx", "*.cppm", "*.ixx", "*.ino", "*.cu", "*.cuh", "*.s", "*.S", "*.asm", "*.inc"];
 pub const VENDOR_DIRS: &[&str] = &[
     "Drivers/",
     "CMSIS/",
@@ -1228,6 +1259,17 @@ int main(void) {
     return 0;
 }
 "#;
+
+    #[test]
+    fn completion_index_separates_rust_and_embedded_cpp_files() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::write(tmp.path().join("gpio.rs"), "pub(crate) fn gpio_enable() {}").unwrap();
+        std::fs::write(tmp.path().join("gpio.IPP"), "#define GPIO_FLAG 1\n").unwrap();
+        let idx = build(tmp.path(), &shared_progress());
+        assert_eq!(idx.completion_words(Lang::Rust), ["gpio_enable"]);
+        assert_eq!(idx.completion_words(Lang::C), ["GPIO_FLAG"]);
+        assert_eq!(idx.completion_words(Lang::Json).len(), 0);
+    }
 
     #[test]
     fn c_symbols() {

@@ -261,6 +261,58 @@ mod sys {
         r"HKCU\Software\Classes\Directory\Background\shell\QCCOM",
     ];
 
+    const PROGID: &str = "QCCOM.Editor";
+
+    fn classes() -> std::io::Result<winreg::RegKey> {
+        winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER)
+            .create_subkey(r"Software\Classes").map(|(k,_)| k)
+    }
+
+    fn associations(exe: &str) -> std::io::Result<()> {
+        let classes = classes()?;
+        let (prog, _) = classes.create_subkey(PROGID)?;
+        prog.set_value("", &"QCCOM Editor")?;
+        prog.create_subkey("DefaultIcon")?.0.set_value("", &format!("\"{exe}\",0"))?;
+        prog.create_subkey(r"shell\open\command")?.0.set_value("", &format!("\"{exe}\" --file \"%1\""))?;
+        for (_, extensions) in crate::highlight::EMBEDDED_TYPES {
+            for ext in *extensions {
+                let (list, _) = classes.create_subkey(format!(r".{ext}\OpenWithProgids"))?;
+                list.set_raw_value(PROGID, &winreg::RegValue {bytes: vec![], vtype: winreg::enums::REG_NONE})?;
+            }
+        }
+        prog.set_value("AssociationVersion", &1u32)?;
+        Ok(())
+    }
+
+    // Upgrade the Explorer integration only for the executable the user already registered.
+    pub fn upgrade_associations() {
+        let hkcu = winreg::RegKey::predef(winreg::enums::HKEY_CURRENT_USER);
+        let Ok(classes) = hkcu.open_subkey(r"Software\Classes") else { return };
+        let Ok(exe) = exe() else { return };
+        let command = format!("\"{}\" --file \"%1\"", exe.display());
+        let owned = classes.open_subkey(r"*\shell\QCCOM\command").and_then(|k| k.get_value::<String,_>("")).is_ok_and(|s| s == command);
+        if owned && !classes.open_subkey(PROGID).and_then(|k| k.get_value::<u32,_>("AssociationVersion")).is_ok_and(|v| v == 1) {
+            let _ = associations(&exe.to_string_lossy());
+        }
+    }
+
+    fn remove_associations() -> std::io::Result<()> {
+        let classes = classes()?;
+        for (_, extensions) in crate::highlight::EMBEDDED_TYPES {
+            for ext in *extensions {
+                if let Ok(list) = classes.open_subkey_with_flags(format!(r".{ext}\OpenWithProgids"),winreg::enums::KEY_SET_VALUE) {
+                    if let Err(e) = list.delete_value(PROGID) {
+                        if e.kind() != std::io::ErrorKind::NotFound { return Err(e); }
+                    }
+                }
+            }
+        }
+        match classes.delete_subkey_all(PROGID) {
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            r => r,
+        }
+    }
+
     fn reg(args: &[&str]) -> Result<(), String> {
         let out = std::process::Command::new("reg").args(args).creation_flags(0x0800_0000).output().map_err(|e| e.to_string())?;
         if out.status.success() {
@@ -290,10 +342,11 @@ mod sys {
             let cmd = format!("\"{exe}\" {flag} \"{arg}\"");
             reg(&["add", &format!(r"{key}\command"), "/ve", "/d", &cmd, "/f"])?;
         }
-        Ok(())
+        associations(&exe).map_err(|e| e.to_string())
     }
 
     pub fn uninstall() -> Result<(), String> {
+        remove_associations().map_err(|e| e.to_string())?;
         for k in KEYS {
             let _ = reg(&["delete", k, "/f"]);
         }
@@ -341,7 +394,7 @@ mod sys {
         let f = files();
         let (open, cmp) = (t("用 QCCOM 打开"), t("用 QCCOM 比较"));
         let desktop = format!(
-            "[Desktop Entry]\nType=Application\nName=QCCOM\nComment={}\nExec=\"{exe}\" --file %F\nIcon=qccom\nTerminal=false\nCategories=Development;Utility;\nMimeType=text/plain;text/x-csrc;text/x-chdr;text/x-c++src;text/x-log;application/octet-stream;inode/directory;\nActions=compare;\n\n[Desktop Action compare]\nName={cmp}\nExec=\"{exe}\" --compare %F\n",
+            "[Desktop Entry]\nType=Application\nName=QCCOM\nComment={}\nExec=\"{exe}\" --file %F\nIcon=qccom\nTerminal=false\nCategories=Development;Utility;\nMimeType=text/plain;text/x-csrc;text/x-chdr;text/x-c++src;text/x-c++hdr;text/rust;text/x-rust;application/json;application/toml;application/yaml;application/xml;text/x-asm;text/x-makefile;text/x-cmake;text/x-python;text/x-log;application/octet-stream;inode/directory;\nActions=compare;\n\n[Desktop Action compare]\nName={cmp}\nExec=\"{exe}\" --compare %F\n",
             t("串口、网络调试和代码查看")
         );
         write(&f[0], desktop.as_bytes(), false)?;
@@ -380,6 +433,8 @@ mod sys {
     }
 }
 
+#[cfg(windows)]
+pub use sys::upgrade_associations;
 pub use sys::{install, installed, uninstall};
 
 #[cfg(test)]

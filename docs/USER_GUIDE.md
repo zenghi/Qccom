@@ -339,7 +339,9 @@ The Code page, the Git page, the terminal panel and the TFTP / HTTP servers shar
 
 **Highlights**: `F8` marks the word under the cursor; press it on another word for the next of 8 colors, or again on the same word to change its color. `Shift+F8` removes one, `Ctrl+Shift+F8` clears all, `F3` / `Shift+F3` jump between marked words. Marks also show on the scrollbar.
 
-**Inactive code** is greyed: `#if 0`, `#ifdef` of a macro that is not defined, the branch of `#if / #else` that is not compiled. Macros come from the project's `#define`s; add the ones your build passes with `-D` in Settings → Code Editor → *Extra macros*. Conditions QCCOM cannot evaluate are shown as active.
+**Conditional shading** follows includes in source order, including unsaved changes in open headers. QCCOM reads the source file's include directories, macro definitions, undefinitions and forced includes from a `compile_commands.json` in the project root or a standard build directory. Unresolved conditions remain at normal brightness. Add manual definitions in Settings → Code Editor → *Extra macros*.
+
+**Word completion** opens after two characters. Use the arrow keys to select, Tab to accept and Esc to dismiss. JSON suggests document keys and literals. Rust and C/C++ also suggest project symbols from the corresponding language. Enabling Explorer integration adds QCCOM to Open with for embedded sources, board configurations, device trees and linker scripts.
 
 ### Code generation and macro actions
 

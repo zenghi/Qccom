@@ -237,37 +237,6 @@ impl CodeView {
         self.gen.marks.iter().map(|(w, c)| (w.clone(), HL_COLORS[*c as usize % HL_COLORS.len()])).collect()
     }
 
-    /// 不生效的 #if 分支（有缓存）
-    pub(super) fn inactive_of(&mut self, i: usize) -> Vec<(usize, usize)> {
-        if !self.s.dim_inactive {
-            return vec![];
-        }
-        let idx = self.index.clone();
-        let key = idx.as_ref().map_or(0, |a| Arc::as_ptr(a) as usize as u64) ^ hash_str(&self.s.defines);
-        let extra = parse_defines(&self.s.defines);
-        let d = &mut self.tabs[i];
-        if !matches!(d.lang, Lang::C) || d.buf.text.len() > 3_000_000 {
-            return vec![];
-        }
-        if d.inactive.0 == d.buf.ver && d.inactive.1 == key {
-            return d.inactive.2.clone();
-        }
-        let path = d.path.clone();
-        let lookup = |name: &str| -> Option<String> {
-            if let Some(v) = extra.get(name) {
-                return Some(v.clone());
-            }
-            let idx = idx.as_ref()?;
-            idx.lookup(name)
-                .into_iter()
-                .find(|s| s.kind == Kind::Macro && idx.path_of(s) != path)
-                .map(|s| if s.params.is_some() { "\u{0}".to_string() } else { s.value.clone().unwrap_or_default() })
-        };
-        let v = crate::cpp::inactive(&d.buf.text, &lookup);
-        d.inactive = (d.buf.ver, key, v.clone());
-        v
-    }
-
     /// 光标所在函数体和 #if 块（有缓存）
     pub(super) fn scopes_of(&mut self, i: usize) -> (Option<(usize, usize)>, Option<(usize, usize)>) {
         if !self.s.scope_bg {
@@ -526,8 +495,8 @@ impl CodeView {
         let p = d.path.clone();
         let ext = p.extension().map(|s| s.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
         let want: &[&str] = match ext.as_str() {
-            "h" | "hpp" | "hh" | "hxx" => &["c", "cpp", "cc", "cxx", "s", "S"],
-            "c" | "cpp" | "cc" | "cxx" | "s" => &["h", "hpp", "hh", "hxx"],
+            "h" | "hpp" | "hh" | "hxx" | "h++" | "ipp" | "tpp" | "inl" | "tcc" | "txx" | "cuh" => &["c", "cpp", "cc", "cxx", "c++", "cppm", "ixx", "ino", "cu", "s", "S"],
+            "c" | "cpp" | "cc" | "cxx" | "c++" | "cppm" | "ixx" | "ino" | "cu" | "s" => &["h", "hpp", "hh", "hxx", "h++", "ipp", "tpp", "inl", "cuh"],
             _ => {
                 self.toast(t("只有 C / C++ 文件可以切换"), TEXT3());
                 return;
@@ -1446,12 +1415,8 @@ fn sig_text(b: &Buf, l: usize) -> String {
     s.trim().to_string()
 }
 
-fn hash_str(s: &str) -> u64 {
-    s.bytes().fold(1469598103934665603u64, |h, b| (h ^ b as u64).wrapping_mul(1099511628211))
-}
-
 /// 设置里额外定义的宏：DEBUG, USE_HAL=1, STM32F407xx
-fn parse_defines(s: &str) -> HashMap<String, String> {
+pub(super) fn parse_defines(s: &str) -> HashMap<String, String> {
     s.split([',', ';', '\n', ' '])
         .filter(|x| !x.trim().is_empty())
         .map(|x| {

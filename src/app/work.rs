@@ -1953,12 +1953,10 @@ impl App {
     }
 }
 
-const SRC_EXT: &[&str] = &["c", "h", "cc", "cpp", "cxx", "hpp", "hh", "s", "asm", "rs", "py", "go", "java", "js", "ts", "ino", "inc", "ld"];
-
 /// 日志里的源码位置：`main.c:42`、`src/drv/uart.c:120:7`、`app.rs:10` → (起, 止, 文件, 行号)
 pub(super) fn src_ref(text: &str) -> Option<(usize, usize, String, usize)> {
     let b = text.as_bytes();
-    let path_ch = |c: u8| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'/' | b'\\' | b'-');
+    let path_ch = |c: u8| c.is_ascii_alphanumeric() || matches!(c, b'_' | b'.' | b'/' | b'\\' | b'-' | b'+');
     let mut i = 0;
     while let Some(k) = text[i..].find(':') {
         let colon = i + k;
@@ -1976,8 +1974,8 @@ pub(super) fn src_ref(text: &str) -> Option<(usize, usize, String, usize)> {
             s -= 2;
         }
         let path = &text[s..colon];
-        let ext = path.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
-        if !path.contains('.') || !SRC_EXT.contains(&ext.as_str()) || path.starts_with('.') && path.len() < 3 {
+        let name = path.rsplit(['/', '\\']).next().unwrap_or(path);
+        if crate::highlight::Lang::from_path(std::path::Path::new(name)) == crate::highlight::Lang::Plain {
             continue;
         }
         let line: usize = text[colon + 1..colon + 1 + digits].parse().ok()?;
@@ -2099,6 +2097,10 @@ mod src_tests {
         let r = src_ref("assert failed: src/drv/uart.c:120 (len > 0)").unwrap();
         assert_eq!((r.2.as_str(), r.3), ("src/drv/uart.c", 120));
         assert_eq!(src_ref("E (123) main.c:42: boom").map(|r| r.3), Some(42));
+        for f in ["board.json", "radio.ipp", "chip.svd", "build.rs", "main.overlay", "memory.x", "CMakeLists.txt","Makefile"] {
+            assert_eq!(src_ref(&format!("{f}:73")).map(|r| (r.2,r.3)),Some((f.into(),73)));
+        }
+        assert!(src_ref("image.bin:123").is_none());
         assert_eq!(src_ref("time 12:30:45"), None);
         assert_eq!(src_ref("ip 192.168.1.1:8080"), None);
         assert_eq!(src_ref(r"C:\fw\main.c:7 oops").map(|r| r.2), Some(r"C:\fw\main.c".to_string()));

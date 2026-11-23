@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.16
+
+- Complete JSON property names and literals in the source editor. The same editor offers Rust and C/C++ project symbols, including parsed declarations in open buffers.
+- Evaluate conditional shading in include order using the source file's compilation database entry, editor defines, and unsaved headers. Keep uncertain branches readable when a board configuration or SDK header cannot be resolved.
+- Recognize additional embedded source, linker, device-tree, board configuration and XML project formats. Explorer's optional Open with integration registers QCCOM for these extensions.
+
 ## 1.9.15
 
 - Launch a separate process and settings slot on each double-click. Explorer file and comparison requests can still reuse the primary window.

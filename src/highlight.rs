@@ -17,6 +17,7 @@ pub enum Lang {
     Java,
     Shell,
     Json,
+    Xml,
     Make,
     Ini,
     Markdown,
@@ -26,6 +27,23 @@ pub enum Lang {
     Ld,
     Plain,
 }
+
+// Shared by language detection and the optional desktop file associations.
+pub const EMBEDDED_TYPES: &[(Lang, &[&str])] = &[
+    (Lang::C, &["c", "h", "cc", "cpp", "cxx", "c++", "hh", "hpp", "hxx", "h++", "inl", "ipp", "tpp", "tcc", "txx", "cppm", "ixx", "cu", "cuh", "ino", "pde"]),
+    (Lang::Rust, &["rs"]),
+    (Lang::Json, &["json", "jsonc", "json5", "code-workspace"]),
+    (Lang::Asm, &["s", "asm", "inc", "a51", "s51", "pio"]),
+    (Lang::Dts, &["dts", "dtsi", "overlay"]),
+    (Lang::Ld, &["ld", "lds", "icf", "sct", "x", "lcf", "lsl", "xcl"]),
+    (Lang::Make, &["mk", "mak", "cmake"]),
+    (Lang::Ini, &["ini", "toml", "cfg", "conf", "yaml", "yml", "ioc"]),
+    (Lang::Xml, &["xml", "svd", "pdsc", "uvproj", "uvprojx", "uvoptx", "ewp", "eww", "ewd", "launch", "cproject", "project"]),
+    (Lang::Markdown, &["md", "markdown"]),
+    (Lang::Plain, &["txt", "rst"]),
+    (Lang::Python, &["py"]),
+    (Lang::Shell, &["sh", "bat", "cmd", "ps1"]),
+];
 
 impl Lang {
     pub fn from_path(p: &std::path::Path) -> Lang {
@@ -39,21 +57,18 @@ impl Lang {
         if name == ".config" || name == "defconfig" || name.ends_with("_defconfig") || name == "sdkconfig" || name.starts_with("sdkconfig.") {
             return Lang::Ini;
         }
-        let ext = name.rsplit('.').next().unwrap_or("");
+        let ext = name.rsplit_once('.').map_or("", |(_, e)| e);
+        if let Some((language, _)) = EMBEDDED_TYPES.iter().find(|(_, extensions)| extensions.contains(&ext)) {
+            return *language;
+        }
         match ext {
-            "c" | "h" | "cpp" | "cc" | "cxx" | "hpp" | "hh" | "hxx" | "ino" | "cs" | "m" => Lang::C,
-            "ld" | "lds" | "icf" | "sct" => Lang::Ld,
-            "dts" | "dtsi" | "overlay" => Lang::Dts,
-            "rs" => Lang::Rust,
-            "py" | "pyw" => Lang::Python,
+            "cs" | "m" => Lang::C,
+            "pyw" => Lang::Python,
             "js" | "mjs" | "cjs" | "ts" | "tsx" | "jsx" | "vue" => Lang::Js,
             "go" => Lang::Go,
             "java" | "kt" | "kts" | "scala" | "groovy" | "gradle" => Lang::Java,
-            "sh" | "bash" | "zsh" | "bat" | "cmd" | "ps1" => Lang::Shell,
-            "json" | "jsonc" => Lang::Json,
-            "ini" | "toml" | "cfg" | "conf" | "yaml" | "yml" | "properties" | "env" => Lang::Ini,
-            "md" | "markdown" => Lang::Markdown,
-            "s" | "asm" | "inc" => Lang::Asm,
+            "bash" | "zsh" => Lang::Shell,
+            "properties" | "env" => Lang::Ini,
             _ => Lang::Plain,
         }
     }
@@ -68,6 +83,7 @@ impl Lang {
             Lang::Java => "Java / Kotlin",
             Lang::Shell => "Shell",
             Lang::Json => "JSON",
+            Lang::Xml => "XML",
             Lang::Make => "Makefile / CMake",
             Lang::Ini => t("配置文件"),
             Lang::Markdown => "Markdown",
@@ -164,6 +180,15 @@ impl Lang {
                 ty: &[],
                 consts: &["true", "false", "null"],
             },
+            Lang::Xml => Spec {
+                line: &[],
+                block: Some(("<!--", "-->")),
+                strings: &['"', '\''],
+                hash_pre: false,
+                kw: &[],
+                ty: &[],
+                consts: &[],
+            },
             Lang::Ini => Spec {
                 line: &["#", ";"],
                 block: None,
@@ -232,7 +257,7 @@ impl Lang {
     }
 
     pub fn is_code(self) -> bool {
-        !matches!(self, Lang::Plain | Lang::Markdown | Lang::Json | Lang::Ini)
+        !matches!(self, Lang::Plain | Lang::Markdown | Lang::Json | Lang::Ini | Lang::Xml)
     }
 }
 
@@ -688,6 +713,7 @@ pub enum Tok {
     Ty,
     Func,
     Str,
+    Property,
     Num,
     Comment,
     Pre,
@@ -704,6 +730,7 @@ pub fn color(t: Tok) -> Color32 {
         Tok::Ty => pal::TY(),
         Tok::Func => pal::FUNC(),
         Tok::Str => pal::STR(),
+        Tok::Property => pal::VAR(),
         Tok::Num => pal::NUM(),
         Tok::Comment => pal::COMMENT(),
         Tok::Pre => pal::PRE(),
@@ -755,12 +782,7 @@ impl LogPreset {
             if token == Tok::Text {
                 continue;
             }
-            let fg = if lang == Lang::Json && token == Tok::Str && text[end..].trim_start().starts_with(':') {
-                pal::VAR()
-            } else {
-                color(token)
-            };
-            paint(start..end, fg);
+            paint(start..end, color(token));
         }
     }
 }
@@ -963,7 +985,8 @@ pub fn tokenize(text: &str, lang: Lang) -> Vec<(usize, usize, Tok)> {
                 j += 1;
             }
             let j = j.min(n);
-            push(i, j, Tok::Str);
+            let key = lang == Lang::Json && text[j..].trim_start().starts_with(':');
+            push(i, j, if key { Tok::Property } else { Tok::Str });
             i = j;
             continue;
         }
@@ -988,7 +1011,11 @@ pub fn tokenize(text: &str, lang: Lang) -> Vec<(usize, usize, Tok)> {
                 k += 1;
             }
             let call = k < n && b[k] == b'(';
-            let t = if in_pre && lang == Lang::C {
+            let t = if lang == Lang::Xml && (text[..i].ends_with('<') || text[..i].ends_with("</")) {
+                Tok::Ty
+            } else if lang == Lang::Xml && b.get(k) == Some(&b'=') {
+                Tok::Property
+            } else if in_pre && lang == Lang::C {
                 if w == "defined" {
                     Tok::Pre
                 } else {

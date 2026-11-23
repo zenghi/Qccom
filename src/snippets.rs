@@ -52,6 +52,7 @@ pub fn lang_id(l: Lang) -> &'static str {
         Lang::Go => "go",
         Lang::Java => "java",
         Lang::Json => "json",
+        Lang::Xml => "xml",
         Lang::Ini => "ini",
         Lang::Markdown => "markdown",
         Lang::Plain => "text",

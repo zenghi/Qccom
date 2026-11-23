@@ -491,7 +491,7 @@ pub enum Kind {
 impl Kind {
     pub fn of(ext: &str) -> Option<Kind> {
         match ext {
-            "json" | "jsonc" | "json5" => Some(Kind::Json),
+            "json" | "jsonc" | "json5" | "code-workspace" => Some(Kind::Json),
             "yaml" | "yml" => Some(Kind::Yaml),
             "toml" => Some(Kind::Toml),
             _ => None,

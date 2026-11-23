@@ -142,6 +142,8 @@ fn main() -> eframe::Result {
         migrate_storage();
     }
     let n = instance();
+    #[cfg(windows)]
+    if n == 1 { shellint::upgrade_associations(); }
     let title = if n == 1 { "QCCOM".to_string() } else { format!("QCCOM ({n})") };
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()

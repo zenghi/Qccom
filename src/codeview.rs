@@ -22,6 +22,7 @@ mod fileops;
 mod gen;
 mod insight;
 mod regs;
+mod preprocess;
 use crate::git;
 use crate::highlight::{self, is_ident, Lang};
 use crate::i18n::{t, tf};
@@ -174,6 +175,8 @@ struct Doc {
     syms: Vec<Sym>,
     /// 改过文字后，符号表等一会儿再重新解析（连续打字时不用每个字都解析）
     syms_stale: Option<f64>,
+    json_keys: Vec<String>,
+    defined_words: Arc<[String]>,
     /// 待跳转：(行, 选中的字节范围)
     goto: Option<(usize, Option<(usize, usize)>)>,
     cursor: (usize, usize),
@@ -201,8 +204,8 @@ struct Doc {
     md_split: bool,
     /// 不是磁盘上的文件（比较视图）
     virt: bool,
-    /// 不生效的 #if 分支缓存：(文本版本, 宏环境指纹, 行范围)
-    inactive: (u64, u64, Vec<(usize, usize)>),
+    /// 当前文件的后台条件编译分析与头文件缓存
+    inactive: preprocess::Shading,
     /// 光标所在函数体、#if 块缓存：(文本版本, 光标行, 函数体, #if 块)
     scope: (u64, usize, Option<(usize, usize)>, Option<(usize, usize)>),
 }
@@ -239,6 +242,8 @@ impl Doc {
             lang: Lang::from_path(path),
             syms: vec![],
             syms_stale: None,
+            json_keys: vec![],
+            defined_words: Arc::default(),
             goto: None,
             cursor: (0, 0),
             bom,
@@ -255,7 +260,7 @@ impl Doc {
             md_split: false,
             special,
             virt: false,
-            inactive: (u64::MAX, 0, vec![]),
+            inactive: Default::default(),
             scope: (u64::MAX, 0, None, None),
         };
         d.saved = d.buf.text.clone();
@@ -265,15 +270,24 @@ impl Doc {
 
     /// 有文本内容可以编辑（不是纯二进制、不是比较视图）
     fn textual(&self) -> bool {
-        !self.virt && !(self.special.is_some() && self.buf.text.is_empty())
+        !self.virt && !(self.special.is_some() && self.buf.text.is_empty() && self.lang != Lang::Json)
     }
 
     fn reparse(&mut self) {
         self.syms.clear();
+        if self.lang == Lang::Json && self.buf.text.len() <= 1_500_000 {
+            self.json_keys = crate::editor::json_keys(&self.buf.text);
+        }
         if self.lang == Lang::C || self.lang == Lang::Asm {
             cindex::parse_c(&self.buf.text, 0, &mut self.syms);
         } else if self.lang.is_code() {
             cindex::parse_generic(&self.buf.text, 0, &mut self.syms);
+        }
+        if matches!(self.lang, Lang::C | Lang::Asm | Lang::Rust) {
+            let mut names: Vec<_> = self.syms.iter().map(|s| s.name.clone()).collect();
+            names.sort_unstable();
+            names.dedup();
+            self.defined_words = names.into();
         }
         self.syms.retain(|s| s.kind != Kind::EnumConst);
         self.syms_stale = None;
@@ -734,6 +748,13 @@ impl CodeView {
         }
     }
 
+    fn open_completion_words(&self, i: usize) -> Vec<Arc<[String]>> {
+        let lang = self.tabs[i].lang;
+        self.tabs.iter().filter(|d| {
+            !d.defined_words.is_empty() && (d.lang == lang || matches!((d.lang,lang), (Lang::Asm,Lang::C) | (Lang::C,Lang::Asm)))
+        }).map(|d| d.defined_words.clone()).collect()
+    }
+
     pub fn root(&self) -> Option<&Path> {
         self.root.as_deref()
     }
@@ -771,6 +792,8 @@ impl CodeView {
         self.s.recent.insert(0, ps.clone());
         self.s.recent.truncate(10);
         self.s.root = ps;
+        self.index = None;
+        self.sem = None;
         self.root = Some(p.clone());
         self.hist_restart = true;
         self.reindex();
@@ -875,10 +898,18 @@ impl CodeView {
         }
     }
 
+    // A file opened from Explorer should use its firmware project for symbol lookup too.
+    fn enclosing_project(file: &Path) -> Option<&Path> {
+        let dirs: Vec<_> = file.parent()?.ancestors().take(8).take_while(|p| p.parent().is_some()).collect();
+        let markers = ["Cargo.toml", "compile_commands.json", "build/compile_commands.json", "platformio.ini", "CMakePresets.json", "sdkconfig", ".project", ".git"];
+        dirs.iter().copied().find(|dir| markers.iter().any(|m| dir.join(m).exists()))
+            .or_else(|| dirs.into_iter().find(|dir| ["Makefile", "CMakeLists.txt"].iter().any(|m| dir.join(m).is_file())))
+    }
+
     fn pick_file(&mut self) {
         if let Some(p) = crate::diagnostics::file_dialog().set_title(t("打开文件")).pick_file() {
             if self.root.is_none() {
-                if let Some(d) = p.parent() {
+                if let Some(d) = Self::enclosing_project(&p).or_else(|| p.parent()) {
                     self.open_root(d.to_path_buf());
                 }
             }
@@ -890,6 +921,9 @@ impl CodeView {
         if self.pick_mode {
             self.picked.push(p.to_path_buf());
             return;
+        }
+        if self.root.is_none() && self.tabs.is_empty() && p.is_file() {
+            if let Some(root) = Self::enclosing_project(p) { self.open_root(root.to_path_buf()); }
         }
         // 记录跳转前的位置，给"后退"用
         if let Some(d) = self.tabs.get(self.active) {
@@ -1754,6 +1788,13 @@ impl CodeView {
     }
 
     fn poll(&mut self, ctx: &egui::Context) {
+        let now = ctx.input(|i| i.time);
+        for d in &mut self.tabs {
+            if let Some(t) = d.syms_stale {
+                if now - t >= 0.4 { d.reparse(); }
+                else { ctx.request_repaint_after(std::time::Duration::from_secs_f64((t + 0.4 - now).max(0.0))); }
+            }
+        }
         self.poll_lsp(ctx);
         self.poll_git_lines(ctx);
         self.poll_disk(ctx);
@@ -3527,7 +3568,8 @@ impl CodeView {
         let (font_size, minimap) = (self.s.font_size, self.s.minimap);
         let vim_on = self.s.vim;
         let marks = self.mark_colors();
-        let inactive = self.inactive_of(i);
+        let live_words = self.open_completion_words(i);
+        let inactive = self.inactive_of(i, ui.ctx());
         let d = &mut self.tabs[i];
         let view = View {
             lang: d.lang,
@@ -3536,6 +3578,8 @@ impl CodeView {
             find: &[],
             find_cur: None,
             sem: sem.as_deref().filter(|_| d.lang == Lang::C || d.lang == Lang::Asm),
+            live_words: &live_words,
+            words: if d.lang == Lang::Json { &d.json_keys } else { self.index.as_ref().map_or(&[], |idx| idx.completion_words(d.lang)) },
             git: &d.git_lines,
             big: d.buf.text.len() > 1_500_000,
             ghost: None,
@@ -3953,7 +3997,8 @@ impl CodeView {
         let area = Rect::from_min_max(full.min, pos2(full.right(), full.bottom() - status_h));
         let status_rect = Rect::from_min_max(pos2(full.left(), area.bottom()), full.max);
         let marks = self.mark_colors();
-        let inactive = self.inactive_of(active);
+        let live_words = self.open_completion_words(active);
+        let inactive = self.inactive_of(active, ui.ctx());
         let (scope, if_block) = self.scopes_of(active);
         let d = &mut self.tabs[active];
         d.ed.doc_hook = d.lang == Lang::C;
@@ -3994,6 +4039,8 @@ impl CodeView {
             find: &hits,
             find_cur,
             sem: sem.as_deref().filter(|_| d.lang == Lang::C || d.lang == Lang::Asm),
+            live_words: &live_words,
+            words: if d.lang == Lang::Json { &d.json_keys } else { self.index.as_ref().map_or(&[], |idx| idx.completion_words(d.lang)) },
             git: &d.git_lines,
             big: d.buf.text.len() > 1_500_000,
             ghost: ghost.as_deref().map(|g| (d.cursor.0, g)),
@@ -4013,11 +4060,6 @@ impl CodeView {
                 f.focus = false;
                 f
             });
-        }
-        if d.syms_stale.is_some_and(|t| now - t > 0.4) {
-            d.reparse();
-        } else if d.syms_stale.is_some() {
-            ui.ctx().request_repaint_after(std::time::Duration::from_millis(450));
         }
         let h = d.ed.head();
         let l = d.buf.line_of(h);

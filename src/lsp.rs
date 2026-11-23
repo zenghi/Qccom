@@ -47,9 +47,11 @@ pub fn find_clangd(custom: &str) -> Option<PathBuf> {
     }
 }
 
+pub(crate) const DB_DIRS: &[&str] = &["", "build", "out", "cmake-build-debug", "cmake-build-release", ".build", "builddir"];
+
 /// compile_commands.json 所在目录（工程根或常见的构建目录）
 pub fn compile_db(root: &Path) -> Option<PathBuf> {
-    ["", "build", "out", "cmake-build-debug", "cmake-build-release", ".build", "builddir"]
+    DB_DIRS
         .iter()
         .map(|d| root.join(d))
         .find(|d| d.join("compile_commands.json").is_file())

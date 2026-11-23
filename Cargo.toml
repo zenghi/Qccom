@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.9.15"
+version = "1.9.16"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -56,6 +56,7 @@ arboard = "3"
 ureq = { version = "2", default-features = false, features = ["native-tls"] }
 native-tls = "0.2"
 raw-window-handle = "0.6"
+winreg = "0.10"
 qccom-tunnel = { path = "remote-com", features = ["endpoint"] }
 windows-sys = { version = "0.61", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_System_Registry"] }
 

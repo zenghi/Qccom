@@ -23,15 +23,9 @@ pub(super) struct EditX {
     pub mixed_off: bool,
 }
 
-/// 会转换编码的文本文件
-const TEXT_EXTS: &[&str] = &[
-    "c", "h", "cc", "cpp", "cxx", "hpp", "hxx", "s", "asm", "inc", "txt", "md", "ini", "cfg", "conf", "ld", "lds", "sct", "icf", "py", "cmake", "mk", "json", "yaml", "yml", "xml", "csv", "bat", "sh",
-];
-
 fn is_text_name(rel: &str) -> bool {
-    let name = rel.rsplit('/').next().unwrap_or(rel);
-    let ext = name.rsplit_once('.').map(|(_, e)| e.to_ascii_lowercase()).unwrap_or_default();
-    TEXT_EXTS.contains(&ext.as_str()) || matches!(name, "Makefile" | "makefile" | "Kconfig" | "CMakeLists.txt")
+    let p = Path::new(rel);
+    Lang::from_path(p) != Lang::Plain || p.extension().is_some_and(|e| e.eq_ignore_ascii_case("csv") || e.eq_ignore_ascii_case("txt"))
 }
 
 pub(super) fn scan_encodings(root: &Path) -> EncScan {

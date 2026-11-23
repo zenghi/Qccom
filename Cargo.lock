@@ -4358,7 +4358,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qccom"
-version = "1.9.15"
+version = "1.9.16"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -4400,6 +4400,7 @@ dependencies = [
  "vte",
  "webpki-roots 0.26.11",
  "windows-sys 0.61.2",
+ "winreg",
  "winresource",
 ]
 

@@ -76,6 +76,7 @@ impl Shells {
         }
         let mut launch = None;
         let mut apply = false;
+        let scanning = self.tabs.get(self.active).is_some_and(|s| s.discovery.is_some());
         egui::Window::new(t("MCU 工具链"))
             .id(egui::Id::new("local-toolchains"))
             .open(&mut open)
@@ -107,7 +108,7 @@ impl Shells {
                     });
                     project_fields(ui, project, profile, found.is_some_and(|s| s.cmake), cwd);
                 }
-                if self.pending_shell.is_some() {
+                if scanning {
                     ui.horizontal(|ui| {
                         ui.spinner();
                         ui.label(t("检测工具链…"));
@@ -125,7 +126,7 @@ impl Shells {
                         ui.colored_label(ERR(), issue);
                     }
                 }
-                apply = ui.add_enabled(self.pending_shell.is_none(), egui::Button::new(t("检测并打开新终端"))).clicked();
+                apply = ui.add_enabled(!scanning, egui::Button::new(t("检测并打开新终端"))).clicked();
                 ui.separator();
                 ui.collapsing(t("手动导入环境"), |ui| self.manual_environment(ui, &mut launch));
             });
@@ -147,7 +148,7 @@ impl Shells {
                 local.clone().find(|kind| kind.name == preferred).or_else(|| local.next()).cloned()
             };
             self.new_shell(ctx, kind, cwd);
-            if self.pending_shell.is_none() && self.tabs.len() == count {
+            if self.tabs.len() == count {
                 self.s.environment = old;
             }
         }

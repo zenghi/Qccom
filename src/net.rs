@@ -72,6 +72,7 @@ impl Default for MqttConfig {
 pub struct NetConfig {
     pub tcp_host: String,
     pub tcp_port: u16,
+    pub tcp_source: String,
     pub server_port: u16,
     pub udp_local: u16,
     pub udp_host: String,
@@ -86,6 +87,7 @@ impl Default for NetConfig {
         Self {
             tcp_host: "192.168.1.100".into(),
             tcp_port: 8080,
+            tcp_source: String::new(),
             server_port: 8080,
             udp_local: 9000,
             udp_host: "192.168.1.100".into(),
@@ -207,10 +209,96 @@ pub(crate) fn is_timeout(e: &io::Error) -> bool {
     matches!(e.kind(), io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut | io::ErrorKind::Interrupted)
 }
 
+fn tcp_device_connect(cfg: &NetConfig) -> Result<TcpStream, String> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let source = cfg.tcp_source.trim();
+    let source: Option<std::net::IpAddr> = if source.is_empty() {
+        None
+    } else {
+        Some(source.parse().map_err(|_| tf("本地 IP 无效：{}", &[&source]))?)
+    };
+    let host = cfg.tcp_host.trim();
+    if host.is_empty() {
+        return Err(t("请填写地址").into());
+    }
+    let candidates = (host, cfg.tcp_port).to_socket_addrs().map_err(|e| tf("解析 {} 失败：{}", &[&host, &e]))?;
+    let mut error = tf("没有与本地 IP 地址族匹配的目标：{}", &[&host]);
+    let deadline = std::time::Instant::now() + Duration::from_secs(18);
+    for dest in candidates.filter(|dest| source.is_none_or(|src| src.is_ipv4() == dest.is_ipv4())) {
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let socket = Socket::new(Domain::for_address(dest), Type::STREAM, Some(Protocol::TCP)).map_err(|e| e.to_string())?;
+        if let Some(src) = source {
+            socket.bind(&SocketAddr::new(src, 0).into()).map_err(|e| tf("绑定本地 IP {} 失败：{}", &[&src, &e]))?;
+            #[cfg(windows)]
+            bind_windows_interface(&socket, src).map_err(|e| tf("绑定本地 IP {} 失败：{}", &[&src, &e]))?;
+        }
+        match socket.connect_timeout(&dest.into(), remaining) {
+            Ok(()) => {
+                let stream = TcpStream::from(socket);
+                stream.set_nodelay(true).ok();
+                return Ok(stream);
+            }
+            Err(e) => error = tf("连接 {} 失败：{}", &[&dest, &e]),
+        }
+    }
+    Err(error)
+}
+
+#[cfg(windows)]
+fn bind_windows_interface(stream: &socket2::Socket, ip: std::net::IpAddr) -> io::Result<()> {
+    use std::{net::IpAddr, os::windows::io::AsRawSocket, ptr};
+    use windows_sys::Win32::{
+        NetworkManagement::IpHelper::{FreeMibTable, GetUnicastIpAddressTable, MIB_UNICASTIPADDRESS_TABLE},
+        Networking::WinSock::*,
+    };
+    let ipv4 = ip.is_ipv4();
+    let mut table: *mut MIB_UNICASTIPADDRESS_TABLE = ptr::null_mut();
+    let status = unsafe { GetUnicastIpAddressTable(if ipv4 { AF_INET } else { AF_INET6 }, &mut table) };
+    if status != 0 {
+        return Err(io::Error::from_raw_os_error(status as i32));
+    }
+    if table.is_null() {
+        return Err(io::ErrorKind::AddrNotAvailable.into());
+    }
+    // This is a dynamically sized table allocated by IP Helper.
+    let index = unsafe {
+        let count = (*table).NumEntries as usize;
+        let rows = ptr::addr_of!((*table).Table).cast::<windows_sys::Win32::NetworkManagement::IpHelper::MIB_UNICASTIPADDRESS_ROW>();
+        let index = (0..count).find_map(|i| {
+            let row = &*rows.add(i);
+            let matching = match ip {
+                IpAddr::V4(ip) => row.Address.Ipv4.sin_addr.S_un.S_addr.to_ne_bytes() == ip.octets(),
+                IpAddr::V6(ip) => row.Address.Ipv6.sin6_addr.u.Byte == ip.octets(),
+            };
+            matching.then_some(row.InterfaceIndex)
+        });
+        FreeMibTable(table.cast());
+        index
+    }
+    .ok_or(io::ErrorKind::AddrNotAvailable)?;
+    let (level, option, value) = if ipv4 {
+        (IPPROTO_IP, IP_UNICAST_IF, index.to_be())
+    } else {
+        (IPPROTO_IPV6, IPV6_UNICAST_IF, index)
+    };
+    if unsafe { setsockopt(stream.as_raw_socket() as SOCKET, level, option, (&value as *const u32).cast(), size_of::<u32>() as i32) } == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::from_raw_os_error(unsafe { WSAGetLastError() }))
+    }
+}
+
 fn tcp_client(io: &Io, cfg: &NetConfig, label: &str) -> Result<(), String> {
-    let mut s = connect_tcp(&cfg.tcp_host, cfg.tcp_port)?;
+    let mut s = tcp_device_connect(cfg)?;
+    s.set_write_timeout(Some(Duration::from_secs(3))).ok();
     s.set_read_timeout(Some(Duration::from_millis(20))).ok();
     io.opened(label);
+    if let (Ok(src), Ok(dest)) = (s.local_addr(), s.peer_addr()) {
+        io.sys(tf("TCP 路径：{} → {}", &[&src, &dest]));
+    }
     let mut buf = vec![0u8; 16 * 1024];
     loop {
         match s.read(&mut buf) {
@@ -221,7 +309,11 @@ fn tcp_client(io: &Io, cfg: &NetConfig, label: &str) -> Result<(), String> {
         }
         loop {
             match io.next() {
-                Next::Cmd(Cmd::Send(d)) => s.write_all(&d).map_err(|e| e.to_string())?,
+                Next::Cmd(Cmd::SendObserved(d)) => {
+                    s.write_all(&d).map_err(|e| tf("TCP 发送失败：{}", &[&e]))?;
+                    io.send(Evt::Sent(io.gen, d));
+                }
+                Next::Cmd(Cmd::Send(d)) => s.write_all(&d).map_err(|e| tf("TCP 发送失败：{}", &[&e]))?,
                 Next::Cmd(_) => {}
                 Next::Idle => break,
                 Next::Quit => return Ok(()),
@@ -266,15 +358,36 @@ fn tcp_server(io: &Io, cfg: &NetConfig, label: &str) -> Result<(), String> {
         }
         loop {
             match io.next() {
-                Next::Cmd(Cmd::Send(d)) => {
+                Next::Cmd(cmd @ (Cmd::Send(_) | Cmd::SendObserved(_))) => {
+                    let (d, observed) = match cmd {
+                        Cmd::Send(d) => (d, false),
+                        Cmd::SendObserved(d) => (d, true),
+                        _ => unreachable!(),
+                    };
                     if clients.is_empty() {
                         io.sys(t("还没有客户端连上，数据没有发出"));
+                        continue;
                     }
-                    // 发给所有客户端（广播）
-                    for (s, _) in clients.iter_mut() {
-                        s.set_nonblocking(false).ok();
-                        let _ = s.write_all(&d);
-                        s.set_nonblocking(true).ok();
+                    let before = clients.len();
+                    let mut sent = false;
+                    clients.retain_mut(|(stream, addr)| {
+                        let result = stream
+                            .set_write_timeout(Some(Duration::from_secs(1)))
+                            .and_then(|_| stream.set_nonblocking(false))
+                            .and_then(|_| stream.write_all(&d));
+                        sent |= result.is_ok();
+                        if let Err(e) = result.and_then(|_| stream.set_nonblocking(true)) {
+                            io.sys(tf("客户端 {} 发送失败，已断开：{}", &[addr, &e]));
+                            false
+                        } else {
+                            true
+                        }
+                    });
+                    if clients.len() != before {
+                        io.send(Evt::Peers(clients.len()));
+                    }
+                    if sent && observed {
+                        io.send(Evt::Sent(io.gen, d));
                     }
                 }
                 Next::Cmd(_) => {}
@@ -669,12 +782,37 @@ mod tests {
         assert!(wait_evt(&rx, |e| matches!(e, Evt::Opened(1, _))));
         peer.write_all(b"hello").unwrap();
         assert!(wait_evt(&rx, |e| matches!(e, Evt::Data(d) if d == b"hello")));
-        c.cmd.send(Cmd::Send(b"ping".to_vec())).unwrap();
+        c.cmd.send(Cmd::SendObserved(b"ping".to_vec())).unwrap();
+        assert!(wait_evt(&rx, |e| matches!(e, Evt::Sent(1, d) if d == b"ping")));
         let mut b = [0u8; 4];
         peer.read_exact(&mut b).unwrap();
         assert_eq!(&b, b"ping");
         drop(peer);
         assert!(wait_evt(&rx, |e| matches!(e, Evt::Closed(1, Some(_)))));
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn tcp_source_address_and_raw_ascii_match_the_peer() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let cfg = NetConfig {
+            tcp_host: "127.0.0.1".into(),
+            tcp_port: listener.local_addr().unwrap().port(),
+            tcp_source: "127.0.0.2".into(),
+            ..Default::default()
+        };
+        let (tx, rx) = mpsc::channel();
+        let conn = open(9, Transport::TcpClient, cfg, tx, egui::Context::default()).unwrap();
+        let (mut peer, from) = listener.accept().unwrap();
+        assert_eq!(from.ip().to_string(), "127.0.0.2");
+        conn.cmd.send(Cmd::SendObserved(b"s31-test".to_vec())).unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+        let mut payload = [0; 8];
+        peer.read_exact(&mut payload).unwrap();
+        assert_eq!(&payload, b"s31-test");
+        assert!(wait_evt(&rx, |e| matches!(e,Evt::Sent(9,d) if d == b"s31-test")));
+        peer.write_all(b"OK").unwrap();
+        assert!(wait_evt(&rx, |e| matches!(e,Evt::Data(d) if d == b"OK")));
     }
 
     #[test]

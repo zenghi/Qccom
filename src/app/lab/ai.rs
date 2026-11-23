@@ -20,12 +20,23 @@ impl App {
                     app.ai_call(&call.name, &call.args)
                 })
             };
-            self.ai.last = format!("{} · {}", call.name, if result.is_ok() { "OK" } else { "ERROR" });
+            self.ai.last = format!("{} · {}", call.name, result.as_ref().err().map(String::as_str).unwrap_or("OK"));
             let _ = call.reply.try_send(result);
         }
         if !self.ai.dialog {
             return;
         }
+        let slot = self.ai.slot;
+        if slot != self.session_slot && self.sessions.get(slot).is_none_or(|s| s.is_none()) {
+            self.ai.bridge = None;
+            self.ai.dialog = false;
+            self.toast(t("共享会话已关闭"), WARN());
+            return;
+        }
+        self.with_session(slot, |app| app.ai_dialog(ctx));
+    }
+
+    fn ai_dialog(&mut self, ctx: &egui::Context) {
         let mut open = true;
         egui::Window::new(t("AI 连接 · MCP")).collapsible(false).open(&mut open).show(ctx, |ui| {
             if self.ai.bridge.is_none() {
@@ -38,6 +49,8 @@ impl App {
                             self.ai.key = self.device_key();
                             self.ai.device = false;
                             self.ai.build = false;
+                            self.ai.circuit = false;
+                            self.ai.last.clear();
                             self.ai.bridge = Some(b);
                             let shown = self.plot.lab.visible;
                             self.open_lab();
@@ -53,8 +66,13 @@ impl App {
                 if ui.button(t("复制客户端配置")).clicked() {
                     ctx.copy_text(serde_json::to_string_pretty(&self.ai.bridge.as_ref().unwrap().config()).unwrap());
                 }
+                if ui.button(t("复制 Codex TOML 配置")).clicked() {
+                    ctx.copy_text(self.ai.bridge.as_ref().unwrap().codex_config());
+                }
+                ui.small(t("将配置加入客户端并重连，先调用 session_info 查看当前会话和权限。"));
                 ui.collapsing(t("会话权限"), |ui| {
                     ui.checkbox(&mut self.ai.device, t("允许录制、发送已保存指令和调参"));
+                    ui.checkbox(&mut self.ai.circuit, t("共享当前仿真电路（只读）"));
                     ui.checkbox(&mut self.ai.build, t("允许编译和烧录"));
                 });
                 if !self.ai.last.is_empty() {
@@ -77,8 +95,10 @@ impl App {
         }
         match name {
             "session_info" => Ok(
-                json!({"project":self.shell_cwd(),"port":self.s.port,"connected":self.can_send(),"toolchain":self.shells.instrument_context(),"firmware":self.plot.lab.data().firmware,"parameters":self.plot.lab.data().parameters,"protocol":self.plot.lab.cfg.protocol,"channels":self.plot.lab.data().channels.iter().map(|c|&c.name).collect::<Vec<_>>(),"commands":self.s.groups.iter().flat_map(|g|&g.cmds).filter(|c|c.target.is_none()).map(|c|&c.name).take(100).collect::<Vec<_>>(),"parameter":{"template":self.plot.lab.cfg.template,"min":self.plot.lab.cfg.low,"max":self.plot.lab.cfg.high},"recording":!matches!(self.plot.lab.rec,Recording::Idle)}),
+                json!({"permissions":{"circuit":self.ai.circuit,"device":self.ai.device,"build":self.ai.build},"project":self.shell_cwd(),"port":self.s.port,"connected":self.can_send(),"toolchain":self.shells.instrument_context(),"firmware":self.plot.lab.data().firmware,"parameters":self.plot.lab.data().parameters,"protocol":self.plot.lab.cfg.protocol,"channels":self.plot.lab.data().channels.iter().map(|c|&c.name).collect::<Vec<_>>(),"commands":self.s.groups.iter().flat_map(|g|&g.cmds).filter(|c|c.target.is_none()).map(|c|&c.name).take(100).collect::<Vec<_>>(),"parameter":{"template":self.plot.lab.cfg.template,"min":self.plot.lab.cfg.low,"max":self.plot.lab.cfg.high},"recording":!matches!(self.plot.lab.rec,Recording::Idle)}),
             ),
+            "circuit_inspect" if self.ai.circuit => self.circ.as_ref().ok_or("Open a circuit in the QCCOM simulator first")?.mcp_overview(),
+            "circuit_inspect" => Err("Enable read-only circuit sharing in the MCP session permissions".into()),
             "read_events" => {
                 let limit = args["limit"].as_u64().unwrap_or(40).clamp(1, 200) as usize;
                 let mut events: Vec<_> = c.events.iter().rev().filter(|e| e.t >= from && e.t <= to).take(limit).collect();
@@ -170,7 +190,9 @@ impl App {
                 self.shells.instrument_task(&self.ctx, &self.shell_cwd(), flash, &self.s.port)?;
                 Ok(json!({"queued":true}))
             }
-            _ => Err("Unknown tool or not enabled for this session".into()),
+            "mcu_task" => Err("Enable build and flash in the MCP session permissions".into()),
+            "capture_control" | "set_parameter" | "saved_command" => Err("Enable device control in the MCP session permissions".into()),
+            _ => Err("Unknown QCCOM tool; call tools/list".into()),
         }
     }
 }

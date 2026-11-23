@@ -143,6 +143,8 @@ pub struct Shell {
     mcu: Option<Arc<mcu::Session>>,
     pending_write: Option<(Vec<u8>, Vec<Receiver<()>>)>,
     pending_shortcut: Option<PendingShortcut>,
+    discovery: Option<Discovery>,
+    used: bool,
     /// 编号（标签会重排，用它认出是哪一个）
     pub id: usize,
 }
@@ -233,6 +235,8 @@ impl Shell {
             mcu,
             pending_write: None,
             pending_shortcut: None,
+            discovery: None,
+            used: false,
             id: n,
         })
     }
@@ -241,7 +245,8 @@ impl Shell {
         while let Ok(d) = self.rx.try_recv() {
             let reply = self.tv.feed(&d);
             if !reply.is_empty() {
-                self.write(&reply);
+                let _ = self.writer.write_all(&reply);
+                let _ = self.writer.flush();
             }
         }
         if self.exited.is_none() {
@@ -271,6 +276,7 @@ impl Shell {
     }
 
     pub fn write(&mut self, d: &[u8]) {
+        self.used = true;
         let _ = self.writer.write_all(d);
         let _ = self.writer.flush();
     }
@@ -495,11 +501,16 @@ struct PendingShortcut {
     at: std::time::Instant,
 }
 
-struct PendingShell {
+struct Discovery {
     kind: ShellKind,
-    cwd: PathBuf,
-    result: Receiver<mcu::Session>,
+    state: DiscoveryState,
     task: Option<Task>,
+}
+
+enum DiscoveryState {
+    AwaitPaint(mcu::Options),
+    Painted(mcu::Options, std::time::Instant),
+    Scanning(Receiver<mcu::Session>),
 }
 
 struct PendingInstrument {
@@ -530,7 +541,6 @@ pub struct Shells {
     pub rect: Option<Rect>,
     edit_tasks: bool,
     env_dialog: EnvDialog,
-    pending_shell: Option<PendingShell>,
     instrument_pending: Option<PendingInstrument>,
 }
 
@@ -545,18 +555,10 @@ impl Shells {
             return Err(t("请等待当前工程的终端就绪").into());
         }
         if !self.tabs.get(self.active).is_some_and(|s| s.exited.is_none() && !s.remote && s.cwd == cwd) {
-            if let Some(p) = &self.pending_shell {
-                if p.cwd != cwd {
-                    return Err(t("请等待当前工程的终端就绪").into());
-                }
-            }
             let id = self.next_id + 1;
-            if self.pending_shell.is_none() {
-                self.project_shell_pending = false;
-                self.launch(ctx, None, cwd, None);
-            }
-            if self.pending_shell.is_none() && !self.tabs.iter().any(|s| s.id == id) {
-                return Err(t("检测 MCU 工具链失败").into());
+            self.launch(ctx, None, cwd, None);
+            if !self.tabs.iter().any(|s| s.id == id) {
+                return Err(t("启动失败").into());
             }
             self.instrument_pending = Some(PendingInstrument {
                 root: cwd.to_owned(),
@@ -567,17 +569,27 @@ impl Shells {
             });
             return Ok(());
         }
-        self.submit_instrument(cwd, flash, port)
+        if let Some(sh) = self.tabs.get(self.active).filter(|s| s.discovery.is_some()) {
+            self.instrument_pending = Some(PendingInstrument {
+                root: cwd.into(),
+                id: sh.id,
+                flash,
+                port: port.into(),
+                since: std::time::Instant::now(),
+            });
+            return Ok(());
+        }
+        self.submit_instrument(self.active, cwd, flash, port)
     }
-    fn submit_instrument(&mut self, cwd: &Path, flash: bool, port: &str) -> Result<(), String> {
-        let sh = self.tabs.get(self.active).ok_or_else(|| t("请先打开工程的 MCU 终端").to_owned())?;
+    fn submit_instrument(&mut self, index: usize, cwd: &Path, flash: bool, port: &str) -> Result<(), String> {
+        let sh = self.tabs.get(index).ok_or_else(|| t("请先打开工程的 MCU 终端").to_owned())?;
         let (m, syntax) = sh.mcu.as_ref().zip(sh.syntax).ok_or_else(|| t("请选择已识别工具链的 MCU 终端").to_owned())?;
         if m.root != cwd || sh.remote || !sh.at_prompt() {
             return Err(t("请等待当前工程的终端就绪").into());
         }
         let action = if flash { Action::Flash } else { Action::Build };
         let cmd = m.command(syntax, action, port)?;
-        self.submit_task(self.active, Task { name: action.label().into(), cmd }, flash, (flash && !port.is_empty()).then(|| port.to_owned()));
+        self.submit_task(index, Task { name: action.label().into(), cmd }, flash, (flash && !port.is_empty()).then(|| port.to_owned()));
         Ok(())
     }
 
@@ -599,7 +611,6 @@ impl Shells {
             rect: None,
             edit_tasks: false,
             env_dialog: Default::default(),
-            pending_shell: None,
             instrument_pending: None,
         }
     }
@@ -733,7 +744,6 @@ impl Shells {
     }
 
     fn launch(&mut self, ctx: &egui::Context, kind: Option<ShellKind>, cwd: &Path, task: Option<Task>) {
-        self.pending_shell = None;
         self.project_shell_pending = false;
         let default = self.s.default.clone();
         let kinds = self.kinds();
@@ -743,34 +753,18 @@ impl Shells {
         };
         let env = self.s.environments.iter().find(|e| e.name == self.s.environment).cloned();
         let options = self.s.mcu.get(cwd).cloned().unwrap_or_default();
-        if env.is_some() || options.profile == mcu::Profile::System || Syntax::for_shell(&kind).is_none() {
-            self.finish_launch(ctx, &kind, cwd, env.as_ref(), None, task);
-            return;
-        }
-        let (tx, result) = mpsc::channel();
-        let dir = cwd.to_owned();
-        let repaint = ctx.clone();
-        match std::thread::Builder::new().name("mcu-discover".into()).spawn(move || {
-            let _ = tx.send(mcu::Session::discover(dir, options));
-            repaint.request_repaint();
-        }) {
-            Ok(_) => {
-                self.pending_shell = Some(PendingShell {
-                    kind,
-                    cwd: cwd.to_owned(),
-                    result,
-                    task,
-                });
-                self.s.open = true;
-            }
-            Err(e) => self.events.push(ShellEvt::Toast(tf("检测 MCU 工具链失败：{}", &[&e]))),
-        }
-    }
-
-    fn finish_launch(&mut self, ctx: &egui::Context, kind: &ShellKind, cwd: &Path, env: Option<&Environment>, mcu: Option<Arc<mcu::Session>>, task: Option<Task>) {
         self.next_id += 1;
-        match Shell::spawn_with_env(ctx, kind, cwd, self.next_id, env, mcu) {
-            Ok(sh) => {
+        match Shell::spawn_with_env(ctx, &kind, cwd, self.next_id, env.as_ref(), None) {
+            Ok(mut sh) => {
+                let scan = env.is_none() && options.profile != mcu::Profile::System && sh.syntax.is_some();
+                let mut task = task;
+                if scan {
+                    sh.discovery = Some(Discovery {
+                        kind,
+                        state: DiscoveryState::AwaitPaint(options),
+                        task: task.take(),
+                    });
+                }
                 self.tabs.push(sh);
                 self.active = self.tabs.len() - 1;
                 self.s.open = true;
@@ -778,25 +772,89 @@ impl Shells {
                     self.submit_task(self.active, task, true, None);
                 }
             }
-            Err(e) => {
-                self.events.push(ShellEvt::Toast(tf("启动 {} 失败：{}", &[&kind.name, &e])));
-            }
+            Err(e) => self.events.push(ShellEvt::Toast(tf("启动 {} 失败：{}", &[&kind.name, &e]))),
         }
     }
 
     fn poll_launch(&mut self, ctx: &egui::Context) {
-        let Some(pending) = self.pending_shell.take() else { return };
-        match pending.result.try_recv() {
-            Ok(mcu) => {
-                let show = self.s.open;
-                if let Some(issue) = &mcu.issue {
-                    self.events.push(ShellEvt::Toast(issue.clone()));
-                }
-                self.finish_launch(ctx, &pending.kind, &pending.cwd, None, Some(Arc::new(mcu)), pending.task);
-                self.s.open = show;
+        for i in 0..self.tabs.len() {
+            let sh = &mut self.tabs[i];
+            let Some(mut job) = sh.discovery.take() else { continue };
+            if sh.exited.is_some() {
+                continue;
             }
-            Err(mpsc::TryRecvError::Empty) => self.pending_shell = Some(pending),
-            Err(mpsc::TryRecvError::Disconnected) => self.events.push(ShellEvt::Toast(t("检测 MCU 工具链失败").into())),
+            match job.state {
+                DiscoveryState::Painted(ref options, at) if sh.tv.fed_at.is_some() || at.elapsed() >= std::time::Duration::from_millis(500) => {
+                    let (tx, rx) = mpsc::channel();
+                    let root = sh.cwd.clone();
+                    let options = options.clone();
+                    let wake = ctx.clone();
+                    match std::thread::Builder::new().name("mcu-discover".into()).spawn(move || {
+                        let _ = tx.send(mcu::Session::discover(root, options));
+                        wake.request_repaint();
+                    }) {
+                        Ok(_) => job.state = DiscoveryState::Scanning(rx),
+                        Err(e) => {
+                            self.events.push(ShellEvt::Toast(e.to_string()));
+                            continue;
+                        }
+                    }
+                }
+                DiscoveryState::Scanning(ref rx) => match rx.try_recv() {
+                    Ok(session) => {
+                        if let Some(err) = &session.issue {
+                            self.events.push(ShellEvt::Toast(err.clone()));
+                        }
+                        let mut dest = i;
+                        if !session.actions().is_empty() {
+                            // Environment and shell functions must be inherited at process creation.
+                            // Keep a PTY once the user has typed or started work in it.
+                            let preserve = sh.used;
+                            let id = if preserve {
+                                self.next_id += 1;
+                                self.next_id
+                            } else {
+                                sh.id
+                            };
+                            match Shell::spawn_with_env(ctx, &job.kind, &sh.cwd, id, None, Some(Arc::new(session))) {
+                                Ok(mut configured) => {
+                                    configured.tv.focus_req = !preserve && i == self.active && sh.tv.focus_req;
+                                    configured.color = sh.color;
+                                    if preserve {
+                                        configured.title = format!("MCU · {}", sh.title);
+                                        self.tabs.push(configured);
+                                        dest = self.tabs.len() - 1;
+                                        if let Some(pending) = self.instrument_pending.as_mut().filter(|pending| pending.id == self.tabs[i].id) {
+                                            pending.id = id;
+                                        }
+                                        self.events.push(ShellEvt::Toast(t("MCU 环境已就绪，可切换到 MCU 标签").into()));
+                                    } else {
+                                        configured.title = sh.title.clone();
+                                        *sh = configured;
+                                    }
+                                }
+                                Err(e) => {
+                                    self.events.push(ShellEvt::Toast(e));
+                                    continue;
+                                }
+                            }
+                        } else {
+                            sh.mcu = Some(Arc::new(session));
+                        }
+                        if let Some(task) = job.task {
+                            self.submit_task(dest, task, true, None);
+                        }
+                        continue;
+                    }
+                    Err(mpsc::TryRecvError::Empty) => {}
+                    Err(mpsc::TryRecvError::Disconnected) => {
+                        self.events.push(ShellEvt::Toast(t("检测 MCU 工具链失败").into()));
+                        continue;
+                    }
+                },
+                _ => {}
+            }
+            sh.discovery = Some(job);
         }
     }
 
@@ -847,16 +905,19 @@ impl Shells {
 
     pub fn ui(&mut self, ctx: &egui::Context, cwd: &Path, port: &str, ports: &[crate::serial::PortEntry]) {
         if let Some(job) = self.instrument_pending.take() {
-            let same_tab = self.tabs.get(self.active).filter(|sh| sh.id == job.id);
+            let index = self.tabs.iter().position(|sh| sh.id == job.id && sh.exited.is_none());
             if job.root != cwd || job.since.elapsed() > std::time::Duration::from_secs(30) {
                 self.events.push(ShellEvt::Toast(t("请等待当前工程的终端就绪").into()));
-            } else if same_tab.is_some_and(|sh| sh.mcu.is_none() || sh.at_prompt()) {
-                if let Err(e) = self.submit_instrument(cwd, job.flash, &job.port) {
-                    self.events.push(ShellEvt::Toast(e))
+            } else if let Some(index) = index {
+                let sh = &self.tabs[index];
+                if sh.discovery.is_none() && (sh.mcu.is_none() || sh.at_prompt()) {
+                    if let Err(e) = self.submit_instrument(index, cwd, job.flash, &job.port) {
+                        self.events.push(ShellEvt::Toast(e));
+                    }
+                } else {
+                    self.instrument_pending = Some(job);
+                    ctx.request_repaint_after(std::time::Duration::from_millis(100));
                 }
-            } else if self.pending_shell.is_some() || same_tab.is_some() {
-                self.instrument_pending = Some(job);
-                ctx.request_repaint_after(std::time::Duration::from_millis(100));
             } else {
                 self.events.push(ShellEvt::Toast(t("请等待当前工程的终端就绪").into()));
             }
@@ -972,6 +1033,14 @@ impl Shells {
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
         let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true);
         sh.sync_size();
+        if let Some(job) = &mut sh.discovery {
+            if let DiscoveryState::AwaitPaint(options) = &job.state {
+                job.state = DiscoveryState::Painted(options.clone(), std::time::Instant::now());
+                ui.ctx().request_repaint();
+            } else if matches!(job.state, DiscoveryState::Painted(..)) {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(80));
+            }
+        }
         if o.focused {
             sh.attn = false;
             if i != self.active {
@@ -1238,7 +1307,7 @@ impl Shells {
                 }
                 let sh = self.tabs.get(self.active);
                 let mcu = sh.and_then(|sh| sh.mcu.as_ref()).filter(|m| !m.actions().is_empty());
-                let name = if self.pending_shell.is_some() {
+                let name = if sh.is_some_and(|s| s.discovery.is_some()) {
                     t("检测工具链…").into()
                 } else if let Some(env) = sh.and_then(|sh| sh.environment.as_ref()) {
                     crate::app::truncate(&env.name, 22).into()
@@ -1264,7 +1333,7 @@ impl Shells {
                     .response
                     .on_hover_text(t("烧录和监视跟随调试区选中的设备串口"));
                 }
-                if self.pending_shell.is_none() {
+                if sh.is_none_or(|s| s.discovery.is_none()) {
                     let syntax = sh.and_then(|sh| sh.syntax);
                     let ready = sh.is_some_and(Shell::at_prompt);
                     ui.menu_button(t("自定义命令"), |ui| {
@@ -1380,6 +1449,44 @@ fn action_button(ui: &mut egui::Ui, mcu: &mcu::Session, syntax: Syntax, action: 
 #[cfg(test)]
 mod tests {
     use super::{parse_problems, prompt_of, uses_port};
+
+    #[cfg(unix)]
+    #[test]
+    fn local_shell_accepts_input_before_discovery_and_keeps_busy_tab() {
+        use super::*;
+        let ctx = egui::Context::default();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut shells = Shells::new(Default::default());
+        let kind = ShellKind {
+            name: "sh".into(),
+            program: "/bin/sh".into(),
+            args: vec!["-i".into()],
+        };
+        shells.new_shell(&ctx, Some(kind), tmp.path());
+        let sh = &mut shells.tabs[0];
+        assert!(matches!(sh.discovery.as_ref().unwrap().state, DiscoveryState::AwaitPaint(_)));
+        let id = sh.id;
+        sh.write(b"echo QCCOM_FIRST_PROMPT > ready\r");
+        let until = std::time::Instant::now() + std::time::Duration::from_secs(4);
+        while !tmp.path().join("ready").exists() && std::time::Instant::now() < until {
+            shells.poll_launch(&ctx);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(std::fs::read_to_string(tmp.path().join("ready")).unwrap().trim(), "QCCOM_FIRST_PROMPT");
+        let mut job = shells.tabs[0].discovery.take().unwrap();
+        let options = mcu::Options {
+            profile: mcu::Profile::Make,
+            ..Default::default()
+        };
+        let (tx, rx) = mpsc::channel();
+        tx.send(mcu::Session::discover(tmp.path().into(), options)).ok().unwrap();
+        job.state = DiscoveryState::Scanning(rx);
+        shells.tabs[0].discovery = Some(job);
+        shells.poll_launch(&ctx);
+        assert_eq!(shells.tabs.len(), 2);
+        assert_eq!(shells.tabs[shells.active].id, id);
+        assert!(shells.tabs[1].mcu.is_some() && !shells.tabs[1].tv.focus_req);
+    }
 
     #[test]
     fn port_in_command() {

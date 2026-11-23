@@ -1,6 +1,6 @@
 [package]
 name = "qccom"
-version = "1.9.18"
+version = "1.9.19"
 edition = "2021"
 description = "Lightweight serial / TCP / UDP / MQTT / BLE / HTTP debug tool with a VT100 terminal, C code viewer and Git browser"
 authors = ["zenghi <https://github.com/zenghi>"]
@@ -15,6 +15,7 @@ categories = ["development-tools", "embedded", "gui"]
 anyhow = "1"
 eframe = { version = "0.31", default-features = false, features = ["glow", "x11", "wayland", "persistence"] }
 serialport = "4"
+socket2 = "0.6"
 rfd = "0.15"
 chrono = "0.4"
 encoding_rs = "0.8"
@@ -58,7 +59,7 @@ native-tls = "0.2"
 raw-window-handle = "0.6"
 winreg = "0.10"
 qccom-tunnel = { path = "remote-com", features = ["endpoint"] }
-windows-sys = { version = "0.61", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_System_Registry"] }
+windows-sys = { version = "0.61", features = ["Win32_Devices_DeviceAndDriverInstallation", "Win32_System_Registry", "Win32_Security", "Win32_System_Threading", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging", "Win32_NetworkManagement_IpHelper", "Win32_NetworkManagement_Ndis", "Win32_Networking_WinSock"] }
 
 [target.'cfg(not(windows))'.dependencies]
 # 虚拟串口（openpty）：已经被其他依赖带进来了

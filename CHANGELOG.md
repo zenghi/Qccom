@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.9.19
+
+- Choose a TCP client source IP to select the local adapter on Windows, see the actual endpoint pair, and log TCP commands after a successful socket write. Server write failures identify the disconnected client.
+- Register optional Windows desktop shortcuts that type a saved command into the foreground application, with optional Enter. Enable right-click paste separately and hold Shift to open the normal context menu.
+- Open the interactive local terminal before starting MCU discovery. Keep a terminal that has received input and open its configured MCU environment in a separate tab.
+- Share the originating debug session with MCP, copy Codex TOML configuration, inspect permissions and optionally expose the simulated circuit and electrical checks.
+- Check wiring locally and let the circuit assistant measure a pin over time with a voltage trace from the simulator.
+
 ## 1.9.18
 
 - Resolve conditional shading from the owning MounRiver Studio / Eclipse CDT project, including compiler definitions, ordered include paths and linked folders outside the project directory. An exact compilation database entry takes priority.

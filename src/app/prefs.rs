@@ -63,6 +63,8 @@ pub struct Recording {
 }
 
 pub struct Prefs {
+    #[cfg(windows)]
+    desktop: Option<crate::desktop_keys::Config>,
     pub cat: Cat,
     pub search: String,
     pub recording: Option<Recording>,
@@ -77,6 +79,8 @@ pub struct Prefs {
 impl Default for Prefs {
     fn default() -> Self {
         Prefs {
+            #[cfg(windows)]
+            desktop: None,
             cat: Cat::General,
             search: String::new(),
             recording: None,
@@ -1163,6 +1167,43 @@ impl App {
 
     fn prefs_keys(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        #[cfg(windows)]
+        ui.collapsing(t("Windows 全局快捷键与右键粘贴"), |ui| {
+            let draft = self.prefs.desktop.get_or_insert_with(|| self.s.desktop_keys.clone());
+            ui.checkbox(&mut draft.right_paste, t("右键粘贴到前台窗口的当前输入位置"));
+            ui.small(t("按住 Shift 再右击可使用原菜单。"));
+            let mut remove = None;
+            for (i, cmd) in draft.commands.iter_mut().enumerate() {
+                ui.push_id(i, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.add(egui::TextEdit::singleline(&mut cmd.keys).desired_width(124.).hint_text("Ctrl+Alt+J"));
+                        ui.add(egui::TextEdit::singleline(&mut cmd.text).desired_width(218.).hint_text(t("命令文本")));
+                        ui.checkbox(&mut cmd.enter, t("追加回车"));
+                        if ui.small_button(t("删除")).clicked() {
+                            remove = Some(i);
+                        }
+                    })
+                });
+            }
+            if let Some(i) = remove {
+                draft.commands.remove(i);
+            }
+            if ui.button(t("添加全局快捷命令")).clicked() {
+                draft.commands.push(Default::default());
+            }
+            if ui.button(t("应用")).clicked() {
+                match self.desktop_keys.set(draft, &ctx) {
+                    Ok(()) => {
+                        self.s.desktop_keys = draft.clone();
+                        self.toast(t("已应用"), OK());
+                    }
+                    Err(err) => {
+                        let _ = self.desktop_keys.set(&self.s.desktop_keys, &ctx);
+                        self.toast(err, WARN());
+                    }
+                }
+            }
+        });
         self.record_keys(&ctx);
         ui.horizontal(|ui| {
             ui.add(

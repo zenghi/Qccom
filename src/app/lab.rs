@@ -634,8 +634,18 @@ pub(super) struct Ai {
     origin: Option<Instant>,
     device: bool,
     build: bool,
+    circuit: bool,
     last: String,
 }
+impl Ai {
+    pub(super) fn open_for(&mut self, slot: usize) {
+        if self.bridge.is_none() {
+            self.slot = slot;
+        }
+        self.dialog = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -677,6 +687,27 @@ mod tests {
         assert!(!app.plot.lab.active);
         app.use_session(slot);
         assert_eq!(app.plot.lab.cfg.protocol, Protocol::JustFloat);
+    }
+    #[test]
+    fn mcp_uses_selected_session_and_requires_circuit_sharing() {
+        let mut app = app();
+        let original = app.session_slot;
+        let other = app.new_serial_log_slot();
+        app.with_session(other, |app| {
+            app.s.port = "COM41".into();
+            app.ai.open_for(app.session_slot);
+        });
+        assert_eq!(app.ai.slot, other);
+        let info = app.with_session(app.ai.slot, |app| app.ai_call("session_info", &json!({})).unwrap());
+        assert_eq!(info["port"], "COM41");
+        assert_eq!(app.session_slot, original);
+        assert!(app.ai_call("circuit_inspect", &json!({})).unwrap_err().contains("sharing"));
+        app.ai.circuit = true;
+        assert!(app.ai_call("circuit_inspect", &json!({})).unwrap_err().contains("Open"));
+        let mut view = crate::circuitview::CircuitView::new();
+        view.c = crate::circuit::examples::find("A4").unwrap().build().unwrap();
+        app.circ = Some(Box::new(view));
+        assert!(app.ai_call("circuit_inspect", &json!({})).unwrap()["parts"].as_array().unwrap().len() >= 3);
     }
     #[test]
     fn capture_can_alignment_and_tuning() {

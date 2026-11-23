@@ -85,6 +85,15 @@ impl Bridge {
         })?;
         Ok(Self { address, token, calls, alive })
     }
+    pub fn codex_config(&self) -> String {
+        let cfg = self.config();
+        let server = &cfg["mcpServers"]["qccom"];
+        format!(
+            "[mcp_servers.qccom]\ncommand = {}\nargs = {}\n\n[mcp_servers.qccom.env]\nQCCOM_MCP_SESSION = {}\n",
+            server["command"], server["args"], server["env"]["QCCOM_MCP_SESSION"]
+        )
+    }
+
     pub fn config(&self) -> Value {
         json!({"mcpServers":{"qccom":{"command":std::env::current_exe().unwrap_or_default(),"args":["--mcp",self.address.to_string()],"env":{"QCCOM_MCP_SESSION":self.token}}}})
     }
@@ -97,6 +106,11 @@ impl Drop for Bridge {
 }
 fn tools() -> Value {
     let descriptors = [
+        (
+            "circuit_inspect",
+            "Read the currently open simulated circuit: part and pin IDs, connected nets, and electrical-rule findings. Requires circuit sharing.",
+            json!({}),
+        ),
         ("session_info", "Project, linked port, MCU tools, saved commands and build diagnostics", json!({})),
         (
             "read_events",
@@ -170,7 +184,9 @@ pub fn stdio(args: &[String]) -> i32 {
                     "2025-03-26" | "2025-06-18" | "2025-11-25" => requested,
                     _ => "2025-11-25",
                 };
-                Ok(json!({"protocolVersion":version,"capabilities":{"tools":{}},"serverInfo":{"name":"QCCOM","version":env!("CARGO_PKG_VERSION")}}))
+                Ok(
+                    json!({"protocolVersion":version,"instructions":"Call session_info first to learn which session, channels and permissions are available. Channel numbers start at 1. circuit_inspect reads the simulated circuit only if shared.","capabilities":{"tools":{}},"serverInfo":{"name":"QCCOM","version":env!("CARGO_PKG_VERSION")}}),
+                )
             }
             Some("ping") => Ok(json!({})),
             Some("tools/list") => Ok(json!({"tools":tools()})),
@@ -182,7 +198,7 @@ pub fn stdio(args: &[String]) -> i32 {
                     send(&mut socket, &json!({"token":token,"name":params["name"],"args":params["arguments"]}))?;
                     message(&mut BufReader::new(socket))?.ok_or_else(|| io::Error::other("Session closed"))
                 })();
-                let v = call.unwrap_or_else(|e| json!({"error":e.to_string()}));
+                let v = call.unwrap_or_else(|e| json!({"error":format!("Cannot reach the shared QCCOM session. Enable MCP, copy its current client configuration and reconnect: {e}")}));
                 let failed = v.get("error").is_some();
                 let body = if failed { v["error"].as_str().unwrap_or("Error").into() } else { v["value"].to_string() };
                 Ok(json!({"content":[{"type":"text","text":body}],"isError":failed}))

@@ -1125,7 +1125,7 @@ impl App {
             ui.close_menu();
         }
         if menu_item(ui, t("AI 连接 · MCP"), "") {
-            self.ai.dialog = true;
+            self.ai.open_for(self.session_slot);
             ui.close_menu();
         }
         ui.separator();

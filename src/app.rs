@@ -124,6 +124,7 @@ pub struct Settings {
     pub theme: String,
     /// 用户改过的快捷键
     pub keys: Overrides,
+    pub desktop_keys: crate::desktop_keys::Config,
     /// 快捷键方案
     pub key_scheme: crate::keymap::Scheme,
     /// 复制日志时带上时间戳
@@ -234,6 +235,7 @@ impl Default for Settings {
             skip_version: String::new(),
             theme: "system".into(),
             keys: Overrides::new(),
+            desktop_keys: Default::default(),
             key_scheme: Default::default(),
             copy_ts: false,
             ui_scale: 1.0,
@@ -465,6 +467,8 @@ pub struct App {
     km: Keymap,
     palette: Option<palette::Palette>,
     prefs: prefs::Prefs,
+    #[cfg(windows)]
+    desktop_keys: crate::desktop_keys::win::Manager,
     /// 上一次的工程文件夹（共享目录是否跟着换用）
     last_project: String,
     /// 打开设置前所在的页面（关闭设置时回去）
@@ -685,6 +689,8 @@ impl App {
             km,
             palette: None,
             prefs: prefs::Prefs::default(),
+            #[cfg(windows)]
+            desktop_keys: Default::default(),
             last_project,
             prev_page: Page::Debug,
             nav: Default::default(),
@@ -727,6 +733,10 @@ impl App {
             debug_drawer: None,
             work: Default::default(),
         };
+        #[cfg(windows)]
+        if let Err(e) = app.desktop_keys.set(&app.s.desktop_keys, &cc.egui_ctx) {
+            app.toast(e, WARN());
+        }
         app.parse_keywords();
         app.compile_rules();
         app.compile_triggers();
@@ -997,6 +1007,10 @@ impl App {
         if let Some(conn) = &self.conn {
             if self.s.transport == Transport::Serial && self.vcom.is_some() {
                 if conn.cmd.send(Cmd::SendObserved(data)).is_err() {
+                    self.toast(t("未连接"), WARN());
+                }
+            } else if echo && matches!(self.s.transport, Transport::TcpClient | Transport::TcpServer) {
+                if self.connected.is_none() || conn.cmd.send(Cmd::SendObserved(data)).is_err() {
                     self.toast(t("未连接"), WARN());
                 }
             } else if echo {
@@ -2267,6 +2281,7 @@ impl App {
                         if self.s.transport == Transport::TcpClient {
                             form_row(ui, t("地址"), |ui| text_field(ui, &mut n.tcp_host, t("IP 或域名")));
                             form_row(ui, t("端口"), |ui| num_field(ui, "tcp_port", &mut n.tcp_port));
+                            form_row(ui, t("本地 IP"), |ui| text_field(ui, &mut n.tcp_source, t("留空使用系统路由")));
                         } else {
                             form_row(ui, t("监听端口"), |ui| num_field(ui, "srv_port", &mut n.server_port));
                             let ip = local_ip();
@@ -5657,6 +5672,10 @@ impl eframe::App for App {
         let port_updates = self.port_updates.try_iter().last();
         if let Some(ports) = port_updates {
             self.with_slot(0, |app| app.on_ports(ports));
+        }
+        #[cfg(windows)]
+        if let Ok(err) = self.desktop_keys.errors.try_recv() {
+            self.toast(err, WARN());
         }
         self.tick_background();
         self.handle_events();

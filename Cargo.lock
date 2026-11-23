@@ -4358,7 +4358,7 @@ checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qccom"
-version = "1.9.18"
+version = "1.9.19"
 dependencies = [
  "ab_glyph",
  "anyhow",
@@ -4391,6 +4391,7 @@ dependencies = [
  "serialport",
  "sha1 0.10.7",
  "sha2 0.10.9",
+ "socket2",
  "sys-locale",
  "tempfile",
  "tokio",

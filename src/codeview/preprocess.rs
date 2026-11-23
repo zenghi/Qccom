@@ -151,7 +151,6 @@ fn analyze(path: PathBuf, text: String, index: Option<Arc<Index>>, mut live: Has
     let root = index.as_ref().map(|i| i.root.as_path()).unwrap_or_else(|| path.parent().unwrap_or(&path));
     let opt = options(root, &path, &prev.options, &mut watch);
     let mut unit = Unit::new(opt.macros.clone());
-    unit.incomplete = !opt.matched;
     for (k, v) in super::gen::parse_defines(&extra) {
         unit.macros.insert(k, Binding::Defined(v));
     }
@@ -348,10 +347,45 @@ mod tests {
     }
 
     #[test]
-    fn missing_sdk_is_unknown_but_local_undef_and_constant_false_are_definite() {
+    fn nested_board_selectors_choose_one_payload_without_a_compilation_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("device.c");
+        let header = dir.path().join("board.h");
+        let source = "#include <vendor.h>\n#include \"board.h\"\n#ifdef ZNDD\n's','s',\n#else\n#ifdef THM\n'T','T',\n#else\n'd','s',\n#endif\n#endif";
+        let rows = [3, 6, 8];
+        for (defs, active) in [
+            ("", 8),
+            ("#define THM 0", 6),
+            ("#define ZNDD 0", 3),
+            ("#define THM 1\n#define ZNDD", 3),
+            ("#define ZNDD 1\n#undef ZNDD\n#define THM", 6),
+        ] {
+            fs::write(&header, defs).unwrap();
+            let r = analyze(file.clone(), source.into(), None, HashMap::new(), String::new(), Inputs::default());
+            let visible: Vec<_> = rows.into_iter().filter(|row| !r.ranges.iter().any(|&(a, b)| (a..=b).contains(row))).collect();
+            assert_eq!(visible, [active], "board.h = {defs:?}");
+        }
+        fs::write(header, "").unwrap();
+        let extra = analyze(file, source.into(), None, HashMap::new(), "THM=0".into(), Inputs::default());
+        assert!(extra.ranges.contains(&(3, 3)) && extra.ranges.contains(&(8, 8)));
+    }
+
+    #[test]
+    fn defined_expression_and_macro_selected_header_use_the_same_visible_definitions() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("config.h"), "#define THM 0").unwrap();
+        let src = "#define BOARD_FILE \"config.h\"\n#define SELECTED BOARD_FILE\n#include SELECTED\n#if defined(ZNDD)\na\n#elif defined(THM)\nb\n#else\nc\n#endif";
+        let read = |live| analyze(root.join("main.c"), src.into(), None, live, String::new(), Inputs::default()).ranges;
+        assert_eq!(read(HashMap::new()), [(4, 4), (8, 8)]);
+        assert_eq!(read(HashMap::from([(root.join("config.h"), Arc::from("#define ZNDD 0"))])), [(6, 6), (8, 8)]);
+    }
+
+    #[test]
+    fn unavailable_sdk_keeps_unknown_values_open_and_local_undef_definite() {
         let tmp = tempfile::tempdir().unwrap();
         let file = tmp.path().join("main.c");
-        let source = "#include <vendor.h>\n#ifdef SDK_ENABLED\na\n#else\nb\n#endif\n#undef OFF\n#ifdef OFF\nc\n#endif\n#if 0\nd\n#endif";
+        let source = "#include <vendor.h>\n#if SDK_VERSION > 5\na\n#else\nb\n#endif\n#undef OFF\n#ifdef OFF\nc\n#endif\n#if 0\nd\n#endif";
         let r = analyze(file, source.into(), None, HashMap::new(), String::new(), Inputs::default());
         assert_eq!(r.ranges, [(8, 8), (11, 11)]);
     }

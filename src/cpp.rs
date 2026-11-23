@@ -199,7 +199,6 @@ type Resolver<'a> = dyn FnMut(&std::path::Path, &str, bool) -> Option<Include> +
 
 pub struct Unit {
     pub macros: HashMap<String, Binding>,
-    pub incomplete: bool,
     once: std::collections::HashSet<std::path::PathBuf>,
     stack: Vec<std::path::PathBuf>,
     files: usize,
@@ -209,7 +208,6 @@ impl Unit {
     pub fn new(macros: HashMap<String, Binding>) -> Self {
         Self {
             macros,
-            incomplete: false,
             once: Default::default(),
             stack: Vec::new(),
             files: 0,
@@ -217,16 +215,35 @@ impl Unit {
     }
 
     fn lookup(&self, name: &str) -> Binding {
+        // Preview the macros visible in this translation unit. An SDK header that
+        // could not be read does not make every application switch indeterminate.
         self.macros
             .get(name)
             .cloned()
-            .unwrap_or_else(|| if self.incomplete || name.starts_with("__") { Binding::Unknown } else { Binding::Undefined })
+            .unwrap_or_else(|| if name.starts_with("__") { Binding::Unknown } else { Binding::Undefined })
+    }
+
+    fn include_name(&self, spec: &str) -> Option<(String, bool)> {
+        let mut token = spec.trim().to_owned();
+        for _ in 0..16 {
+            if let Some(name) = token.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+                return Some((name.into(), true));
+            }
+            if let Some(name) = token.strip_prefix('<').and_then(|s| s.strip_suffix('>')) {
+                return Some((name.into(), false));
+            }
+            if token.is_empty() || first_ident(&token) != token {
+                return None;
+            }
+            let Binding::Defined(value) = self.macros.get(&token)? else { return None };
+            token = value.trim().to_owned();
+        }
+        None
     }
 
     pub fn include(&mut self, from: &std::path::Path, name: &str, quoted: bool, resolve: &mut Resolver<'_>, certain: bool) {
         // Bound pathological include graphs, even if files include themselves through aliases.
         if self.stack.len() >= 48 || self.files >= 1024 {
-            self.incomplete = true;
             return;
         }
         if let Some((path, text)) = resolve(from, name, quoted) {
@@ -234,8 +251,6 @@ impl Unit {
                 self.files += 1;
                 self.process(&path, &text, resolve, certain, false);
             }
-        } else {
-            self.incomplete = true;
         }
     }
 
@@ -259,8 +274,7 @@ impl Unit {
         };
         let mut from = 0;
         let mut on = true;
-        // Following an unresolved SDK include, a fresh header's own include guard
-        // can still be entered. Do not assume that an arbitrary #ifndef is a guard.
+        // Recognize a fresh include guard even when it uses a reserved name.
         let mut block = false;
         let mut directives = text.lines().filter_map(|l| {
             let line = clean(l, &mut block);
@@ -308,7 +322,7 @@ impl Unit {
                     });
                 }
                 "elif" | "elifdef" | "elifndef" => {
-                    let cond = if stack.last().is_some_and(|f| f.parent && !f.taken && f.known) { condition() } else { None };
+                    let cond = if stack.last().is_some_and(|f| f.parent && !f.taken) { condition() } else { None };
                     if let Some(f) = stack.last_mut() {
                         line_on = f.parent;
                         f.active = !f.taken && cond != Some(false);
@@ -347,15 +361,8 @@ impl Unit {
                             }
                         }
                         "include" => {
-                            let spec = rest.trim();
-                            let part = spec
-                                .strip_prefix('"')
-                                .and_then(|s| s.split_once('"').map(|(n, _)| (n, true)))
-                                .or_else(|| spec.strip_prefix('<').and_then(|s| s.split_once('>').map(|(n, _)| (n, false))));
-                            if let Some((name, quoted)) = part {
-                                self.include(path, name, quoted, resolve, definite);
-                            } else {
-                                self.incomplete = true;
+                            if let Some((name, quoted)) = self.include_name(rest) {
+                                self.include(path, &name, quoted, resolve, definite);
                             }
                         }
                         "pragma" if definite && rest == "once" => {
@@ -500,6 +507,12 @@ mod tests {
         let t = "#if FOO > 3\na\n#else\nb\n#endif";
         assert_eq!(inactive(t, &[]), vec![]);
         assert_eq!(inactive(t, &[("FOO", "2")]), vec![(1, 1)]);
+    }
+
+    #[test]
+    fn unknown_condition_does_not_activate_later_false_elif() {
+        let t = "#if __SDK_TEST(1)\na\n#elifdef ZNDD\nb\n#elifndef THM\nc\n#else\nd\n#endif";
+        assert_eq!(inactive(t, &[]), vec![(3, 3), (7, 7)]);
     }
 
     #[test]

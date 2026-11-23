@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.17
+
+- Fix nested C/C++ board selectors staying bright together when a compilation database or SDK header is missing. Presence checks use visible definitions, including macros defined as zero. Follow object-like macros used to name configuration headers.
+
 ## 1.9.16
 
 - Complete JSON property names and literals in the source editor. The same editor offers Rust and C/C++ project symbols, including parsed declarations in open buffers.

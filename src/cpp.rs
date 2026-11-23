@@ -443,9 +443,10 @@ fn subst(expr: &str, lookup: &dyn Fn(&str) -> Binding, depth: usize) -> Option<S
             if v.contains('\u{0}') || v.trim().is_empty() {
                 return None;
             }
-            out.push('(');
+            // Object-like macros replace tokens verbatim; grouping comes from the definition.
+            out.push(' ');
             out.push_str(&subst(&v, lookup, depth + 1)?);
-            out.push(')');
+            out.push(' ');
             continue;
         }
         if c.is_ascii_digit() {
@@ -520,6 +521,12 @@ mod tests {
         let t = "#if 0\n#if 1\na\n#endif\nb\n#elif defined(X)\nc\n#elif 1\nd\n#else\ne\n#endif";
         // X 未定义：#elif defined(X) 不生效，#elif 1 生效，#else 不生效
         assert_eq!(inactive(t, &[]), vec![(1, 4), (6, 6), (10, 10)]);
+    }
+
+    #[test]
+    fn board_id_constants_preserve_c_macro_precedence_and_integer_suffixes() {
+        let src = "#define SKU (0x09UL)\n#define ACTIVE SKU\n#define BITS 1 + 2\n#if ACTIVE == 9 && 2 * BITS == 4\non\n#else\noff\n#endif";
+        assert_eq!(inactive(src, &[]), [(6, 6)]);
     }
 
     #[test]

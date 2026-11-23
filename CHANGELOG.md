@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.18
+
+- Resolve conditional shading from the owning MounRiver Studio / Eclipse CDT project, including compiler definitions, ordered include paths and linked folders outside the project directory. An exact compilation database entry takes priority.
+- Preserve C operator precedence in object-like macros and evaluate parenthesized hexadecimal board IDs with integer suffixes.
+
 ## 1.9.17
 
 - Fix nested C/C++ board selectors staying bright together when a compilation database or SDK header is missing. Presence checks use visible definitions, including macros defined as zero. Follow object-like macros used to name configuration headers.

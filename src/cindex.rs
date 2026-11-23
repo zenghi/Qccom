@@ -775,7 +775,7 @@ fn lex(s: &str) -> Option<Vec<T>> {
             // 类型强转 (uint32_t) (volatile GPIO_TypeDef *)：括号里全是标识符和 * 就跳过
             let close = s[i..].find(')')? + i;
             let inner = &s[i + 1..close];
-            if !inner.trim().is_empty() && inner.chars().all(|c| is_ident(c) || c == '*' || c.is_whitespace()) && inner.chars().any(is_ident_start) {
+            if inner.trim_start().starts_with(is_ident_start) && inner.chars().all(|c| is_ident(c) || c == '*' || c.is_whitespace()) {
                 i = close + 1;
                 continue;
             }

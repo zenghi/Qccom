@@ -5,6 +5,8 @@ use std::fs;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, SystemTime};
 
+mod cdt;
+
 type Stamp = Option<(SystemTime, u64)>;
 fn stamp(path: &Path) -> Stamp {
     let m = path.metadata().ok()?;
@@ -16,8 +18,11 @@ fn absolute(p: &Path) -> PathBuf {
 
 #[derive(Default)]
 struct Options {
+    file: PathBuf,
     db: Option<(PathBuf, Stamp)>,
+    cdt: Option<(PathBuf, Stamp, Stamp)>,
     matched: bool,
+    from_cdt: bool,
     macros: HashMap<String, Binding>,
     includes: Vec<PathBuf>,
     quotes: Vec<PathBuf>,
@@ -93,15 +98,31 @@ fn arguments(command: &str) -> Vec<String> {
 }
 
 fn options(root: &Path, file: &Path, previous: &Arc<Options>, watch: &mut HashMap<PathBuf, Stamp>) -> Arc<Options> {
-    let db = crate::lsp::DB_DIRS.iter().map(|dir| root.join(dir).join("compile_commands.json")).find_map(|p| {
+    let mut probe = |p: PathBuf| {
         let s = stamp(&p);
         watch.insert(p.clone(), s);
         s.map(|_| (p, s))
+    };
+    // A tab may have been opened directly or from a workspace containing several projects.
+    let project = file.ancestors().skip(1).chain(std::iter::once(root)).find_map(|d| probe(d.join(".cproject")));
+    let project_dir = project.as_ref().and_then(|(p, _)| p.parent());
+    let roots = project_dir.into_iter().chain((project_dir != Some(root)).then_some(root));
+    let db = roots
+        .flat_map(|d| crate::lsp::DB_DIRS.iter().map(move |dir| d.join(dir).join("compile_commands.json")))
+        .find_map(&mut probe);
+    let cdt = project.map(|(p, s)| {
+        let links = probe(p.with_file_name(".project")).and_then(|(_, stamp)| stamp);
+        (p, s, links)
     });
-    if previous.db == db && db.is_some() {
+    if (db.is_some() || cdt.is_some()) && previous.file == file && previous.db == db && previous.cdt == cdt {
         return previous.clone();
     }
-    let mut opt = Options { db: db.clone(), ..Default::default() };
+    let mut opt = Options {
+        file: file.to_owned(),
+        db: db.clone(),
+        cdt: cdt.clone(),
+        ..Default::default()
+    };
     opt.language(file);
     if let Some((p, Some((_, size)))) = db {
         if size <= 48 << 20 {
@@ -127,6 +148,11 @@ fn options(root: &Path, file: &Path, previous: &Arc<Options>, watch: &mut HashMa
                     }
                 }
             }
+        }
+    }
+    if !opt.matched {
+        if let Some((project, _, _)) = cdt {
+            opt.from_cdt = cdt::load(&project, file, &mut opt).is_some();
         }
     }
     Arc::new(opt)
@@ -157,8 +183,16 @@ fn analyze(path: PathBuf, text: String, index: Option<Arc<Index>>, mut live: Has
     live = live.into_iter().map(|(k, v)| (absolute(&k), v)).collect();
     let mut cache = HashMap::<PathBuf, (Stamp, Arc<str>)>::new();
     let mut remaining = 16 * 1024 * 1024u64;
+    #[cfg(not(windows))]
+    let mut case_cache = HashMap::new();
     let mut resolve = |parent: &Path, name: &str, quoted: bool| -> Option<crate::cpp::Include> {
-        let inc = Path::new(name);
+        let normalized;
+        let inc = if opt.from_cdt && name.contains('\\') {
+            normalized = name.replace('\\', "/");
+            Path::new(&normalized)
+        } else {
+            Path::new(name)
+        };
         let mut paths = vec![];
         if inc.is_absolute() {
             paths.push(inc.to_owned());
@@ -178,6 +212,14 @@ fn analyze(path: PathBuf, text: String, index: Option<Arc<Index>>, mut live: Has
             }
         }
         for p in paths {
+            #[cfg(not(windows))]
+            let p = if opt.from_cdt && !p.exists() {
+                watch.entry(p.clone()).or_insert(None);
+                let Some(found) = cdt::case_path(&p, &mut case_cache) else { continue };
+                found
+            } else {
+                p
+            };
             if let Some((_, text)) = cache.get(&p) {
                 return Some((p, text.clone()));
             }
@@ -318,6 +360,64 @@ impl CodeView {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn direct_open_resolves_cdt_links_case_and_board_flags_without_an_index() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = absolute(dir.path());
+        let project = root.join("examples/application");
+        let source = project.join("src/radio.c");
+        let header = root.join("common/include/board.h");
+        let other = project.join("other");
+        fs::create_dir_all(source.parent().unwrap()).unwrap();
+        fs::create_dir_all(header.parent().unwrap()).unwrap();
+        fs::create_dir_all(&other).unwrap();
+        fs::write(&header, "#define REV_A 4\n#define REV_B 9\n#if SELECTED == REV_B\n#define FEATURE\n#endif").unwrap();
+        fs::write(other.join("BOARD.H"), "#define WRONG").unwrap();
+        fs::write(
+            project.join(".project"),
+            "<projectDescription><name>demo</name><linkedResources><link><name>Board</name><locationURI>PARENT-2-PROJECT_LOC/common</locationURI></link></linkedResources></projectDescription>",
+        )
+        .unwrap();
+        let cdt = r#"<cproject><cconfiguration><folderInfo resourcePath=""><tool superClass="cross.c.compiler">
+            <option valueType="includePath"><listOptionValue value="&quot;${workspace_loc:/${ProjName}/Board/include}&quot;"/><listOptionValue value="${project_loc:/other}"/></option>
+            <option valueType="definedSymbols"><listOptionValue value="SELECTED=REV_B"/></option>
+            </tool><tool superClass="cross.cpp.compiler"><option valueType="definedSymbols"><listOptionValue value="WRONG"/></option></tool>
+            </folderInfo></cconfiguration></cproject>"#;
+        let metadata = project.join(".cproject");
+        fs::write(&metadata, cdt).unwrap();
+        let text = "#include \"BOARD.H\"\n#if defined(FEATURE) && !defined(WRONG)\nselected\n#else\ndefault\n#endif";
+        fs::write(&source, text).unwrap();
+        let run = |prev, live| analyze(source.clone(), text.into(), None, live, String::new(), prev);
+        let disk = run(Inputs::default(), HashMap::new());
+        assert_eq!(disk.ranges, [(4, 4)]);
+        assert!(disk.watch.contains_key(&header) || disk.inputs.headers.contains_key(&absolute(&header)));
+        let edited = run(disk.inputs.clone(), HashMap::from([(header, Arc::from("#undef FEATURE"))]));
+        assert_eq!(edited.ranges, [(2, 2)]);
+        fs::write(&metadata, cdt.replace("SELECTED=REV_B", "SELECTED=4")).unwrap();
+        assert_eq!(run(disk.inputs.clone(), HashMap::new()).ranges, [(2, 2)]);
+        // A matching database entry overrides the CDT definition, including after a cache refresh.
+        let build = project.join("build");
+        fs::create_dir(&build).unwrap();
+        let database = serde_json::json!([{"directory":project,"file":"src/radio.c","arguments":["cc","-DFEATURE=0"]}]);
+        fs::write(build.join("compile_commands.json"), database.to_string()).unwrap();
+        assert_eq!(run(disk.inputs, HashMap::new()).ranges, [(4, 4)]);
+    }
+
+    #[test]
+    fn conflicting_cdt_configurations_do_not_combine_targets() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let cfg = |name| {
+            format!(
+                r#"<cconfiguration><folderInfo resourcePath=""><tool superClass="cc.c.compiler"><option valueType="definedSymbols"><listOptionValue value="{name}"/></option></tool></folderInfo></cconfiguration>"#
+            )
+        };
+        let xml = format!("<cproject>{}{}</cproject>", cfg("BOARD_A"), cfg("BOARD_B"));
+        fs::write(root.join(".cproject"), xml).unwrap();
+        let options = options(root, &root.join("entry.c"), &Arc::default(), &mut HashMap::new());
+        assert!(!options.matched && !options.macros.contains_key("BOARD_A") && !options.macros.contains_key("BOARD_B"));
+    }
 
     #[test]
     fn board_headers_follow_translation_unit_flags_and_unsaved_includes() {

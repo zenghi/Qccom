@@ -277,7 +277,7 @@ mod sys {
         for (_, extensions) in crate::highlight::EMBEDDED_TYPES {
             for ext in *extensions {
                 let (list, _) = classes.create_subkey(format!(r".{ext}\OpenWithProgids"))?;
-                list.set_raw_value(PROGID, &winreg::RegValue {bytes: vec![], vtype: winreg::enums::REG_NONE})?;
+                list.set_value(PROGID, &"")?;
             }
         }
         prog.set_value("AssociationVersion", &1u32)?;

@@ -17,6 +17,53 @@ pub struct Command {
 }
 
 #[cfg(any(windows, test))]
+impl Config {
+    pub fn remove_empty_rows(&mut self) {
+        self.commands.retain(|cmd| !cmd.keys.trim().is_empty() || !cmd.text.trim().is_empty());
+    }
+
+    fn bindings(&self) -> Result<Vec<(u32, u32)>, String> {
+        use crate::i18n::{t, tf};
+        let mut found = std::collections::HashSet::new();
+        self.commands
+            .iter()
+            .enumerate()
+            .map(|(index, cmd)| {
+                let error = |message| tf("第 {} 条：{}", &[&(index + 1), &message]);
+                if cmd.keys.trim().is_empty() {
+                    return Err(error(t("请先设置快捷键").to_owned()));
+                }
+                let key = binding(&cmd.keys).ok_or_else(|| error(tf("快捷键格式无效：{}", &[&cmd.keys])))?;
+                if !found.insert(key) {
+                    return Err(error(tf("快捷键重复：{}", &[&cmd.keys])));
+                }
+                if cmd.text.trim().is_empty() || cmd.text.chars().any(char::is_control) || cmd.text.len() > 8192 {
+                    return Err(error(t("命令须为非空的单行文本，最多 8192 字节").into()));
+                }
+                Ok(key)
+            })
+            .collect()
+    }
+}
+
+/// Capture the same keys accepted by the Windows registration parser.
+#[cfg(any(windows, test))]
+pub fn recorded_key(key: eframe::egui::Key, modifiers: eframe::egui::Modifiers) -> Option<String> {
+    let mut chord = String::new();
+    if modifiers.ctrl {
+        chord.push_str("Ctrl+");
+    }
+    if modifiers.shift {
+        chord.push_str("Shift+");
+    }
+    if modifiers.alt {
+        chord.push_str("Alt+");
+    }
+    chord.push_str(key.name());
+    binding(&chord).map(|_| chord)
+}
+
+#[cfg(any(windows, test))]
 fn binding(keys: &str) -> Option<(u32, u32)> {
     let mut mods = 0;
     let mut key = None;
@@ -34,7 +81,24 @@ fn binding(keys: &str) -> Option<(u32, u32)> {
                 key = Some(if s.len() == 1 && s.as_bytes()[0].is_ascii_alphanumeric() {
                     s.as_bytes()[0] as u32
                 } else {
-                    0x6f + s.strip_prefix('F')?.parse::<u32>().ok().filter(|n| (1..=24).contains(n))?
+                    match s.as_str() {
+                        "BACKSPACE" => 0x08,
+                        "TAB" => 0x09,
+                        "ENTER" => 0x0d,
+                        "ESCAPE" => 0x1b,
+                        "SPACE" => 0x20,
+                        "PAGEUP" => 0x21,
+                        "PAGEDOWN" => 0x22,
+                        "END" => 0x23,
+                        "HOME" => 0x24,
+                        "LEFT" => 0x25,
+                        "UP" => 0x26,
+                        "RIGHT" => 0x27,
+                        "DOWN" => 0x28,
+                        "INSERT" => 0x2d,
+                        "DELETE" => 0x2e,
+                        _ => 0x6f + s.strip_prefix('F')?.parse::<u32>().ok().filter(|n| (1..=24).contains(n))?,
+                    }
                 });
                 continue;
             }
@@ -54,7 +118,6 @@ pub mod win {
     use crate::i18n::{t, tf};
     use std::{
         cell::Cell,
-        collections::HashSet,
         io,
         ptr::null_mut,
         sync::mpsc,
@@ -273,7 +336,7 @@ pub mod win {
         }
     }
     impl Manager {
-        fn stop(&mut self) {
+        pub fn suspend(&mut self) {
             if let Some(w) = self.worker.take() {
                 unsafe {
                     PostThreadMessageW(w.id, WM_QUIT, 0, 0);
@@ -282,35 +345,58 @@ pub mod win {
             }
         }
         pub fn set(&mut self, cfg: &Config, ctx: &eframe::egui::Context) -> Result<(), String> {
-            let mut seen = HashSet::new();
-            let mut keys = Vec::new();
-            for cmd in &cfg.commands {
-                let k = binding(&cmd.keys).ok_or_else(|| tf("快捷键格式无效：{}", &[&cmd.keys]))?;
-                if !seen.insert(k) {
-                    return Err(tf("快捷键重复：{}", &[&cmd.keys]));
-                }
-                if cmd.text.trim().is_empty() || cmd.text.chars().any(char::is_control) || cmd.text.len() > 8192 {
-                    return Err(t("命令须为非空的单行文本，最多 8192 字节").into());
-                }
-                keys.push(k);
-            }
-            self.stop();
+            let mut cfg = cfg.clone();
+            cfg.remove_empty_rows();
+            let keys = cfg.bindings()?;
+            self.suspend();
             if !keys.is_empty() || cfg.right_paste {
-                self.worker = Some(Worker::start(cfg.clone(), keys, ctx.clone(), self.tx.clone())?);
+                self.worker = Some(Worker::start(cfg, keys, ctx.clone(), self.tx.clone())?);
             }
             Ok(())
         }
     }
     impl Drop for Manager {
         fn drop(&mut self) {
-            self.stop();
+            self.suspend();
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::binding;
+    use super::{binding, recorded_key, Command, Config};
+    use eframe::egui::{Key, Modifiers};
+
+    #[test]
+    fn recording_produces_a_chord_windows_can_register() {
+        assert_eq!(recorded_key(Key::J, Modifiers::CTRL | Modifiers::ALT).as_deref(), Some("Ctrl+Alt+J"));
+        assert_eq!(recorded_key(Key::Enter, Modifiers::CTRL).as_deref(), Some("Ctrl+Enter"));
+        assert!(recorded_key(Key::J, Modifiers::NONE).is_none());
+    }
+
+    #[test]
+    fn unused_rows_do_not_block_apply_but_partial_rows_and_conflicts_do() {
+        let good = Command {
+            keys: "Ctrl+Alt+J".into(),
+            text: "echo QCCOM_TEST".into(),
+            enter: false,
+        };
+        let mut config = Config {
+            right_paste: true,
+            commands: vec![Command::default(), good.clone(), Command::default()],
+        };
+        config.remove_empty_rows();
+        assert_eq!(config.commands.len(), 1);
+        assert_eq!(config.bindings().unwrap(), vec![(3, 74)]);
+        config.commands.push(Command {
+            text: "second".into(),
+            ..Default::default()
+        });
+        config.remove_empty_rows();
+        assert!(config.bindings().is_err());
+        config.commands[1].keys = "alt+ctrl+j".into();
+        assert!(config.bindings().is_err());
+    }
     #[test]
     fn desktop_chords_are_unambiguous() {
         assert_eq!(binding("Alt+Ctrl+j"), Some((3, 74)));

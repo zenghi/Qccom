@@ -339,7 +339,7 @@ The Code page, the Git page, the terminal panel and the TFTP / HTTP servers shar
 
 **Highlights**: `F8` marks the word under the cursor; press it on another word for the next of 8 colors, or again on the same word to change its color. `Shift+F8` removes one, `Ctrl+Shift+F8` clears all, `F3` / `Shift+F3` jump between marked words. Marks also show on the scrollbar.
 
-In **Settings → Keyboard shortcuts → Windows global shortcuts and right-click paste**, add a key combination such as `Ctrl+Alt+J` and a single-line command, then choose **Apply**. The shortcut types at the foreground app’s caret while QCCOM is running. Enable **Append Enter** to submit it. Right-click paste uses the foreground window’s current input focus. Shift+right-click opens its usual menu. Windows may block input to applications running at a higher privilege level.
+In **Settings → Keyboard shortcuts → Windows global shortcuts and right-click paste**, choose **Add global shortcut command**, press a combination such as `Ctrl+Alt+J`, enter the command, and choose **Apply**. The shortcut types at the foreground app’s caret while QCCOM is running. Enable **Append Enter** to submit it. Right-click paste uses the foreground window’s current input focus. Shift+right-click opens its usual menu. Windows may block input to applications running at a higher privilege level.
 
 The local terminal accepts input while MCU detection runs. If you already typed in the tab, select the new **MCU** tab to use the discovered environment. In the MCP sharing dialog, copy the JSON or Codex TOML configuration and call `session_info` after reconnecting. Enable circuit sharing to use `circuit_inspect`. The circuit assistant offers local wiring checks and can plot a simulated pin voltage over 1–250 ms.
 

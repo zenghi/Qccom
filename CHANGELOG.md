@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.20
+
+- Record a Windows global shortcut by pressing its keys, skip unused rows on apply, and show invalid or occupied shortcuts in the settings panel.
+- Save a named serial profile from its own dialog using Save or Enter.
+
 ## 1.9.19
 
 - Choose a TCP client source IP to select the local adapter on Windows, see the actual endpoint pair, and log TCP commands after a successful socket write. Server write failures identify the disconnected client.

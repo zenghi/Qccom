@@ -4557,7 +4557,7 @@ impl App {
 
 impl App {
     fn detached_serial_shortcuts(&mut self, ctx: &egui::Context, slot: usize) {
-        if self.prefs.recording.is_some() || self.palette.is_some() {
+        if self.prefs.recording_keys() || self.palette.is_some() {
             return;
         }
         self.with_session(slot, |app| {
@@ -5696,7 +5696,9 @@ impl eframe::App for App {
         };
         let serial_focus = focus_pane.and_then(|pane| pane.serial_slot(self.selected_serial));
         let term_focused = serial_focus.is_some_and(|slot| self.with_session(slot, |app| app.s.terminal && ctx.memory(|m| m.has_focus(app.tv.id())))) || self.shells.focused(ctx);
-        let acts = if self.prefs.recording.is_some() || self.palette.is_some() {
+        #[cfg(windows)]
+        self.route_desktop_recording(ctx);
+        let acts = if self.prefs.recording_keys() || self.palette.is_some() {
             vec![]
         } else {
             self.km.poll(ctx, scope, term_focused)

@@ -62,9 +62,17 @@ pub struct Recording {
     pub at: Instant,
 }
 
+#[cfg(windows)]
+#[derive(Default)]
+struct DesktopPrefs {
+    draft: Option<crate::desktop_keys::Config>,
+    recording: Option<usize>,
+    status: Option<(String, bool)>,
+}
+
 pub struct Prefs {
     #[cfg(windows)]
-    desktop: Option<crate::desktop_keys::Config>,
+    desktop: DesktopPrefs,
     pub cat: Cat,
     pub search: String,
     pub recording: Option<Recording>,
@@ -76,11 +84,21 @@ pub struct Prefs {
     offer_menu: bool,
 }
 
+impl Prefs {
+    pub(super) fn recording_keys(&self) -> bool {
+        #[cfg(windows)]
+        if self.desktop.recording.is_some() {
+            return true;
+        }
+        self.recording.is_some()
+    }
+}
+
 impl Default for Prefs {
     fn default() -> Self {
         Prefs {
             #[cfg(windows)]
-            desktop: None,
+            desktop: DesktopPrefs::default(),
             cat: Cat::General,
             search: String::new(),
             recording: None,
@@ -291,7 +309,7 @@ impl App {
     }
 
     pub(super) fn settings_page(&mut self, ctx: &egui::Context) {
-        if ctx.input(|i| i.key_pressed(Key::Escape)) && self.prefs.recording.is_none() && !ctx.wants_keyboard_input() {
+        if ctx.input(|i| i.key_pressed(Key::Escape)) && !self.prefs.recording_keys() && !ctx.wants_keyboard_input() {
             self.set_page(self.prev_page);
             return;
         }
@@ -1165,45 +1183,147 @@ impl App {
         self.prefs.conflict = (!clash.is_empty()).then_some((rec.act, clash));
     }
 
-    fn prefs_keys(&mut self, ui: &mut egui::Ui) {
+    #[cfg(windows)]
+    pub(super) fn cancel_desktop_recording(&mut self) {
+        if self.prefs.desktop.recording.take().is_some() {
+            if let Err(err) = self.desktop_keys.set(&self.s.desktop_keys, &self.ctx) {
+                self.prefs.desktop.status = Some((err, true));
+            }
+        }
+    }
+
+    #[cfg(windows)]
+    pub(super) fn route_desktop_recording(&mut self, ctx: &egui::Context) {
+        let Some(index) = self.prefs.desktop.recording else { return };
+        if self.page != Page::Settings || self.prefs.cat != Cat::Keys || !ctx.input(|i| i.focused) {
+            self.cancel_desktop_recording();
+            return;
+        }
+        let mut captured = None;
+        let mut cancel = false;
+        let mut invalid = false;
+        ctx.input_mut(|input| {
+            input.events.retain(|event| match event {
+                egui::Event::Key {
+                    key,
+                    physical_key,
+                    pressed: true,
+                    repeat: false,
+                    modifiers,
+                } => {
+                    if captured.is_none() && !cancel {
+                        if *key == Key::Escape && !modifiers.any() {
+                            cancel = true;
+                        } else {
+                            let encode = |key| crate::desktop_keys::recorded_key(key, *modifiers);
+                            captured = encode(*key).or_else(|| physical_key.and_then(encode));
+                            invalid = captured.is_none();
+                        }
+                    }
+                    false
+                }
+                egui::Event::Text(_) | egui::Event::Paste(_) | egui::Event::Copy | egui::Event::Cut | egui::Event::Ime(_) => false,
+                _ => true,
+            });
+        });
+        if let Some(keys) = captured {
+            if let Some(cmd) = self.prefs.desktop.draft.as_mut().and_then(|cfg| cfg.commands.get_mut(index)) {
+                cmd.keys = keys;
+            }
+            self.prefs.desktop.status = None;
+            self.cancel_desktop_recording();
+        } else if cancel {
+            self.prefs.desktop.status = None;
+            self.cancel_desktop_recording();
+        } else if invalid {
+            self.prefs.desktop.status = Some((t("请按 Ctrl、Alt 组合键或 F1–F24").into(), true));
+        }
+    }
+
+    #[cfg(windows)]
+    fn desktop_shortcuts(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
-        #[cfg(windows)]
-        ui.collapsing(t("Windows 全局快捷键与右键粘贴"), |ui| {
-            let draft = self.prefs.desktop.get_or_insert_with(|| self.s.desktop_keys.clone());
+        let mut capture = None;
+        let mut remove = None;
+        let mut apply = false;
+        let mut cancel = false;
+        let section = ui.collapsing(t("Windows 全局快捷键与右键粘贴"), |ui| {
+            let prefs = &mut self.prefs.desktop;
+            let draft = prefs.draft.get_or_insert_with(|| self.s.desktop_keys.clone());
             ui.checkbox(&mut draft.right_paste, t("右键粘贴到前台窗口的当前输入位置"));
             ui.small(t("按住 Shift 再右击可使用原菜单。"));
-            let mut remove = None;
             for (i, cmd) in draft.commands.iter_mut().enumerate() {
                 ui.push_id(i, |ui| {
                     ui.horizontal_wrapped(|ui| {
-                        ui.add(egui::TextEdit::singleline(&mut cmd.keys).desired_width(124.).hint_text("Ctrl+Alt+J"));
-                        ui.add(egui::TextEdit::singleline(&mut cmd.text).desired_width(218.).hint_text(t("命令文本")));
+                        let recording = prefs.recording == Some(i);
+                        if recording {
+                            if ui.small_button(t("按下组合键 · Esc 取消")).clicked() {
+                                cancel = true;
+                            }
+                        } else {
+                            ui.add(egui::TextEdit::singleline(&mut cmd.keys).desired_width(124.).hint_text("Ctrl+Alt+J"));
+                            if ui.small_button(t("录制按键")).clicked() {
+                                capture = Some(i);
+                            }
+                        }
+                        let command = ui.add(egui::TextEdit::singleline(&mut cmd.text).desired_width(218.).hint_text(t("命令文本")));
+                        cancel |= command.clicked() && prefs.recording.is_some();
                         ui.checkbox(&mut cmd.enter, t("追加回车"));
                         if ui.small_button(t("删除")).clicked() {
                             remove = Some(i);
                         }
-                    })
+                    });
                 });
             }
-            if let Some(i) = remove {
-                draft.commands.remove(i);
-            }
             if ui.button(t("添加全局快捷命令")).clicked() {
-                draft.commands.push(Default::default());
-            }
-            if ui.button(t("应用")).clicked() {
-                match self.desktop_keys.set(draft, &ctx) {
-                    Ok(()) => {
-                        self.s.desktop_keys = draft.clone();
-                        self.toast(t("已应用"), OK());
-                    }
-                    Err(err) => {
-                        let _ = self.desktop_keys.set(&self.s.desktop_keys, &ctx);
-                        self.toast(err, WARN());
-                    }
+                capture = draft.commands.iter().position(|cmd| cmd.keys.trim().is_empty() && cmd.text.trim().is_empty());
+                if capture.is_none() {
+                    capture = Some(draft.commands.len());
+                    draft.commands.push(Default::default());
                 }
             }
+            apply = ui.add_enabled(prefs.recording.is_none(), egui::Button::new(t("应用"))).clicked();
+            if let Some((message, error)) = &prefs.status {
+                ui.colored_label(if *error { ERR() } else { OK() }, message);
+            }
         });
+        if remove.is_some() || cancel || capture.is_some() || section.body_response.is_none() {
+            self.cancel_desktop_recording();
+        }
+        let prefs = &mut self.prefs.desktop;
+        if let Some(i) = remove {
+            if let Some(draft) = prefs.draft.as_mut() {
+                draft.commands.remove(i);
+            }
+            prefs.status = None;
+        } else if let Some(i) = capture {
+            self.desktop_keys.suspend();
+            prefs.recording = Some(i);
+            prefs.status = None;
+        } else if apply {
+            let mut config = prefs.draft.clone().unwrap_or_default();
+            config.remove_empty_rows();
+            match self.desktop_keys.set(&config, &ctx) {
+                Ok(()) => {
+                    self.s.desktop_keys = config.clone();
+                    prefs.draft = Some(config);
+                    prefs.status = Some((t("已应用").into(), false));
+                }
+                Err(err) => {
+                    let status = match self.desktop_keys.set(&self.s.desktop_keys, &ctx) {
+                        Ok(()) => err,
+                        Err(restore) => format!("{err}\n{restore}"),
+                    };
+                    prefs.status = Some((status, true));
+                }
+            }
+        }
+    }
+
+    fn prefs_keys(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        #[cfg(windows)]
+        self.desktop_shortcuts(ui);
         self.record_keys(&ctx);
         ui.horizontal(|ui| {
             ui.add(

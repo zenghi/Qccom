@@ -95,11 +95,17 @@ fn safe_name(s: &str) -> String {
     s.trim().chars().map(|c| if c.is_alphanumeric() || " -_.()".contains(c) { c } else { '_' }).collect()
 }
 
+struct ProfileDraft {
+    name: String,
+    focus_name: bool,
+    error: Option<String>,
+}
+
 #[derive(Default)]
 pub(super) struct SerialUi {
     /// 正在给哪个端口起别名
     pub alias_edit: Option<(String, String)>,
-    pub profile_new: Option<String>,
+    profile_new: Option<ProfileDraft>,
     pub bridge_err: Option<String>,
     /// Windows：打开虚拟串口时发现没装 com0com，显示安装提示
     pub vc_need_install: bool,
@@ -691,23 +697,17 @@ impl App {
         }
     }
 
-    pub(super) fn save_profile(&mut self, name: &str) {
+    fn save_profile(&mut self, name: &str) -> Result<(), String> {
         let name = safe_name(name);
         if name.is_empty() {
-            return;
+            return Err(t("请输入方案名称").into());
         }
-        let _ = std::fs::create_dir_all(profile_dir());
         let p = profile_dir().join(format!("{name}.json"));
-        match serde_json::to_string_pretty(&self.current_profile())
-            .map_err(|e| e.to_string())
-            .and_then(|j| std::fs::write(&p, j).map_err(|e| e.to_string()))
-        {
-            Ok(()) => {
-                self.s.profile = name.clone();
-                self.toast(tf("已保存配置方案「{}」", &[&name]), OK());
-            }
-            Err(e) => self.toast(tf("保存失败：{}", &[&e]), ERR()),
-        }
+        let bytes = serde_json::to_vec_pretty(&self.current_profile()).map_err(|e| e.to_string())?;
+        crate::history::save_file(&p, &bytes)?;
+        self.toast(tf("已保存配置方案「{}」", &[&name]), OK());
+        self.s.profile = name;
+        Ok(())
     }
 
     pub(super) fn load_profile(&mut self, name: &str) {
@@ -814,34 +814,69 @@ impl App {
                 }
             }
             ui.separator();
-            match &mut self.serial_ui.profile_new {
-                Some(name) => {
-                    let r = ui.add(egui::TextEdit::singleline(name).hint_text(t("方案名称")).desired_width(f32::INFINITY));
-                    r.request_focus();
-                    if r.lost_focus() {
-                        let n = name.clone();
-                        self.serial_ui.profile_new = None;
-                        if ui.input(|i| i.key_pressed(Key::Enter)) {
-                            self.save_profile(&n);
-                        }
-                    }
+            if menu_item(ui, t("保存当前为新方案…"), "") {
+                self.serial_ui.profile_new = Some(ProfileDraft {
+                    name: String::new(),
+                    focus_name: true,
+                    error: None,
+                });
+                ui.memory_mut(|m| m.close_popup());
+            }
+            if !self.s.profile.is_empty() && menu_item(ui, &tf("覆盖「{}」", &[&self.s.profile]), "") {
+                let current = self.s.profile.clone();
+                if let Err(e) = self.save_profile(&current) {
+                    self.toast(tf("保存失败：{}", &[&e]), ERR());
                 }
-                None => {
-                    if menu_item(ui, t("保存当前为新方案…"), "") {
-                        self.serial_ui.profile_new = Some(String::new());
-                    }
-                    if !self.s.profile.is_empty() && menu_item(ui, &tf("覆盖「{}」", &[&self.s.profile]), "") {
-                        let n = self.s.profile.clone();
-                        self.save_profile(&n);
-                        ui.memory_mut(|m| m.close_popup());
-                    }
-                    if !self.s.profile.is_empty() && menu_item(ui, &tf("删除「{}」", &[&self.s.profile]), "") {
-                        let _ = std::fs::remove_file(profile_dir().join(format!("{}.json", self.s.profile)));
-                        self.s.profile.clear();
-                        ui.memory_mut(|m| m.close_popup());
-                    }
-                }
+                ui.memory_mut(|m| m.close_popup());
+            }
+            if !self.s.profile.is_empty() && menu_item(ui, &tf("删除「{}」", &[&self.s.profile]), "") {
+                let _ = std::fs::remove_file(profile_dir().join(format!("{}.json", self.s.profile)));
+                self.s.profile.clear();
+                ui.memory_mut(|m| m.close_popup());
             }
         });
+        self.new_profile_dialog(ui.ctx());
+    }
+
+    fn new_profile_dialog(&mut self, ctx: &egui::Context) {
+        let Some(draft) = self.serial_ui.profile_new.as_mut() else { return };
+        let mut save = false;
+        let mut open = true;
+        let mut cancel = false;
+        egui::Window::new(t("保存当前为新方案…"))
+            .id(egui::Id::new("serial-new-profile"))
+            .open(&mut open)
+            .collapsible(false)
+            .resizable(false)
+            .default_width(320.0)
+            .show(ctx, |ui| {
+                let name = ui.add(egui::TextEdit::singleline(&mut draft.name).hint_text(t("方案名称")).desired_width(f32::INFINITY));
+                if std::mem::take(&mut draft.focus_name) {
+                    name.request_focus();
+                }
+                if name.changed() {
+                    draft.error = None;
+                }
+                let filled = !draft.name.trim().is_empty();
+                save = filled && name.lost_focus() && ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, Key::Enter));
+                ui.horizontal(|ui| {
+                    save |= ui.add_enabled(filled, egui::Button::new(t("保存"))).clicked();
+                    cancel = ui.button(t("取消")).clicked();
+                });
+                if let Some(error) = &draft.error {
+                    ui.colored_label(ERR(), error);
+                }
+            });
+        if !open || cancel {
+            self.serial_ui.profile_new = None;
+        } else if save {
+            let name = draft.name.clone();
+            match self.save_profile(&name) {
+                Ok(()) => self.serial_ui.profile_new = None,
+                Err(e) => {
+                    self.serial_ui.profile_new.as_mut().unwrap().error = Some(tf("保存失败：{}", &[&e]));
+                }
+            }
+        }
     }
 }

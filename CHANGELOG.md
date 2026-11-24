@@ -2,6 +2,7 @@
 
 ## 1.9.10
 
+- Save a newly named serial profile with Enter or the Save button.
 - Preview interface and monospace fonts as you change them. Choose from more fonts installed on the system.
 - Apply font and highlighting changes across all serial logs, including detached windows, and select from more colors for manual highlights.
 - Restore the last page, split layout, serial selections, and detached window geometry at startup. Open the saved serial ports when you are ready to reconnect.

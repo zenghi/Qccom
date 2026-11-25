@@ -3,7 +3,8 @@
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use eframe::egui::{self, epaint::CubicBezierShape, pos2, vec2, Align2, Color32, CornerRadius, FontFamily, FontId, Key, Rect, RichText, Sense, Ui};
 use serde::{Deserialize, Serialize};
@@ -18,6 +19,7 @@ use crate::theme::*;
 
 mod ops;
 mod svn;
+mod watch;
 
 const ROW_H: f32 = 28.0;
 const LANE_W: f32 = 14.0;
@@ -72,11 +74,11 @@ pub enum GitEvt {
 }
 
 enum Msg {
-    Branches(Result<Vec<Branch>, String>),
+    Branches(u64, Result<Vec<Branch>, String>),
     Log(u64, Result<Vec<Commit>, String>),
     Info(String, Result<CommitInfo, String>),
-    Diff(u64, Result<String, String>),
-    Status(Result<Status, String>),
+    Diff(u64, Result<(String, usize), String>),
+    Status(u64, Result<Status, String>),
     SvnStatus(Result<svn::Status, String>),
     SvnCompare(Result<GitEvt, String>),
     Checkout(String, Result<String, String>),
@@ -127,12 +129,21 @@ pub struct GitView {
     tx: Sender<(u64, Msg)>,
     rx: Receiver<(u64, Msg)>,
     repo_gen: u64,
+    watcher: Option<watch::RepoWatch>,
+    dirty: u8,
+    refresh_at: Option<Instant>,
+    fallback_at: Instant,
+    status_gen: u64,
     branches: Vec<Branch>,
-    status: Option<Status>,
+    branches_gen: u64,
+    status: Option<Arc<Status>>,
+    work_filter: String,
+    work_groups_open: [bool; 4],
     commits: Vec<Commit>,
     rows: Vec<GraphRow>,
     graph_w: usize,
     log_gen: u64,
+    log_scroll_id: u64,
     loading_log: bool,
     limit: usize,
     scope: Option<Branch>,
@@ -143,6 +154,7 @@ pub struct GitView {
     info: Option<CommitInfo>,
     diff: Option<DiffView>,
     diff_gen: u64,
+    diff_scroll_id: u64,
     file_sel: Option<String>,
     open_local: bool,
     open_remote: bool,
@@ -172,12 +184,21 @@ impl GitView {
             tx,
             rx,
             repo_gen: 0,
+            watcher: None,
+            dirty: 0,
+            refresh_at: None,
+            fallback_at: Instant::now(),
+            status_gen: 0,
             branches: vec![],
+            branches_gen: 0,
             status: None,
+            work_filter: String::new(),
+            work_groups_open: [true; 4],
             commits: vec![],
             rows: vec![],
             graph_w: 1,
             log_gen: 0,
+            log_scroll_id: 0,
             loading_log: false,
             limit: PAGE,
             scope: None,
@@ -188,6 +209,7 @@ impl GitView {
             info: None,
             diff: None,
             diff_gen: 0,
+            diff_scroll_id: 0,
             file_sel: None,
             open_local: true,
             open_remote: true,
@@ -211,8 +233,7 @@ impl GitView {
             if self.svn.is_some() {
                 self.load_svn();
             } else if self.root.is_some() {
-                self.load_status();
-                self.load_branches();
+                self.refresh();
             }
             return;
         }
@@ -250,7 +271,10 @@ impl GitView {
         self.err = None;
         self.branches.clear();
         self.status = None;
+        self.work_filter.clear();
+        self.work_groups_open = [true; 4];
         self.scope = None;
+        self.log_scroll_id += 1;
         self.query.clear();
         self.query_sent.clear();
         self.query_at = None;
@@ -264,9 +288,13 @@ impl GitView {
         self.confirm = None;
         self.busy = None;
         self.ops = Default::default();
+        self.watcher = None;
+        self.dirty = 0;
+        self.refresh_at = None;
         if self.svn.is_some() {
             self.load_svn();
-        } else if self.root.is_some() {
+        } else if let Some(root) = &self.root {
+            self.watcher = Some(watch::RepoWatch::start(root.clone(), self.ctx.clone()));
             self.refresh();
         }
     }
@@ -310,21 +338,83 @@ impl GitView {
     }
 
     fn refresh(&mut self) {
-        self.load_branches();
+        self.refresh_parts(watch::ALL);
+    }
+
+    fn refresh_parts(&mut self, changes: u8) {
+        self.dirty = 0;
+        self.refresh_at = None;
+        self.fallback_at = Instant::now() + Duration::from_secs(3);
         self.load_status();
-        self.load_log();
-        self.load_extra();
-        if let Sel::Commit(h) = self.sel.clone() {
-            self.load_info(&h);
+        if changes & watch::REFS != 0 {
+            self.load_branches();
+            self.load_log();
+        }
+        if changes & watch::EXTRA != 0 {
+            self.load_extra();
         }
     }
 
-    fn load_branches(&self) {
-        self.spawn(|r| Msg::Branches(git::branches(&r)));
+    fn poll_watch(&mut self) {
+        let Some(watcher) = &self.watcher else { return };
+        let now = Instant::now();
+        let changes = watcher.take();
+        if changes != 0 {
+            self.dirty |= changes;
+            self.refresh_at.get_or_insert(now + Duration::from_millis(230));
+        }
+        if !watcher.active() {
+            if now >= self.fallback_at {
+                self.dirty |= watch::ALL;
+                self.refresh_at = Some(now);
+            } else {
+                self.ctx.request_repaint_after(self.fallback_at - now);
+            }
+        }
+        if self.busy.is_none() && !self.ops.checking {
+            if let Some(at) = self.refresh_at {
+                if now >= at {
+                    self.refresh_parts(self.dirty);
+                } else {
+                    self.ctx.request_repaint_after(at - now);
+                }
+            }
+        }
     }
 
-    fn load_status(&self) {
-        self.spawn(|r| Msg::Status(git::status(&r)));
+    fn load_branches(&mut self) {
+        self.branches_gen += 1;
+        let g = self.branches_gen;
+        self.spawn(move |r| Msg::Branches(g, git::branches(&r)));
+    }
+
+    fn load_status(&mut self) {
+        self.status_gen += 1;
+        let g = self.status_gen;
+        self.spawn(move |r| Msg::Status(g, git::status(&r)));
+    }
+
+    fn update_status(&mut self, status: Status) {
+        // Keep the selected path and apply the new XY state even when the file was
+        // staged externally, or when further saves leave its XY state unchanged.
+        if self.sel == Sel::Work {
+            if let Some(path) = self.file_sel.as_deref() {
+                if let Some(file) = status.files.iter().find(|f| f.path == path) {
+                    self.load_work_diff(file.clone());
+                } else {
+                    self.diff_gen += 1;
+                    self.diff = None;
+                    self.file_sel = None;
+                }
+            }
+        }
+        self.status = Some(Arc::new(status));
+    }
+
+    fn reset_log(&mut self) {
+        self.log_scroll_id += 1;
+        self.limit = PAGE;
+        self.load_log();
     }
 
     fn load_log(&mut self) {
@@ -350,8 +440,9 @@ impl GitView {
         self.load_info(hash);
     }
 
-    fn open_diff(&mut self, title: String, path: String, job: impl FnOnce(PathBuf) -> Result<String, String> + Send + 'static) {
+    fn open_diff(&mut self, title: String, path: String, work: Option<git::StatusFile>, job: impl FnOnce(PathBuf) -> Result<(String, usize), String> + Send + 'static) {
         self.diff_gen += 1;
+        self.diff_scroll_id += 1;
         let g = self.diff_gen;
         self.file_sel = Some(path.clone());
         self.diff = Some(DiffView {
@@ -365,13 +456,16 @@ impl GitView {
             err: None,
             max_chars: 0,
             raw: String::new(),
-            work: None,
+            work,
             staged_hunks: 0,
         });
         self.spawn(move |r| Msg::Diff(g, job(r)));
     }
 
     fn run_op(&mut self, label: String, args: Vec<String>) {
+        if self.busy.is_some() || self.ops.checking {
+            return;
+        }
         self.busy = Some(label.clone());
         self.spawn(move |r| {
             let a: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -394,9 +488,22 @@ impl GitView {
                 continue;
             }
             match m {
-                Msg::Branches(Ok(b)) => self.branches = b,
-                Msg::Branches(Err(e)) | Msg::Status(Err(e)) => self.err = Some(e),
-                Msg::Status(Ok(s)) => self.status = Some(s),
+                Msg::Branches(g, Ok(branches)) if g == self.branches_gen => {
+                    if let Some(scope) = &self.scope {
+                        self.scope = branches.iter().find(|b| b.refname == scope.refname).cloned();
+                        if self.scope.is_none() {
+                            self.load_log();
+                        }
+                    }
+                    self.branches = branches;
+                }
+                Msg::Branches(g, Err(e)) if g == self.branches_gen => self.err = Some(e),
+                Msg::Branches(..) => {}
+                Msg::Status(g, result) if g == self.status_gen => match result {
+                    Ok(status) => self.update_status(status),
+                    Err(e) => self.err = Some(e),
+                },
+                Msg::Status(..) => {}
                 Msg::SvnStatus(result) => {
                     if let Some(svn) = &mut self.svn {
                         svn.status = Some(result);
@@ -435,13 +542,11 @@ impl GitView {
                     if let Some(d) = self.diff.as_mut() {
                         d.loading = false;
                         match r {
-                            Ok(text) => {
-                                if let (Some(f), Some(root)) = (&d.work, &self.root) {
-                                    let staged = git::git(root, &["diff", "--cached", "-M", "--", &f.path]).unwrap_or_default();
-                                    d.staged_hunks = staged.lines().filter(|l| l.starts_with("@@")).count();
-                                }
-                                d.raw.clone_from(&text);
-                                d.lines = git::parse_diff(&text)
+                            Ok((text, staged_hunks)) => {
+                                d.err = None;
+                                d.staged_hunks = staged_hunks;
+                                d.raw = text;
+                                d.lines = git::parse_diff(&d.raw)
                                     .into_iter()
                                     .filter(|l| {
                                         !(l.kind == DiffKind::Meta && (l.text.starts_with("diff --git") || l.text.starts_with("index ") || l.text.starts_with("--- ") || l.text.starts_with("+++ ")))
@@ -474,7 +579,6 @@ impl GitView {
                 Msg::Op(label, r) => {
                     self.busy = None;
                     match r {
-                        Ok(_) if label == t("暂存此块") || label == t("取消暂存此块") => self.reload_work_diff(),
                         Ok(_) => self.toast(tf("{} 完成", &[&label]), OK()),
                         Err(e) => self.toast(tf("{} 失败：{}", &[&label, &friendly_err(&e)]), ERR()),
                     }
@@ -483,14 +587,14 @@ impl GitView {
                 Msg::Ops(m) => self.on_ops(m),
             }
         }
+        self.poll_watch();
         // 搜索框停止输入 350ms 后再查
         if let Some(at) = self.query_at {
             if at.elapsed().as_millis() > 350 {
                 self.query_at = None;
                 if self.query != self.query_sent {
                     self.query_sent = self.query.clone();
-                    self.limit = PAGE;
-                    self.load_log();
+                    self.reset_log();
                 }
             } else {
                 self.ctx.request_repaint_after(std::time::Duration::from_millis(100));
@@ -557,7 +661,10 @@ impl GitView {
                 match a {
                     Act::GitRefresh => self.refresh(),
                     Act::GitFetch => self.run_op(t("拉取"), vec!["fetch".into(), "--all".into(), "--prune".into()]),
-                    Act::GitFind => ctx.memory_mut(|m| m.request_focus(egui::Id::new(("search-box", t("搜索提交说明…").as_str())))),
+                    Act::GitFind => {
+                        let hint = if self.sel == Sel::Work { t("筛选文件名…") } else { t("搜索提交说明…") };
+                        ctx.memory_mut(|m| m.request_focus(egui::Id::new(("search-box", hint.as_str()))));
+                    }
                     _ => {}
                 }
             }
@@ -567,7 +674,8 @@ impl GitView {
             return;
         }
         let w = ui.available_width();
-        if !compact || w > 1100.0 {
+        let sidebar = !compact || w > 1100.0;
+        if sidebar {
             egui::SidePanel::left("git-side")
                 .frame(egui::Frame::new().fill(BG1()))
                 .default_width(self.s.side_width)
@@ -578,7 +686,8 @@ impl GitView {
                     self.side_panel(ui);
                 });
         }
-        if self.sel != Sel::None && (!compact || w > 760.0) {
+        let narrow = compact && w <= 760.0;
+        if self.sel != Sel::None && !narrow {
             egui::SidePanel::right("git-detail")
                 .frame(egui::Frame::new().fill(BG1()))
                 .default_width(self.s.detail_width)
@@ -587,7 +696,7 @@ impl GitView {
                 .show_inside(ui, |ui| {
                     self.s.detail_width = ui.available_width();
                     match self.sel.clone() {
-                        Sel::Work => self.work_panel(ui),
+                        Sel::Work => self.work_panel(ui, false),
                         Sel::Commit(h) => self.commit_panel(ui, &h),
                         Sel::Sizes => self.sizes_panel(ui),
                         Sel::None => {}
@@ -597,8 +706,10 @@ impl GitView {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(BG0())).show_inside(ui, |ui| {
             if self.diff.is_some() {
                 self.diff_view(ui);
+            } else if narrow && self.sel == Sel::Work {
+                self.work_panel(ui, true);
             } else {
-                self.commit_list(ui);
+                self.commit_list(ui, !sidebar);
             }
         });
         self.confirm_modal(ctx);
@@ -740,10 +851,7 @@ impl GitView {
                 if n > 0 { WARN() } else { TEXT3() },
             );
             if r.clicked() {
-                self.sel = Sel::Work;
-                self.diff = None;
-                self.file_sel = None;
-                self.load_status();
+                self.show_work();
             }
             let r = nav_row(
                 ui,
@@ -753,10 +861,8 @@ impl GitView {
                 self.scope.is_none() && !matches!(self.sel, Sel::Work | Sel::Sizes),
                 ACCENT(),
             );
-            if r.clicked() && self.scope.is_some() {
-                self.scope = None;
-                self.limit = PAGE;
-                self.load_log();
+            if r.clicked() {
+                self.show_history();
             }
             self.side_extra(ui);
             ui.add_space(6.0);
@@ -805,25 +911,51 @@ impl GitView {
                     self.ask_checkout(&b);
                 } else {
                     self.scope = Some(b.clone());
-                    self.limit = PAGE;
-                    self.load_log();
-                    self.select_commit_by_ref(&b);
+                    self.reset_log();
+                    self.sel = Sel::None;
+                    self.info = None;
+                    self.diff = None;
+                    self.file_sel = None;
                 }
             }
         });
     }
 
-    fn select_commit_by_ref(&mut self, b: &Branch) {
-        // 分支短哈希 → 等日志加载后自动选中第一条
-        let _ = b;
-        self.sel = Sel::None;
-        self.info = None;
+    fn show_work(&mut self) {
+        if self.sel != Sel::Work {
+            self.sel = Sel::Work;
+            self.diff = None;
+            self.file_sel = None;
+        }
+    }
+
+    fn show_history(&mut self) {
+        let scoped = self.scope.take().is_some();
+        if scoped || matches!(self.sel, Sel::Work | Sel::Sizes) {
+            self.sel = Sel::None;
+            self.info = None;
+        }
         self.diff = None;
+        self.file_sel = None;
+        if scoped {
+            self.reset_log();
+        } else if self.sel == Sel::None {
+            if let Some(commit) = self.commits.first() {
+                let hash = commit.hash.clone();
+                self.select_commit(&hash);
+            }
+        }
     }
 
     // ------------------------------------------------------------ 中间：提交图谱
 
-    fn commit_list(&mut self, ui: &mut Ui) {
+    fn commit_list(&mut self, ui: &mut Ui, work_button: bool) {
+        if work_button && self.sel != Sel::Work {
+            let n = self.dirty_count();
+            if nav_row(ui, Icon::Edit, &t("工作区更改"), (n > 0).then(|| n.to_string()), false, WARN()).clicked() {
+                self.show_work();
+            }
+        }
         // 顶栏
         let bar = ui.available_rect_before_wrap();
         let bar = Rect::from_min_size(bar.min, vec2(bar.width(), 44.0));
@@ -846,14 +978,13 @@ impl GitView {
                     });
                 if r.inner {
                     self.scope = None;
-                    self.limit = PAGE;
-                    self.load_log();
+                    self.reset_log();
                 }
             } else {
                 ui.label(RichText::new(t("全部分支")).size(12.0).color(TEXT3()));
             }
             let n = self.commits.len();
-            ui.label(RichText::new(if self.loading_log { t("加载中…") } else { tf("{} 个提交", &[&n]) }).size(11.5).color(TEXT3()));
+            ui.label(RichText::new(if self.loading_log && n == 0 { t("加载中…") } else { tf("{} 个提交", &[&n]) }).size(11.5).color(TEXT3()));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if search_box(ui, &mut self.query, &t("搜索提交说明…"), 260.0) {
                     self.query_at = Some(Instant::now());
@@ -904,7 +1035,7 @@ impl GitView {
         let mut clicked: Option<usize> = None;
         let mut menu: Option<(usize, u8)> = None;
         let head_hash = self.branches.iter().find(|b| b.head).map(|b| b.hash.clone()).unwrap_or_default();
-        let mut sa = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("git-log", self.log_gen));
+        let mut sa = egui::ScrollArea::vertical().auto_shrink([false, false]).id_salt(("git-log", self.log_scroll_id));
         if self.scroll_to_sel {
             self.scroll_to_sel = false;
             if let Some(i) = match &self.sel {
@@ -1154,13 +1285,13 @@ impl GitView {
             let title = c.subject.clone();
             let h = c.hash.clone();
             let p2 = path.clone();
-            self.open_diff(title, path, move |r| git::commit_diff(&r, &h, &p2));
+            self.open_diff(title, path, None, move |r| git::commit_diff(&r, &h, &p2).map(|text| (text, 0)));
         }
     }
 
     // ------------------------------------------------------------ 右侧：工作区更改
 
-    fn work_panel(&mut self, ui: &mut Ui) {
+    fn work_panel(&mut self, ui: &mut Ui, back_to_history: bool) {
         let mut open: Option<StatusFile> = None;
         let mut to_code: Option<String> = None;
         let mut work_cmp: Option<(String, bool)> = None;
@@ -1173,12 +1304,17 @@ impl GitView {
             })
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
+                    if back_to_history && icon_button(ui, Icon::Back, &t("提交历史"), false).clicked() {
+                        self.show_history();
+                    }
                     ui.label(RichText::new(t("工作区更改")).font(FontId::new(15.0, bold())).color(TEXT()));
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if icon_button(ui, Icon::Refresh, &t("刷新"), false).clicked() {
                             self.load_status();
                         }
-                        if self.dirty_count() > 0 {
+                        if let Some(label) = &self.busy {
+                            ui.spinner().on_hover_text(label);
+                        } else if self.status.as_ref().is_some_and(|s| s.files.iter().any(|f| f.y != ' ' || f.x == '?')) {
                             self.stage_all_button(ui);
                         }
                     });
@@ -1197,32 +1333,70 @@ impl GitView {
             return;
         }
         self.commit_box(ui);
-        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+        egui::Frame::new().inner_margin(egui::Margin::symmetric(14, 2)).show(ui, |ui| {
+            search_box(ui, &mut self.work_filter, &t("筛选文件名…"), ui.available_width());
+        });
+        let filter = self.work_filter.trim().to_lowercase();
+        let mut groups = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
+        for file in &st_.files {
+            if !filter.is_empty() && !file.path.to_lowercase().contains(&filter) {
+                continue;
+            }
+            if is_conflict(file) {
+                groups[0].push(file);
+            } else if file.x == '?' {
+                groups[3].push(file);
+            } else {
+                if file.x != ' ' {
+                    groups[1].push(file);
+                }
+                if file.y != ' ' {
+                    groups[2].push(file);
+                }
+            }
+        }
+        if groups.iter().all(Vec::is_empty) {
+            ui.add_space(14.0);
+            ui.vertical_centered(|ui| ui.label(RichText::new(t("没有匹配项")).color(TEXT3())));
+            return;
+        }
+        egui::ScrollArea::vertical().id_salt("git-work-files").auto_shrink([false, false]).show(ui, |ui| {
             ui.spacing_mut().item_spacing.y = 0.0;
-            let groups: [(String, Box<dyn Fn(&StatusFile) -> bool>); 4] = [
-                (t("合并冲突"), Box::new(is_conflict)),
-                (t("已暂存"), Box::new(|f: &StatusFile| f.x != ' ' && f.x != '?' && !is_conflict(f))),
-                (t("未暂存"), Box::new(|f: &StatusFile| f.y != ' ' && f.x != '?' && !is_conflict(f))),
-                (t("未跟踪"), Box::new(|f: &StatusFile| f.x == '?')),
-            ];
-            for (title, pred) in groups.iter() {
-                let list: Vec<&StatusFile> = st_.files.iter().filter(|f| pred(f)).collect();
-                if list.is_empty() {
+            for (group, (title, files)) in [t("合并冲突"), t("已暂存"), t("未暂存"), t("未跟踪")].into_iter().zip(groups).enumerate() {
+                if files.is_empty() {
                     continue;
                 }
                 ui.add_space(6.0);
-                section_header(ui, title, list.len(), true);
-                for f in list {
-                    let code = if f.x == '?' {
-                        'U'
-                    } else if f.y != ' ' {
-                        f.y
-                    } else {
-                        f.x
-                    };
+                let open_group = &mut self.work_groups_open[group];
+                if section_header(ui, &title, files.len(), *open_group || !filter.is_empty()).clicked() {
+                    *open_group = !*open_group;
+                }
+                if !*open_group && filter.is_empty() {
+                    continue;
+                }
+                for f in files {
+                    let conflict = group == 0;
+                    let staged = group == 1;
+                    let code = match group { 0 => '!', 1 => f.x, 2 => f.y, _ => '?' };
                     let active = self.file_sel.as_deref() == Some(f.path.as_str());
-                    let r = file_row(ui, code, &f.path, None, None, active);
-                    let conflict = is_conflict(f);
+                    let r = if conflict {
+                        file_row(ui, code, &f.path, None, None, active)
+                    } else {
+                        ui.horizontal(|ui| {
+                            let w = ui.available_width();
+                            let r = ui.allocate_ui_with_layout(vec2(w - 30.0, 24.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                                file_row(ui, code, &f.path, None, None, active)
+                            }).inner;
+                            let enabled = self.busy.is_none() && !self.ops.checking;
+                            let button = egui::Button::new(RichText::new(if staged { "−" } else { "+" }).size(16.0))
+                                .frame(false).min_size(vec2(24.0, 22.0));
+                            if ui.add_enabled(enabled, button).on_hover_text(t(if staged { "取消暂存" } else { "暂存" })).clicked() {
+                                self.stage_file(f, staged);
+                            }
+                            r
+                        }).inner
+                    };
+                    let r = r.on_hover_text(&f.path);
                     if r.clicked() {
                         // 冲突文件单击直接进三方合并
                         if conflict {
@@ -1276,25 +1450,18 @@ impl GitView {
 
     // ------------------------------------------------------------ 差异
 
-    fn open_work_diff(&mut self, f: git::StatusFile) {
-        let path = f.path.clone();
-        let f2 = f.clone();
-        self.open_diff(t("工作区更改"), path, move |r| git::worktree_diff(&r, &f2));
-        if let Some(d) = self.diff.as_mut() {
-            // 未跟踪的新文件没有补丁头，只能整个文件暂存
-            d.work = (f.x != '?').then_some(f);
-        }
+    fn open_work_diff(&mut self, file: git::StatusFile) {
+        let work = (file.x != '?').then(|| file.clone());
+        self.open_diff(t("工作区更改"), file.path.clone(), work, move |r| git::worktree_diff(&r, &file));
     }
 
-    /// 逐块暂存 / 取消暂存之后：状态和 diff 都重新读
-    fn reload_work_diff(&mut self) {
-        self.refresh();
-        if let Some(f) = self.diff.as_ref().and_then(|d| d.work.clone()) {
-            let path = f.path.clone();
-            // 文件状态可能变了（全部暂存 / 全部取消），用新的 XY 不影响 diff 内容
-            let f = git::StatusFile { path, ..f };
-            self.open_work_diff(f);
-        }
+    fn load_work_diff(&mut self, file: git::StatusFile) {
+        let Some(diff) = self.diff.as_mut() else { return };
+        diff.work = (file.x != '?').then(|| file.clone());
+        diff.loading = true;
+        self.diff_gen += 1;
+        let g = self.diff_gen;
+        self.spawn(move |r| Msg::Diff(g, git::worktree_diff(&r, &file)));
     }
 
     /// 第 k 块的补丁（文件头 + 这一块）
@@ -1332,6 +1499,9 @@ impl GitView {
 
     fn stage_hunk(&mut self, k: usize, staged: bool) {
         let Some(d) = self.diff.as_ref() else { return };
+        if d.loading || d.err.is_some() || self.busy.is_some() {
+            return;
+        }
         let Some(patch) = Self::hunk_patch(&d.raw, k) else { return };
         let tmp = std::env::temp_dir().join(format!("qccom-hunk-{}.patch", std::process::id()));
         if std::fs::write(&tmp, patch).is_err() {
@@ -1387,7 +1557,7 @@ impl GitView {
             });
         }
         ui.add_space(44.0);
-        if d.loading {
+        if d.loading && d.lines.is_empty() {
             ui.add_space(30.0);
             ui.vertical_centered(|ui| ui.spinner());
         } else if let Some(e) = &d.err {
@@ -1406,7 +1576,7 @@ impl GitView {
             ui.spacing_mut().item_spacing.y = 0.0;
             egui::ScrollArea::both()
                 .auto_shrink([false, false])
-                .id_salt(("git-diff", self.diff_gen))
+                .id_salt(("git-diff", self.diff_scroll_id))
                 .show_rows(ui, lh, d.lines.len(), |ui, range| {
                     for i in range {
                         let l = &d.lines[i];

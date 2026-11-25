@@ -254,12 +254,39 @@ fn project_fields(ui: &mut egui::Ui, project: &mut mcu::Options, profile: mcu::P
     }
     if profile == Wch {
         use mcu::WchProgrammer::*;
+        let modes = [
+            (Link, "WCH-Link"),
+            (VendorSerialIsp, t("官方 ISP · 调试串口")),
+            (VendorUsbIsp, t("官方 ISP · USB")),
+            (UsbIsp, "wchisp · USB"),
+            (SerialIsp, t("wchisp · 调试串口")),
+        ];
         ui.horizontal(|ui| {
             ui.label(t("烧录接口"));
-            ui.selectable_value(&mut project.wch_programmer, Link, "WCH-Link");
-            ui.selectable_value(&mut project.wch_programmer, UsbIsp, "USB ISP");
-            ui.selectable_value(&mut project.wch_programmer, SerialIsp, t("串口 ISP"));
+            let current = modes.iter().find(|(mode, _)| *mode == project.wch_programmer).map(|(_, label)| *label).unwrap_or("WCH-Link");
+            egui::ComboBox::from_id_salt("wch-flash-interface").selected_text(current).show_ui(ui, |ui| {
+                for (mode, label) in modes {
+                    ui.selectable_value(&mut project.wch_programmer, mode, label);
+                }
+            });
         });
+        if matches!(project.wch_programmer, VendorSerialIsp | VendorUsbIsp) {
+            ui.horizontal(|ui| {
+                ui.label(t("芯片配置"));
+                ui.add(egui::TextEdit::singleline(&mut project.wch_isp_config).hint_text("Config.ini"));
+                if ui.small_button(t("浏览…")).clicked() {
+                    if let Some(path) = crate::diagnostics::file_dialog().set_directory(cwd).add_filter("INI", &["ini"]).pick_file() {
+                        project.wch_isp_config = path.strip_prefix(cwd).unwrap_or(&path).to_string_lossy().into_owned();
+                    }
+                }
+            });
+        }
+        if project.wch_programmer == VendorUsbIsp {
+            field(ui, t("USB ISP 设备"), &mut project.wch_isp_device, if cfg!(target_os = "macos") { "0x02131000" } else if cfg!(windows) { "USB1" } else { "/dev/ch37x0" });
+        }
+        if !cmake && cwd.join(".cproject").is_file() {
+            field(ui, t("MounRiver 构建配置"), &mut project.configuration, t("使用工程的第一个配置"));
+        }
     }
     if matches!(profile, EspIdf | Zephyr | Pico | Arduino | CMake | Wch) || profile == Stm32 && cmake {
         field(ui, t("构建目录"), &mut project.build_dir, "build");

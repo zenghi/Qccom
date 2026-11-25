@@ -90,17 +90,31 @@ function global:make {
 pub(super) const POWERSHELL_MAKE: &str = r#"
 function global:make {
     $projectArgs = @();
+    $makeArgs = @($args);
+    $buildOnly = !($args -cnotmatch '^(-j[0-9]*|--jobs(=[0-9]+)?|[0-9]+)$');
     if ($PWD.ProviderPath -eq $env:QCCOM_MCU_PROJECT -and
         !(Test-Path -LiteralPath 'Makefile','makefile','GNUmakefile' -PathType Leaf | Where-Object { $_ }) -and
         !($args -cmatch '^(-C|-f|--directory|--file|--makefile)')) {
-        if ($env:QCCOM_MCU_MAKE_DIR) {
+        if ($env:QCCOM_MCU_MAKE_DIR -and
+            (@('GNUmakefile','makefile','Makefile') | Where-Object {
+                Test-Path -LiteralPath (Join-Path $env:QCCOM_MCU_MAKE_DIR $_) -PathType Leaf
+            })) {
             $projectArgs = @('-C', $env:QCCOM_MCU_MAKE_DIR);
-        } elseif ($env:QCCOM_MCU_NO_MAKEFILE) {
+            if ($buildOnly) { $makeArgs += 'all'; }
+        } elseif ($env:QCCOM_MRS_IDE -and !($args -cnotmatch '^(-j[0-9]*|--jobs(=[0-9]+)?|[0-9]+|all|clean)$')) {
+            if ($args -ccontains 'clean') { return }
+            & $env:QCCOM_MRS_IDE -nosplash --launcher.suppressErrors -application org.eclipse.cdt.managedbuilder.core.headlessbuild -data $env:QCCOM_MRS_WORKSPACE -import $env:QCCOM_MCU_PROJECT -build $env:QCCOM_MRS_SELECTION | Out-Default;
+            return;
+        } elseif ($env:QCCOM_MCU_NO_MAKEFILE -and !($args -ccontains '--version')) {
             Write-Error $env:QCCOM_MCU_NO_MAKEFILE;
             return;
         }
     }
-    & $env:QCCOM_REAL_MAKE @projectArgs @args;
+    if ($env:QCCOM_REAL_MAKE) {
+        & $env:QCCOM_REAL_MAKE @projectArgs @makeArgs;
+    } else {
+        Write-Error 'GNU Make was not found.';
+    }
 }
 "#;
 
@@ -177,6 +191,9 @@ impl Session {
                     }
                 }
             }
+            ["wch-flash"] if self.profile == Profile::Wch => shortcut.action = Action::Flash,
+            ["wch-monitor"] if self.profile == Profile::Wch => {}
+            [program, "flash"] if self.profile == Profile::Wch && !self.make && program.eq_ignore_ascii_case("make") => shortcut.action = Action::Flash,
             ["pio" | "platformio", "device", "monitor"] if self.profile == Profile::PlatformIo => {}
             ["arduino-cli", "monitor"] if self.profile == Profile::Arduino => {}
             _ => return None,
@@ -185,7 +202,7 @@ impl Session {
     }
 
     pub(in crate::shell) fn shortcut_command(&self, syntax: Syntax, shortcut: &Shortcut<'_>, port: &str) -> Result<Option<Task>, String> {
-        if port.is_empty() {
+        if port.is_empty() && (shortcut.action == Action::Monitor || shortcut.action.monitor_after() || self.profile == Profile::EspIdf) {
             return Err(t("请先在「设备」中选择串口").into());
         }
         if shortcut.explicit_port.is_some_and(|p| if cfg!(windows) { !p.eq_ignore_ascii_case(port) } else { p != port }) {
@@ -361,10 +378,11 @@ impl Session {
                 self.invoke("STM32_Programmer_CLI", &args)?
             }
             Profile::Wch if action == Flash && target.is_empty() => {
+                let extensions = if self.options.wch_programmer == WchProgrammer::Link { &["elf", "hex", "bin"][..] } else { &["hex", "bin"][..] };
                 let artifact = if self.options.firmware.trim().is_empty() {
-                    self.wch_firmware()?
+                    self.wch_firmware(extensions)?
                 } else {
-                    self.firmware(&["elf", "hex", "bin"])?.to_owned()
+                    self.firmware(extensions)?.to_owned()
                 };
                 let file = artifact.as_str();
                 match self.options.wch_programmer {
@@ -382,6 +400,9 @@ impl Session {
                     }
                     WchProgrammer::UsbIsp => self.invoke("wchisp", &["flash", file])?,
                     WchProgrammer::SerialIsp => self.invoke("wchisp", &["--serial", "--port", needs_port()?, "flash", file])?,
+                    WchProgrammer::VendorSerialIsp => self.wch_vendor_flash(file, needs_port()?, true)?,
+                    WchProgrammer::VendorUsbIsp => self.wch_vendor_flash(file, self.options.wch_isp_device.trim(), false)?,
+
                 }
             }
             Profile::Pico if action == Flash && target.is_empty() => {
@@ -417,17 +438,27 @@ impl Session {
                 };
                 self.invoke("STM32CubeIDE", &args)?
             }
-            Profile::Make | Profile::Stm32 | Profile::Wch if self.profile == Profile::Make || !self.cmake || (self.make || self.wch_make_dir.is_some()) && preset.is_empty() => {
+            Profile::Wch if action == Build && !self.make && !self.cmake && self.wch_generated_make_dir().is_none() => {
+                let project = self.wch_project.as_ref().ok_or_else(|| t("工程缺少可用的 Makefile、CMakeLists.txt 或 MounRiver .cproject 构建配置。").to_owned())?;
+                let workspace = project.workspace.as_ref().ok_or_else(|| t("首次编译此 .cproject 需要 MounRiver Studio Community，或使用当前 MRS 导出 CMake 工程。").to_owned())?;
+                let workspace = workspace.path().to_str().ok_or_else(|| t("工程或工具路径不是 UTF-8").to_owned())?;
+                let root = self.root.to_str().ok_or_else(|| t("工程或工具路径不是 UTF-8").to_owned())?;
+                self.invoke(
+                    "MounRiver Studio",
+                    &["-nosplash", "--launcher.suppressErrors", "-application", "org.eclipse.cdt.managedbuilder.core.headlessbuild", "-data", workspace, "-import", root, "-build", &project.selection()],
+                )?
+            }
+            Profile::Make | Profile::Stm32 | Profile::Wch if self.profile == Profile::Make || !self.cmake || (self.make || self.wch_generated_make_dir().is_some()) && preset.is_empty() => {
                 let mut args = Vec::new();
                 if !self.make && self.profile == Profile::Wch && action != Version {
                     let dir = self
-                        .wch_make_dir
-                        .as_deref()
+                        .wch_generated_make_dir()
                         .and_then(Path::to_str)
                         .ok_or_else(|| t("请先在 MounRiver Studio 生成工程的 Makefile，或提供 Make/CMake 工程。").to_owned())?;
                     args.extend(["-C", dir]);
                 }
                 let target_args = match action {
+                    Build if self.profile == Profile::Wch && !self.make => vec!["-j8", "all"],
                     Build => vec!["-j8"],
                     Flash => vec![if target.is_empty() { "flash" } else { target }],
                     Clean => vec!["clean"],
@@ -480,13 +511,37 @@ impl Session {
         Ok(steps)
     }
 
-    fn wch_firmware(&self) -> Result<String, String> {
-        let ambiguous = || tf("请选择已编译的固件文件（{}）", &[&"elf / hex / bin"]);
-        let dirs = [self.wch_make_dir.as_deref().unwrap_or(Path::new("obj")), Path::new(self.options.build_dir())];
+    fn wch_vendor_flash(&self, file: &str, port: &str, serial: bool) -> Result<Invocation, String> {
+        if port.is_empty() || port.starts_with('-') {
+            return Err(t("请输入 WCH ISP 的 USB 设备标识").into());
+        }
+        let configured = self.options.wch_isp_config.trim();
+        let config = if configured.is_empty() {
+            ["WCHISPTool.ini", "wchisp.ini", "Config.ini", "config.ini"]
+                .into_iter()
+                .find(|candidate| self.root.join(candidate).is_file())
+                .unwrap_or_default()
+        } else {
+            configured
+        };
+        if config.is_empty() || config.starts_with('-') || !self.root.join(config).is_file() {
+            return Err(t("请在 MCU 工具链选择 WCHISPStudio 导出的芯片配置 INI。").into());
+        }
+        let mut args = vec!["-p", port];
+        if serial {
+            args.extend(["-b", "115200"]);
+        }
+        args.extend(["-c", config, "-o", "program", "-f", file]);
+        self.invoke("WCHISPTool_CMD", &args)
+    }
+
+    fn wch_firmware(&self, extensions: &[&str]) -> Result<String, String> {
+        let ambiguous = || tf("请选择已编译的固件文件（{}）", &[&extensions.join(" / ")]);
+        let dirs = [self.wch_output_dir().unwrap_or(Path::new("obj")), Path::new(self.options.build_dir()), Path::new(".")];
         for dir in dirs {
             let Ok(entries) = std::fs::read_dir(self.root.join(dir)) else { continue };
             let images: Vec<_> = entries.flatten().map(|entry| entry.path()).filter(|path| path.is_file()).collect();
-            for ext in ["elf", "hex", "bin"] {
+            for ext in extensions {
                 let mut matching = images.iter().filter(|file| file.extension().is_some_and(|e| e.eq_ignore_ascii_case(ext)));
                 if let Some(image) = matching.next() {
                     return if matching.next().is_none() {
@@ -558,17 +613,53 @@ mod tests {
         fs::write(root.join("board.wvproj"), "").unwrap();
         fs::write(root.join("obj/makefile"), "").unwrap();
         let image = root.join("obj/board.elf");
+        let hex = root.join("obj/board.hex");
         fs::write(&image, "").unwrap();
+        fs::write(&hex, "").unwrap();
         let mut s = Session::discover(root.to_owned(), Options::default());
-        for tool in ["make", "wlink", "wchisp"] {
+        for tool in ["make", "wlink", "wchisp", "WCHISPTool_CMD"] {
             s.tools.insert(tool, root.join(tool));
         }
         assert_eq!(s.profile, Profile::Wch);
-        assert_eq!(s.plan(Action::Build, "").unwrap()[0].args, ["-C", "obj", "-j8"]);
+        assert_eq!(s.plan(Action::Build, "").unwrap()[0].args, ["-C", "obj", "-j8", "all"]);
         assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["flash", image.to_str().unwrap()]);
         s.options.wch_programmer = WchProgrammer::SerialIsp;
         assert!(s.plan(Action::Flash, "").is_err());
-        assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["--serial", "--port", "COM31", "flash", image.to_str().unwrap()]);
+        assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["--serial", "--port", "COM31", "flash", hex.to_str().unwrap()]);
+        s.options.wch_programmer = WchProgrammer::VendorSerialIsp;
+        fs::write(root.join("Config.ini"), "").unwrap();
+        assert!(s.plan(Action::Flash, "").is_err());
+        assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["-p", "COM31", "-b", "115200", "-c", "Config.ini", "-o", "program", "-f", hex.to_str().unwrap()]);
+        let shortcut = s.shortcut("wch-flash").unwrap();
+        assert!(s.shortcut_command(Syntax::PowerShell, &shortcut, "COM31").unwrap().unwrap().cmd.contains("-p COM31"));
+    }
+
+    #[test]
+    fn wch_uses_cdt_on_first_build_then_the_selected_generated_makefile() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("board.wvproj"), "").unwrap();
+        fs::write(root.join(".project"), "<projectDescription><name>Board (test)</name></projectDescription>").unwrap();
+        fs::write(
+            root.join(".cproject"),
+            r#"<cproject><configuration name="Debug" artifactName="board"><builder buildPath="${workspace_loc:/Board (test)}/obj-debug"/></configuration>
+               <configuration name="Release" artifactName="board"><builder buildPath="${workspace_loc:/Board (test)}/obj-release"/></configuration></cproject>"#,
+        )
+        .unwrap();
+        let mut session = Session::discover(
+            root.to_owned(),
+            Options { configuration: "Release".into(), ..Default::default() },
+        );
+        session.wch_project.as_mut().unwrap().workspace = Some(tempfile::tempdir().unwrap());
+        let ide = root.join("MounRiver Studio_Community");
+        session.tools.insert("MounRiver Studio", ide.clone());
+        session.tools.insert("make", root.join("make"));
+        let plan = session.plan(Action::Build, "").unwrap();
+        assert_eq!(plan[0].program, ide);
+        assert_eq!(&plan[0].args[plan[0].args.len() - 2..], ["-build", r"Board \(test\)/Release"]);
+        fs::create_dir(root.join("obj-release")).unwrap();
+        fs::write(root.join("obj-release/Makefile"), "all:").unwrap();
+        assert_eq!(session.plan(Action::Build, "").unwrap()[0].args, ["-C", "obj-release", "-j8", "all"]);
     }
 
     #[test]

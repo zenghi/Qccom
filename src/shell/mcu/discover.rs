@@ -8,8 +8,7 @@ mod installed;
 pub(super) use esp::EspIdf;
 
 pub(super) fn session(root: PathBuf, options: Options) -> Session {
-    let makefiles = ["GNUmakefile", "makefile", "Makefile"];
-    let makefile = makefiles.iter().map(|name| root.join(name)).find(|file| file.is_file());
+    let makefile = wch::MAKEFILES.iter().map(|name| root.join(name)).find(|file| file.is_file());
     let make = makefile.is_some();
     let cmake = root.join("CMakeLists.txt").is_file();
     let cmake_text = read_prefix(&root.join("CMakeLists.txt")).to_ascii_lowercase();
@@ -19,7 +18,7 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
     let sketch = sketch.filter(|path| path.is_file());
     let wch_make_dir = ["obj", "Debug", "Release"]
         .into_iter()
-        .find(|dir| makefiles.iter().any(|name| root.join(dir).join(name).is_file()))
+        .find(|dir| wch::has_makefile(&root.join(dir)))
         .map(PathBuf::from);
     let profile = match options.profile {
         Profile::Auto if root.join("platformio.ini").is_file() => Profile::PlatformIo,
@@ -39,6 +38,11 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
         .map(PathBuf::from)
         .find(|file| profile == Profile::Stm32 && root.join(file).is_file());
 
+    let wch_project = if profile == Profile::Wch && !make && !cmake {
+        eclipse_project_name(&eclipse).and_then(|name| wch::Project::read(&root, name, &options.configuration))
+    } else {
+        None
+    };
     let mut s = Session {
         profile,
         options,
@@ -53,6 +57,7 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
         cube_toolchain,
         cube_ide: None,
         wch_make_dir,
+        wch_project,
         sketch,
     };
     if profile == Profile::System {
@@ -100,8 +105,24 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
             ]
         }
         Profile::Wch => {
-            let location = wch_paths(&host, sdk.as_deref(), &mut paths);
+            let (location, ide) = wch_paths(&host, sdk.as_deref(), &mut paths);
             s.location = location.or(s.location);
+            if let Some(project) = s.wch_project.as_mut() {
+                if let Some(ide) = ide {
+                    match tempfile::tempdir() {
+                        Ok(workspace) => {
+                            project.workspace = Some(workspace);
+                            s.tools.insert("MounRiver Studio", ide);
+                        }
+                        Err(e) => s.issue = Some(tf("无法创建 MounRiver Studio 工作区：{}", &[&e])),
+                    }
+                }
+                #[cfg(unix)]
+                if let Err(e) = project.make_shim() {
+                    s.issue = Some(tf("无法初始化 WCH 的 make 命令：{}", &[&e]));
+                }
+            }
+            wch_isp_paths(&host, sdk.as_deref(), &s.root, &mut paths);
             &[
                 ("cmake", &["cmake"]),
                 ("ninja", &["ninja"]),
@@ -113,6 +134,7 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
                 ("arm-none-eabi-gcc", &["arm-none-eabi-gcc"]),
                 ("wlink", &["wlink"]),
                 ("wchisp", &["wchisp"]),
+                ("WCHISPTool_CMD", &["WCHISPTool_CMD", "WCHISPTool_CMD_x64", "WCHISPTool_CMD_x86", "wchisptool_cmd"]),
                 ("openocd", &["openocd"]),
             ]
         }
@@ -262,7 +284,7 @@ fn registered_dirs(_names: &[&str]) -> Vec<PathBuf> {
     Vec::new()
 }
 
-fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> Option<PathBuf> {
+fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) {
     let mut roots: Vec<_> = sdk.into_iter().flat_map(|p| p.ancestors().take(8)).map(Path::to_owned).collect();
     for key in ["MRS2_HOME", "MRS3_HOME", "MRS_PATH", "MOUNRIVER_HOME", "WCH_TOOLCHAIN_ROOT"] {
         roots.extend(host.var(key));
@@ -279,27 +301,69 @@ fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> Optio
         parents.push(system_drive);
     } else {
         parents.push(PathBuf::from("/opt"));
-        roots.push(PathBuf::from("/usr/share/MRS2/MRS-linux-x64"));
-        roots.push(PathBuf::from("/usr/share/MRS3/MRS-linux-x64"));
+        roots.extend(["/usr/share/MRS2/MRS-linux-x64", "/usr/share/MRS3/MRS-linux-x64", "/usr/share/MounRiverStudio", "/Applications/MounRiver Studio.app"].map(PathBuf::from));
     }
     for parent in parents {
-        roots.extend(child_dirs(&parent, "mounriver"));
+        for prefix in ["mounriver", "mrs_community", "mrs2", "mrs3", "wch"] {
+            roots.extend(child_dirs(&parent, prefix));
+        }
     }
     let mut seen = std::collections::HashSet::new();
     let mut location = None;
+    let mut ide = None;
     for root in roots {
-        for install in std::iter::once(root.clone()).chain(child_dirs(&root, "mounriver")).chain(child_dirs(&root, "mrs-linux")) {
+        let children = ["mounriver", "mrs-linux", "mrs_community"].into_iter().flat_map(|prefix| child_dirs(&root, prefix));
+        for install in std::iter::once(root.clone()).chain(children) {
             if !seen.insert(install.clone()) {
                 continue;
             }
             let before = paths.len();
             collect_wch_paths(&install, paths);
+            if ide.is_none() && install.join("plugins").is_dir() {
+                ide = locate(
+                    std::slice::from_ref(&install),
+                    &["MounRiver Studio_Communityc", "MounRiver Studio_Community", "MounRiver Studioc", "MounRiver Studio", "MounRiverStudio"],
+                );
+            }
             if paths.len() > before {
                 location.get_or_insert(install);
             }
         }
     }
-    location
+    (location, ide)
+}
+
+fn wch_isp_paths(host: &Host, sdk: Option<&Path>, project: &Path, paths: &mut Vec<PathBuf>) {
+    // Official ZIP distributions use platform folders, while the Windows
+    // installer can put the command line tool alongside WCHISPStudio.
+    let mut roots: Vec<_> = sdk.into_iter().map(Path::to_owned).collect();
+    roots.extend(host.var("WCHISPTOOL_HOME"));
+    roots.extend(registered_dirs(&["wchisptool", "wchispstudio"]));
+    let mut parents = host.program_files.clone();
+    parents.extend(host.home.iter().cloned());
+    parents.extend(host.home.iter().map(|home| home.join("Downloads")));
+    parents.extend(host.var("LOCALAPPDATA").map(|path| path.join("Programs")));
+    parents.push(project.to_owned());
+    if !cfg!(windows) {
+        parents.push(PathBuf::from("/opt"));
+    }
+    for parent in parents {
+        for prefix in ["wchisptool", "wchispstudio"] {
+            roots.extend(child_dirs(&parent, prefix));
+            roots.extend(child_dirs(&parent.join("WCH"), prefix));
+        }
+    }
+    let platform = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "mac" } else { "linux" };
+    for root in roots {
+        let folders: Vec<_> = child_dirs(&root, platform);
+        for folder in std::iter::once(root).chain(folders) {
+            for directory in [folder.join("bin"), folder] {
+                paths.extend(child_dirs(&directory, if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" }));
+                paths.extend(child_dirs(&directory, "amd64"));
+                paths.push(directory);
+            }
+        }
+    }
 }
 
 fn collect_wch_paths(install: &Path, paths: &mut Vec<PathBuf>) {
@@ -326,6 +390,7 @@ fn collect_wch_paths(install: &Path, paths: &mut Vec<PathBuf>) {
         for base in [
             wch.join("Toolchain"),
             layer.join("Toolchain"),
+            layer.join("toolchain"),
             layer.join("toolchains"),
             layer.join("resources/app/resources/toolchain"),
             layer.join("resources/toolchain"),

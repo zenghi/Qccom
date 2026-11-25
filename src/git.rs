@@ -319,7 +319,7 @@ pub struct StatusFile {
 }
 
 pub fn status(root: &Path) -> Result<Status, String> {
-    let out = git(root, &["status", "--porcelain=v1", "-b", "-uall"])?;
+    let out = git(root, &["--no-optional-locks", "status", "--porcelain=v1", "-b", "-uall"])?;
     let mut s = Status::default();
     for l in out.lines() {
         if let Some(b) = l.strip_prefix("## ") {
@@ -335,7 +335,7 @@ pub fn status(root: &Path) -> Result<Status, String> {
     Ok(s)
 }
 
-pub fn worktree_diff(root: &Path, f: &StatusFile) -> Result<String, String> {
+pub fn worktree_diff(root: &Path, f: &StatusFile) -> Result<(String, usize), String> {
     if f.x == '?' {
         // 未跟踪文件：显示全部内容为新增
         let text = crate::cindex::read_text(&root.join(&f.path)).unwrap_or_else(|| t("（二进制文件）").into());
@@ -345,11 +345,12 @@ pub fn worktree_diff(root: &Path, f: &StatusFile) -> Result<String, String> {
             d.push_str(l);
             d.push('\n');
         }
-        return Ok(d);
+        return Ok((d, 0));
     }
     let staged = git(root, &["diff", "--cached", "-M", "--", &f.path])?;
     let work = git(root, &["diff", "-M", "--", &f.path])?;
-    Ok(format!("{staged}{work}"))
+    let staged_hunks = staged.lines().filter(|line| line.starts_with("@@")).count();
+    Ok((format!("{staged}{work}"), staged_hunks))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

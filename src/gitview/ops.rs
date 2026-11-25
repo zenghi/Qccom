@@ -46,6 +46,7 @@ impl GitView {
             OpMsg::Subs(s) => self.ops.subs = s,
             OpMsg::Sizes(s) => self.ops.sizes = s,
             OpMsg::Draft(d) => {
+                self.load_status();
                 if d.is_empty() {
                     self.toast(t("先暂存要提交的文件"), WARN());
                 } else {
@@ -157,9 +158,6 @@ impl GitView {
                                 }
                                 Msg::Ops(OpMsg::Draft(gitops::draft_message(&r)))
                             });
-                            if stage_all {
-                                self.load_status();
-                            }
                         }
                         if self.ops.checking {
                             ui.spinner();
@@ -203,16 +201,26 @@ impl GitView {
             });
     }
 
+    pub(super) fn stage_file(&mut self, f: &StatusFile, unstage: bool) {
+        let (label, mut args) = if unstage {
+            (t("取消暂存"), vec!["restore".into(), "--staged".into(), "--".into()])
+        } else {
+            (t("暂存"), vec!["add".into(), "--".into()])
+        };
+        args.push(f.path.clone());
+        self.run_op(label, args);
+    }
+
     /// 工作区文件的右键菜单里加的写操作
     pub(super) fn file_ops_menu(&mut self, ui: &mut Ui, f: &StatusFile) {
         let staged = f.x != ' ' && f.x != '?';
         let unstaged = f.y != ' ' || f.x == '?';
         if unstaged && ui.button(t("暂存")).clicked() {
-            self.run_op(t("暂存"), vec!["add".into(), "--".into(), f.path.clone()]);
+            self.stage_file(f, false);
             ui.close_menu();
         }
         if staged && ui.button(t("取消暂存")).clicked() {
-            self.run_op(t("取消暂存"), vec!["restore".into(), "--staged".into(), "--".into(), f.path.clone()]);
+            self.stage_file(f, true);
             ui.close_menu();
         }
         if ui.button(RichText::new(t("放弃修改…")).color(ERR())).clicked() {

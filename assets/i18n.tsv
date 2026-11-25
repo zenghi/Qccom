@@ -3702,3 +3702,17 @@ TCP 发送失败：{}	TCP send failed: {}	TCP 傳送失敗：{}	TCP 送信失敗
 请输入方案名称	Enter a profile name.	請輸入方案名稱。	プロファイル名を入力してください。	프로필 이름을 입력하세요.	Profilnamen eingeben.	Indiquez un nom de profil.	Introduce un nombre de perfil.	Введите имя профиля.	Digite um nome para o perfil.
 局部变量	Local variable	區域變數	ローカル変数	지역 변수	Lokale Variable	Variable locale	Variable local	Локальная переменная	Variável local
 把光标放在变量、函数、宏或类型上，这里显示其定义	Place the cursor on a variable, function, macro or type to see its definition.	將游標移到變數、函式、巨集或型別上，即可看到定義。	変数、関数、マクロ、型にカーソルを合わせると定義を表示します。	변수, 함수, 매크로 또는 형식에 커서를 놓으면 정의가 표시됩니다.	Cursor auf eine Variable, Funktion, ein Makro oder einen Typ setzen, um die Definition zu sehen.	Placez le curseur sur une variable, une fonction, une macro ou un type pour afficher sa définition.	Coloca el cursor en una variable, función, macro o tipo para ver su definición.	Наведите курсор на переменную, функцию, макрос или тип, чтобы увидеть определение.	Coloque o cursor sobre uma variável, função, macro ou tipo para ver sua definição.
+官方 ISP · 调试串口	Vendor ISP · Debug serial	官方 ISP · 除錯序列埠							ISP oficial · Porta serial de depuração
+官方 ISP · USB	Vendor ISP · USB	官方 ISP · USB							ISP oficial · USB
+wchisp · 调试串口	wchisp · Debug serial	wchisp · 除錯序列埠							wchisp · Porta serial de depuração
+芯片配置	Chip configuration	晶片設定							Configuração do chip
+USB ISP 设备	USB ISP device	USB ISP 裝置							Dispositivo USB ISP
+MounRiver 构建配置	MounRiver build configuration	MounRiver 建置設定							Configuração de compilação do MounRiver
+使用工程的第一个配置	Use the first project configuration	使用專案的第一個設定							Usar a primeira configuração do projeto
+未找到工程的 Makefile。请安装 MounRiver Studio Community，或从 MRS 导出 Makefile/CMake 工程。	No project Makefile found. Install MounRiver Studio Community or export a Makefile or CMake project from MRS.	找不到專案的 Makefile。請安裝 MounRiver Studio Community，或從 MRS 匯出 Makefile/CMake 專案。							Makefile do projeto não encontrado. Instale o MounRiver Studio Community ou exporte um projeto Makefile ou CMake do MRS.
+工程缺少可用的 Makefile、CMakeLists.txt 或 MounRiver .cproject 构建配置。	The project needs a Makefile, CMakeLists.txt or a usable MounRiver .cproject build configuration.	專案缺少可用的 Makefile、CMakeLists.txt 或 MounRiver .cproject 建置設定。							O projeto precisa de um Makefile, CMakeLists.txt ou uma configuração de compilação do MounRiver .cproject.
+首次编译此 .cproject 需要 MounRiver Studio Community，或使用当前 MRS 导出 CMake 工程。	For the first build, install MounRiver Studio Community or export a CMake project from your MRS installation.	首次編譯此 .cproject 需要 MounRiver Studio Community，或使用目前的 MRS 匯出 CMake 專案。							Para a primeira compilação, instale o MounRiver Studio Community ou exporte um projeto CMake do MRS.
+请输入 WCH ISP 的 USB 设备标识	Enter the WCH ISP USB device ID.	請輸入 WCH ISP 的 USB 裝置識別碼							Digite o ID do dispositivo USB do WCH ISP.
+请在 MCU 工具链选择 WCHISPStudio 导出的芯片配置 INI。	Select the chip configuration INI exported by WCHISPStudio in MCU Toolchain.	請在 MCU 工具鏈選擇 WCHISPStudio 匯出的晶片設定 INI。							Selecione o INI de configuração do chip exportado pelo WCHISPStudio na cadeia de ferramentas MCU.
+无法创建 MounRiver Studio 工作区：{}	Could not create the MounRiver Studio workspace: {}	無法建立 MounRiver Studio 工作區：{}							Não foi possível criar o espaço de trabalho do MounRiver Studio: {}
+无法初始化 WCH 的 make 命令：{}	Could not initialize the WCH make command: {}	無法初始化 WCH 的 make 指令：{}							Não foi possível inicializar o comando make do WCH: {}

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.22
+
+- Import installed MounRiver toolchains, build legacy Eclipse CDT WCH projects with MounRiver Studio Community, and run GNU Make directly from the terminal after generation.
+- Discover WCHISPTool_CMD and run serial or USB ISP with an exported WCHISPStudio configuration. The serial option follows the selected Debug device.
+- Refresh the Git worktree, diffs, branches and history after external changes while keeping scroll position. Search and collapse file groups, stage or unstage directly in a row, and open the worktree in compact Git panes.
+
 ## 1.9.21
 
 - Show scoped C, C++ and Rust local variables and parameters in the editor Context pane and jump to their declarations with F12.

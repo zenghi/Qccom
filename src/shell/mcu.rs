@@ -1,6 +1,7 @@
 //! Detect a local MCU project and keep its toolchain scoped to one terminal.
 mod commands;
 mod discover;
+mod wch;
 
 use super::*;
 use std::borrow::Cow;
@@ -79,6 +80,8 @@ pub(super) struct Options {
     pub flash_target: String,
     pub stm32_serial: bool,
     pub wch_programmer: WchProgrammer,
+    pub wch_isp_config: String,
+    pub wch_isp_device: String,
     pub pio_project_upload: bool,
 }
 
@@ -88,6 +91,8 @@ pub(super) enum WchProgrammer {
     Link,
     UsbIsp,
     SerialIsp,
+    VendorSerialIsp,
+    VendorUsbIsp,
 }
 
 impl Options {
@@ -114,6 +119,7 @@ pub(super) struct Session {
     cube_toolchain: Option<PathBuf>,
     cube_ide: Option<CubeIde>,
     wch_make_dir: Option<PathBuf>,
+    wch_project: Option<wch::Project>,
     sketch: Option<PathBuf>,
 }
 
@@ -128,6 +134,14 @@ impl Session {
     }
     pub(super) fn discover(root: PathBuf, options: Options) -> Self {
         discover::session(root, options)
+    }
+
+    fn wch_output_dir(&self) -> Option<&Path> {
+        self.wch_project.as_ref().map(|project| project.dir.as_path()).or(self.wch_make_dir.as_deref())
+    }
+
+    fn wch_generated_make_dir(&self) -> Option<&Path> {
+        self.wch_output_dir().filter(|dir| wch::has_makefile(&self.root.join(dir)))
     }
 
     pub(super) fn apply(&self, cmd: &mut CommandBuilder, syntax: Syntax) {
@@ -156,20 +170,39 @@ impl Session {
                 cmd.args(["/K", r#"chcp 65001 >nul & doskey idf.py="%QCCOM_IDF_PYTHON%" "%QCCOM_IDF_SCRIPT%" $*"#]);
             }
         }
+        if self.profile == Profile::Wch && !self.make && !self.cmake {
+            cmd.env("QCCOM_MCU_PROJECT", &self.root);
+            if let Some(make) = self.tools.get("make") {
+                cmd.env("QCCOM_REAL_MAKE", make);
+            }
+            if let Some(dir) = self.wch_output_dir() {
+                cmd.env("QCCOM_MCU_MAKE_DIR", dir);
+            }
+            if let Some(project) = &self.wch_project {
+                if let (Some(ide), Some(workspace)) = (self.tools.get("MounRiver Studio"), project.workspace.as_ref()) {
+                    cmd.env("QCCOM_MRS_IDE", ide);
+                    cmd.env("QCCOM_MRS_WORKSPACE", workspace.path());
+                    cmd.env("QCCOM_MRS_SELECTION", project.selection());
+                }
+                #[cfg(unix)]
+                if let (Some(shims), Some(_)) = (project.shims.as_ref(), self.tools.get("make")) {
+                    let old = cmd.get_env("PATH").unwrap_or_default();
+                    if let Ok(path) = std::env::join_paths(std::iter::once(shims.path().to_owned()).chain(std::env::split_paths(old))) {
+                        cmd.env("PATH", path);
+                    }
+                }
+            }
+        }
         if syntax == Syntax::PowerShell && self.starts_shell(syntax) {
             let mut script = String::from(commands::POWERSHELL_ENV);
             if self.has_esp() {
                 script.push_str(commands::POWERSHELL_ESP);
+            } else if self.profile == Profile::Wch && !self.make && !self.cmake {
+                cmd.env("QCCOM_MCU_NO_MAKEFILE", t("未找到工程的 Makefile。请安装 MounRiver Studio Community，或从 MRS 导出 Makefile/CMake 工程。"));
+                script.push_str(commands::POWERSHELL_MAKE);
             } else if let Some(make) = self.tools.get("make") {
                 cmd.env("QCCOM_REAL_MAKE", make);
                 cmd.env("QCCOM_MCU_PROJECT", &self.root);
-                if self.profile == Profile::Wch {
-                    if let Some(dir) = &self.wch_make_dir {
-                        cmd.env("QCCOM_MCU_MAKE_DIR", dir);
-                    } else if !self.make && !self.cmake {
-                        cmd.env("QCCOM_MCU_NO_MAKEFILE", t("请先在 MounRiver Studio 生成工程的 Makefile，或提供 Make/CMake 工程。"));
-                    }
-                }
                 script.push_str(commands::POWERSHELL_MAKE);
             }
             if let Some(pio) = self.tools.get("pio") {

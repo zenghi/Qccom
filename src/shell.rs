@@ -175,6 +175,7 @@ impl Shell {
         if !mcu.as_ref().zip(syntax).is_some_and(|(m, syntax)| m.starts_shell(syntax)) {
             utf8_args(&mut cmd, &kind.program);
         }
+        let cwd = mcu.as_ref().map_or(cwd, |session| session.root.as_path());
         cmd.cwd(cwd);
         if cfg!(windows) && kind.name == "Git Bash" {
             // Git for Windows' login profile otherwise changes to $HOME.
@@ -554,7 +555,7 @@ impl Shells {
         if self.instrument_pending.is_some() {
             return Err(t("请等待当前工程的终端就绪").into());
         }
-        if !self.tabs.get(self.active).is_some_and(|s| s.exited.is_none() && !s.remote && s.cwd == cwd) {
+        if !self.tabs.get(self.active).is_some_and(|s| s.exited.is_none() && !s.remote && s.mcu.as_ref().map_or(s.cwd.as_path(), |m| m.workspace.as_path()) == cwd) {
             let id = self.next_id + 1;
             self.launch(ctx, None, cwd, None);
             if !self.tabs.iter().any(|s| s.id == id) {
@@ -584,7 +585,7 @@ impl Shells {
     fn submit_instrument(&mut self, index: usize, cwd: &Path, flash: bool, port: &str) -> Result<(), String> {
         let sh = self.tabs.get(index).ok_or_else(|| t("请先打开工程的 MCU 终端").to_owned())?;
         let (m, syntax) = sh.mcu.as_ref().zip(sh.syntax).ok_or_else(|| t("请选择已识别工具链的 MCU 终端").to_owned())?;
-        if m.root != cwd || sh.remote || !sh.at_prompt() {
+        if m.workspace != cwd || sh.remote || !sh.at_prompt() {
             return Err(t("请等待当前工程的终端就绪").into());
         }
         let action = if flash { Action::Flash } else { Action::Build };
@@ -595,6 +596,9 @@ impl Shells {
 
     pub fn new(s: ShellSettings) -> Self {
         Self {
+            // Layout restoration can reveal the panel after construction. The first
+            // visible frame needs a fresh PTY even when the workspace is unchanged.
+            project_shell_pending: true,
             s,
             tabs: vec![],
             active: 0,
@@ -604,7 +608,6 @@ impl Shells {
             maximized: false,
             split: None,
             rename: None,
-            project_shell_pending: false,
             problems: vec![],
             prob_from: None,
             prob_at: None,
@@ -638,7 +641,7 @@ impl Shells {
         if let Some((mcu, syntax)) = self.tabs.get(self.active).and_then(|sh| sh.mcu.as_ref().zip(sh.syntax)) {
             if let Some(shortcut) = mcu.shortcut(&task.cmd) {
                 match mcu.shortcut_command(syntax, &shortcut, port) {
-                    Ok(Some(command)) => self.submit_task(self.active, command, mcu.root == cwd, shortcut.action.monitor_after().then(|| port.to_owned())),
+                    Ok(Some(command)) => self.submit_task(self.active, command, mcu.workspace == cwd, shortcut.action.monitor_after().then(|| port.to_owned())),
                     Ok(None) => self.events.push(ShellEvt::MonitorSerial),
                     Err(e) => self.events.push(ShellEvt::Toast(e)),
                 }
@@ -805,6 +808,7 @@ impl Shells {
                         if let Some(err) = &session.issue {
                             self.events.push(ShellEvt::Toast(err.clone()));
                         }
+                        let pending = session.projects.pending;
                         let mut dest = i;
                         if !session.actions().is_empty() {
                             // Environment and shell functions must be inherited at process creation.
@@ -841,8 +845,10 @@ impl Shells {
                         } else {
                             sh.mcu = Some(Arc::new(session));
                         }
-                        if let Some(task) = job.task {
-                            self.submit_task(dest, task, true, None);
+                        if !pending {
+                            if let Some(task) = job.task {
+                                self.submit_task(dest, task, true, None);
+                            }
                         }
                         continue;
                     }
@@ -1306,9 +1312,13 @@ impl Shells {
                     }
                 }
                 let sh = self.tabs.get(self.active);
-                let mcu = sh.and_then(|sh| sh.mcu.as_ref()).filter(|m| !m.actions().is_empty());
+                let detected = sh.and_then(|sh| sh.mcu.as_ref());
+                let pending = detected.is_some_and(|m| m.projects.pending);
+                let mcu = detected.filter(|m| !m.actions().is_empty());
                 let name = if sh.is_some_and(|s| s.discovery.is_some()) {
                     t("检测工具链…").into()
+                } else if pending {
+                    t("选择沁恒子工程").into()
                 } else if let Some(env) = sh.and_then(|sh| sh.environment.as_ref()) {
                     crate::app::truncate(&env.name, 22).into()
                 } else {
@@ -1333,7 +1343,7 @@ impl Shells {
                     .response
                     .on_hover_text(t("烧录和监视跟随调试区选中的设备串口"));
                 }
-                if sh.is_none_or(|s| s.discovery.is_none()) {
+                if !pending && sh.is_none_or(|s| s.discovery.is_none()) {
                     let syntax = sh.and_then(|sh| sh.syntax);
                     let ready = sh.is_some_and(Shell::at_prompt);
                     ui.menu_button(t("自定义命令"), |ui| {
@@ -1401,7 +1411,7 @@ impl Shells {
                     Ok(cmd) => self.submit_task(
                         self.active,
                         Task { name: action.label().into(), cmd },
-                        m.root == cwd && matches!(action, Action::Flash | Action::AppFlash | Action::AppFlashMonitor),
+                        m.workspace == cwd && matches!(action, Action::Flash | Action::AppFlash | Action::AppFlashMonitor),
                         action.monitor_after().then(|| port.to_owned()),
                     ),
                     Err(e) => self.events.push(ShellEvt::Toast(e)),
@@ -1449,6 +1459,24 @@ fn action_button(ui: &mut egui::Ui, mcu: &mcu::Session, syntax: Syntax, action: 
 #[cfg(test)]
 mod tests {
     use super::{parse_problems, prompt_of, uses_port};
+
+    #[cfg(unix)]
+    #[test]
+    fn restored_open_panel_launches_once_in_the_workspace() {
+        use super::*;
+        let ctx = egui::Context::default();
+        let tmp = tempfile::tempdir().unwrap();
+        let mut shells = Shells::new(Default::default());
+        let _ = ctx.run(Default::default(), |ctx| shells.ui(ctx, tmp.path(), "", &[]));
+        assert!(shells.tabs.is_empty());
+        shells.s.open = true;
+        for _ in 0..2 {
+            let _ = ctx.run(Default::default(), |ctx| shells.ui(ctx, tmp.path(), "", &[]));
+        }
+        assert_eq!(shells.tabs.len(), 1);
+        assert_eq!(shells.tabs[0].cwd, tmp.path());
+        assert!(shells.tabs[0].discovery.is_some());
+    }
 
     #[cfg(unix)]
     #[test]

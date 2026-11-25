@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.23
+
+- Discover nested WCH projects from an enclosing workspace. Start the MCU terminal in the selected build root and remember a manual selection for workspaces with multiple targets.
+- Reopen the terminal process and resume toolchain discovery when restoring a visible terminal panel on startup.
+- Search inside MounRiver installation directories for GNU Make, cross compilers, the Community IDE and ISP tools, including versioned portable installations.
+
 ## 1.9.22
 
 - Import installed MounRiver toolchains, build legacy Eclipse CDT WCH projects with MounRiver Studio Community, and run GNU Make directly from the terminal after generation.

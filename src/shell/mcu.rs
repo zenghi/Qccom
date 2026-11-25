@@ -71,6 +71,7 @@ impl Profile {
 pub(super) struct Options {
     pub profile: Profile,
     pub sdk: PathBuf,
+    pub wch_subproject: PathBuf,
     pub build_dir: String,
     pub board: String,
     pub preset: String,
@@ -109,6 +110,8 @@ pub(super) struct Session {
     pub profile: Profile,
     pub options: Options,
     pub root: PathBuf,
+    pub workspace: PathBuf,
+    pub projects: discover::Projects,
     pub location: Option<PathBuf>,
     pub issue: Option<String>,
     env: BTreeMap<String, OsString>,

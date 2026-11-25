@@ -3,11 +3,17 @@ use std::fs;
 use std::io::Read;
 
 mod esp;
+mod nested;
+pub(in crate::shell) use nested::Projects;
 #[cfg(windows)]
 mod installed;
 pub(super) use esp::EspIdf;
 
 pub(super) fn session(root: PathBuf, options: Options) -> Session {
+    detect(root.clone(), root, options, None)
+}
+
+fn detect(workspace: PathBuf, root: PathBuf, options: Options, selected: Option<Projects>) -> Session {
     let makefile = wch::MAKEFILES.iter().map(|name| root.join(name)).find(|file| file.is_file());
     let make = makefile.is_some();
     let cmake = root.join("CMakeLists.txt").is_file();
@@ -20,7 +26,8 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
         .into_iter()
         .find(|dir| wch::has_makefile(&root.join(dir)))
         .map(PathBuf::from);
-    let profile = match options.profile {
+    let mut profile = match options.profile {
+        _ if selected.is_some() => Profile::Wch,
         Profile::Auto if root.join("platformio.ini").is_file() => Profile::PlatformIo,
         Profile::Auto if cmake_text.contains("tools/cmake/project.cmake") || cmake_text.contains("idf_build_process(") => Profile::EspIdf,
         Profile::Auto if cmake_text.contains("find_package(zephyr") => Profile::Zephyr,
@@ -32,6 +39,24 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
         Profile::Auto if cmake => Profile::CMake,
         Profile::Auto => Profile::System,
         profile => profile,
+    };
+    let projects = if let Some(projects) = selected {
+        projects
+    } else if matches!(profile, Profile::System | Profile::Wch) && matches!(options.profile, Profile::Auto | Profile::Wch)
+        && !make && !cmake && wch_make_dir.is_none() && !root.join(".cproject").is_file()
+        && !fs::read_dir(&root).into_iter().flatten().flatten().any(|e| e.path().extension().is_some_and(|ext| ext.eq_ignore_ascii_case("wvproj")))
+    {
+        let (projects, selected) = nested::projects(&workspace, &options.wch_subproject);
+        if let Some(relative) = selected {
+            let project = workspace.join(relative);
+            return detect(workspace, project, options, Some(projects));
+        }
+        if projects.pending {
+            profile = Profile::Wch;
+        }
+        projects
+    } else {
+        Projects { complete: true, ..Default::default() }
     };
     let cube_toolchain = ["cmake/gcc-arm-none-eabi.cmake", "cmake/arm-none-eabi-gcc.cmake"]
         .iter()
@@ -47,6 +72,8 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
         profile,
         options,
         root,
+        workspace,
+        projects,
         location: None,
         issue: None,
         env: BTreeMap::new(),
@@ -60,12 +87,19 @@ pub(super) fn session(root: PathBuf, options: Options) -> Session {
         wch_project,
         sketch,
     };
+    if s.projects.pending {
+        s.issue = Some(t("请在 MCU 工具链中选择沁恒子工程。").into());
+        return s;
+    }
+    if !s.projects.complete {
+        s.issue = Some(t("子目录搜索未完成，请打开更接近目标的工程目录。").into());
+    }
     if profile == Profile::System {
         return s;
     }
 
     let host = Host::new();
-    let sdk = (!s.options.sdk.as_os_str().is_empty()).then(|| s.root.join(&s.options.sdk));
+    let sdk = (!s.options.sdk.as_os_str().is_empty()).then(|| s.workspace.join(&s.options.sdk));
     let mut paths = Vec::new();
     if let Some(dir) = sdk.as_deref().filter(|dir| dir.is_dir()) {
         paths.extend([dir.join("bin"), dir.join("Scripts"), dir.to_owned()]);
@@ -285,16 +319,16 @@ fn registered_dirs(_names: &[&str]) -> Vec<PathBuf> {
 }
 
 fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> (Option<PathBuf>, Option<PathBuf>) {
-    let mut roots: Vec<_> = sdk.into_iter().flat_map(|p| p.ancestors().take(8)).map(Path::to_owned).collect();
+    let mut roots: Vec<_> = sdk.into_iter().map(Path::to_owned).collect();
     for key in ["MRS2_HOME", "MRS3_HOME", "MRS_PATH", "MOUNRIVER_HOME", "WCH_TOOLCHAIN_ROOT"] {
         roots.extend(host.var(key));
     }
-    roots.extend(registered_dirs(&["mounriver"]));
+    roots.extend(registered_dirs(&["mounriver", "mrs community", "mrs studio"]));
     if let Some(home) = &host.home {
         paths.extend([home.join(".cargo/bin"), home.join(".local/bin")]);
-        roots.extend(child_dirs(home, "mounriver"));
     }
     let mut parents = host.program_files.clone();
+    parents.extend(host.home.iter().cloned());
     parents.extend(host.var("LOCALAPPDATA").map(|path| path.join("Programs")));
     if cfg!(windows) {
         let system_drive = host.var("SystemRoot").and_then(|p| p.parent().map(Path::to_owned)).unwrap_or_else(|| PathBuf::from(r"C:\"));
@@ -303,30 +337,39 @@ fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> (Opti
         parents.push(PathBuf::from("/opt"));
         roots.extend(["/usr/share/MRS2/MRS-linux-x64", "/usr/share/MRS3/MRS-linux-x64", "/usr/share/MounRiverStudio", "/Applications/MounRiver Studio.app"].map(PathBuf::from));
     }
-    for parent in parents {
-        for prefix in ["mounriver", "mrs_community", "mrs2", "mrs3", "wch"] {
-            roots.extend(child_dirs(&parent, prefix));
-        }
+    #[cfg(windows)]
+    for drive in installed::fixed_drives() {
+        parents.extend(["", "Program Files", "Program Files (x86)", "Software", "Soft", "Tools"].map(|folder| drive.join(folder)));
+    }
+    let mut parents_seen = std::collections::HashSet::new();
+    for parent in parents.into_iter().filter(|p| parents_seen.insert(p.clone()) && p.is_dir()) {
+        roots.extend(child_dirs_matching(&parent, |name| ["mounriver", "mrs", "wch"].iter().any(|prefix| name.starts_with(prefix))));
     }
     let mut seen = std::collections::HashSet::new();
     let mut location = None;
     let mut ide = None;
-    for root in roots {
-        let children = ["mounriver", "mrs-linux", "mrs_community"].into_iter().flat_map(|prefix| child_dirs(&root, prefix));
-        for install in std::iter::once(root.clone()).chain(children) {
-            if !seen.insert(install.clone()) {
-                continue;
+    for root in roots.into_iter().filter(|dir| dir.is_dir() && seen.insert(dir.clone())) {
+        let before = paths.len();
+        collect_wch_paths(&root, paths);
+        nested::walk(&root, &["node_modules", "include", "lib", "libexec", "share", "plugins", "docs", "examples"], |dir, files| {
+            if ide.is_none() && files.iter().any(|f| tool_name(f, WCH_IDES)) && dir.join("plugins").is_dir() {
+                ide = locate(std::slice::from_ref(&dir.to_owned()), WCH_IDES);
             }
-            let before = paths.len();
-            collect_wch_paths(&install, paths);
-            if ide.is_none() && install.join("plugins").is_dir() {
-                ide = locate(
-                    std::slice::from_ref(&install),
-                    &["MounRiver Studio_Communityc", "MounRiver Studio_Community", "MounRiver Studioc", "MounRiver Studio", "MounRiverStudio"],
-                );
+            if files.iter().any(|f| tool_name(f, WCH_TOOLS) && executable(&dir.join(f))) {
+                paths.push(dir.to_owned());
             }
-            if paths.len() > before {
-                location.get_or_insert(install);
+            true
+        });
+        if paths.len() > before {
+            location.get_or_insert(root);
+        }
+    }
+    // A user may pick the compiler's bin folder inside an IDE instead of its install root.
+    for ancestor in sdk.into_iter().flat_map(|p| p.ancestors().skip(1).take(7)).filter(|p| p.parent().is_some()) {
+        if ancestor.join("plugins").is_dir() || ancestor.join("resources/app/resources").is_dir() || ancestor.join("toolchain").is_dir() {
+            collect_wch_paths(ancestor, paths);
+            if ide.is_none() && ancestor.join("plugins").is_dir() {
+                ide = locate(&[ancestor.to_owned()], WCH_IDES);
             }
         }
     }
@@ -364,6 +407,25 @@ fn wch_isp_paths(host: &Host, sdk: Option<&Path>, project: &Path, paths: &mut Ve
             }
         }
     }
+}
+
+const WCH_IDES: &[&str] = &["MounRiver Studio_Communityc", "MounRiver Studio_Community", "MounRiver Studioc", "MounRiver Studio", "MounRiverStudio"];
+const WCH_TOOLS: &[&str] = &[
+    "make", "gmake", "mingw32-make", "riscv-none-embed-gcc", "riscv-none-elf-gcc", "riscv-wch-elf-gcc",
+    "riscv32-wch-elf-gcc", "arm-none-eabi-gcc", "openocd", "wlink", "wchisp", "WCHISPTool_CMD", "WCHISPTool_CMD_x64", "WCHISPTool_CMD_x86",
+];
+
+fn tool_name(file: &std::ffi::OsStr, names: &[&str]) -> bool {
+    let path = Path::new(file);
+    let name = if cfg!(windows) {
+        if !path.extension().is_some_and(|ext| ["exe", "com", "cmd", "bat"].iter().any(|s| ext.eq_ignore_ascii_case(s))) {
+            return false;
+        }
+        path.file_stem().unwrap_or_default()
+    } else {
+        file
+    };
+    names.iter().any(|s| name.eq_ignore_ascii_case(s))
 }
 
 fn collect_wch_paths(install: &Path, paths: &mut Vec<PathBuf>) {
@@ -411,25 +473,7 @@ fn collect_wch_paths(install: &Path, paths: &mut Vec<PathBuf>) {
     }
     found.push(install.to_owned());
     // Keep build helper programs from the same directory as the detected tool.
-    found.retain(|dir| {
-        locate(
-            std::slice::from_ref(dir),
-            &[
-                "make",
-                "gmake",
-                "mingw32-make",
-                "riscv-none-embed-gcc",
-                "riscv-none-elf-gcc",
-                "riscv-wch-elf-gcc",
-                "riscv32-wch-elf-gcc",
-                "arm-none-eabi-gcc",
-                "openocd",
-                "wlink",
-                "wchisp",
-            ],
-        )
-        .is_some()
-    });
+    found.retain(|dir| locate(std::slice::from_ref(dir), WCH_TOOLS).is_some());
     paths.extend(found);
 }
 
@@ -513,6 +557,9 @@ fn stm32_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) {
 
 fn read_prefix(path: &Path) -> String {
     let mut bytes = Vec::new();
+    if !path.is_file() {
+        return String::new();
+    }
     if let Ok(file) = fs::File::open(path) {
         let _ = file.take(256 * 1024).read_to_end(&mut bytes);
     }
@@ -520,12 +567,16 @@ fn read_prefix(path: &Path) -> String {
 }
 
 fn child_dirs(base: &Path, prefix: &str) -> Vec<PathBuf> {
+    child_dirs_matching(base, |name| name.starts_with(prefix))
+}
+
+fn child_dirs_matching(base: &Path, keep: impl Fn(&str) -> bool) -> Vec<PathBuf> {
     let mut out: Vec<_> = fs::read_dir(base)
         .into_iter()
         .flatten()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.file_name().is_some_and(|name| name.to_string_lossy().to_ascii_lowercase().starts_with(prefix)) && p.is_dir())
+        .filter(|p| p.file_name().is_some_and(|name| keep(&name.to_string_lossy().to_ascii_lowercase())) && p.is_dir())
         .collect();
     out.sort_by_cached_key(|p| std::cmp::Reverse((numbers(&p.file_name().unwrap_or_default().to_string_lossy()), p.clone())));
     out

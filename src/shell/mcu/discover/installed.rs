@@ -62,3 +62,16 @@ pub(super) fn directories(names: &[&str]) -> Vec<PathBuf> {
     }
     out
 }
+
+pub(super) fn fixed_drives() -> Vec<PathBuf> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+    let mask = unsafe { GetLogicalDrives() };
+    (0..26u8)
+        .filter(|i| mask & (1 << i) != 0)
+        .filter_map(|i| {
+            let letter = b'A' + i;
+            let root = [letter as u16, b':' as u16, b'\\' as u16, 0];
+            (unsafe { GetDriveTypeW(root.as_ptr()) } == 3).then(|| PathBuf::from(format!("{}:\\", letter as char)))
+        })
+        .collect()
+}

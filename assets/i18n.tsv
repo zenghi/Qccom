@@ -3716,3 +3716,8 @@ MounRiver 构建配置	MounRiver build configuration	MounRiver 建置設定					
 请在 MCU 工具链选择 WCHISPStudio 导出的芯片配置 INI。	Select the chip configuration INI exported by WCHISPStudio in MCU Toolchain.	請在 MCU 工具鏈選擇 WCHISPStudio 匯出的晶片設定 INI。							Selecione o INI de configuração do chip exportado pelo WCHISPStudio na cadeia de ferramentas MCU.
 无法创建 MounRiver Studio 工作区：{}	Could not create the MounRiver Studio workspace: {}	無法建立 MounRiver Studio 工作區：{}							Não foi possível criar o espaço de trabalho do MounRiver Studio: {}
 无法初始化 WCH 的 make 命令：{}	Could not initialize the WCH make command: {}	無法初始化 WCH 的 make 指令：{}							Não foi possível inicializar o comando make do WCH: {}
+请在 MCU 工具链中选择沁恒子工程。	Select the WCH subproject in MCU Toolchain.	請在 MCU 工具鏈中選擇沁恆子工程。							Selecione o subprojeto WCH nas ferramentas do MCU.
+子目录搜索未完成，请打开更接近目标的工程目录。	Subdirectory search was incomplete. Open a folder closer to the target project.	子目錄搜尋未完成，請開啟更接近目標的工程目錄。							Busca incompleta. Abra uma pasta mais próxima do projeto.
+选择沁恒子工程	Select WCH subproject	選擇沁恆子工程							Selecionar subprojeto WCH
+沁恒子工程	WCH subproject	沁恆子工程							Subprojeto WCH
+当前构建目录：{}	Current build directory: {}	目前建置目錄：{}							Diretório de compilação atual: {}

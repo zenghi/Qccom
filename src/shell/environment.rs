@@ -84,7 +84,7 @@ impl Shells {
             .default_width(460.0)
             .show(ctx, |ui| {
                 ui.label(cwd.display().to_string());
-                let found = self.tabs.get(self.active).filter(|sh| sh.cwd == cwd).and_then(|sh| sh.mcu.as_deref());
+                let found = self.tabs.get(self.active).and_then(|sh| sh.mcu.as_deref()).filter(|m| m.workspace == cwd);
                 let (_, project) = self.env_dialog.project.as_mut().unwrap();
                 let detected = found.map_or(mcu::Profile::Auto, |m| m.profile);
                 egui::ComboBox::from_label(t("工程类型")).selected_text(project.profile.status_label()).show_ui(ui, |ui| {
@@ -106,7 +106,27 @@ impl Shells {
                             }
                         }
                     });
-                    project_fields(ui, project, profile, found.is_some_and(|s| s.cmake), cwd);
+                    let mut target = cwd.to_owned();
+                    if let Some(session) = found.filter(|s| profile == mcu::Profile::Wch && (!s.projects.paths.is_empty() || s.projects.pending)) {
+                        let auto = t("自动识别工程");
+                        let selection = &mut project.wch_subproject;
+                        let label = if selection.as_os_str().is_empty() { auto.into() } else { selection.display().to_string() };
+                        egui::ComboBox::from_label(t("沁恒子工程")).selected_text(label).show_ui(ui, |ui| {
+                            ui.selectable_value(selection, PathBuf::new(), auto);
+                            for path in &session.projects.paths {
+                                ui.selectable_value(selection, path.clone(), path.display().to_string());
+                            }
+                        });
+                        if !session.projects.pending {
+                            ui.label(tf("当前构建目录：{}", &[&session.root.display()]));
+                        }
+                        if !selection.as_os_str().is_empty() && session.projects.paths.contains(selection) {
+                            target.push(selection);
+                        } else {
+                            target.clone_from(&session.root);
+                        }
+                    }
+                    project_fields(ui, project, profile, found.is_some_and(|s| s.cmake), &target);
                 }
                 if scanning {
                     ui.horizontal(|ui| {

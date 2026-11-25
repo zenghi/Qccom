@@ -245,6 +245,9 @@ struct Invocation {
 impl Session {
     pub(in crate::shell) fn actions(&self) -> &'static [Action] {
         use Action::*;
+        if self.projects.pending {
+            return &[];
+        }
         match self.profile {
             Profile::Auto | Profile::System => &[],
             Profile::EspIdf => &[Build, Flash, Monitor, Clean, AppFlashMonitor, Configure, Size, Version],
@@ -273,6 +276,9 @@ impl Session {
 
     fn plan_with_build(&self, action: Action, port: &str, build: &str) -> Result<Vec<Invocation>, String> {
         use Action::*;
+        if self.projects.pending {
+            return Err(t("请在 MCU 工具链中选择沁恒子工程。").into());
+        }
         let port = port.trim();
         let needs_port = || {
             if port.is_empty() || port.starts_with('-') {
@@ -690,6 +696,13 @@ mod tests {
         assert_eq!(session.profile, Profile::Wch);
         assert_eq!(session.tools.get("make"), Some(&make));
         assert_eq!(session.tools.get("riscv32-wch-elf-gcc"), Some(&gcc));
+        // Both tools can live below arbitrary versioned folders inside the install.
+        let nested = dir.path().join("portable/releases/pack-7/host");
+        let nested_make = fake_exe(&nested.join("utilities/make/v4.3/host/bin"), "make");
+        let nested_gcc = fake_exe(&nested.join("compiler/embedded/15/riscv/bin"), "riscv32-wch-elf-gcc");
+        let wrapped = Session::discover(dir.path().join("CH582M_LOCK"), Options { sdk: dir.path().join("portable"), ..Default::default() });
+        assert_eq!(wrapped.tools.get("make"), Some(&nested_make));
+        assert_eq!(wrapped.tools.get("riscv32-wch-elf-gcc"), Some(&nested_gcc));
         let mut builder = CommandBuilder::new("powershell");
         session.apply(&mut builder, Syntax::PowerShell);
         assert_eq!(builder.get_env("QCCOM_REAL_MAKE"), Some(make.as_os_str()));

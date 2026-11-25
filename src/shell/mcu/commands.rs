@@ -778,7 +778,7 @@ mod tests {
         assert_eq!(plan[0].program, ide);
         assert_eq!(&plan[0].args[plan[0].args.len() - 2..], ["-build", r"Board \(test\)/Release"]);
         fs::create_dir(root.join("obj-release")).unwrap();
-        let makefile = root.join("obj-release/Makefile");
+        let makefile = root.join("obj-release/makefile");
         fs::write(&makefile, "all:").unwrap();
         assert_eq!(session.plan(Action::Build, "").unwrap()[0].args, ["-C", "obj-release", "-j8", "all"]);
         assert_eq!(session.plan(Action::Clean, "").unwrap()[0].args, ["-C", "obj-release", "clean"]);
@@ -788,7 +788,7 @@ mod tests {
         let rules = session.wch_project.as_ref().unwrap().clean_rules_path().unwrap();
         assert_eq!(
             session.plan(Action::Clean, "").unwrap()[0].args,
-            ["-C", "obj-release", "-f", "Makefile", "-f", rules.to_str().unwrap(), "clean"],
+            ["-C", "obj-release", "-f", "makefile", "-f", rules.to_str().unwrap(), "clean"],
         );
     }
 

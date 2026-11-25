@@ -218,6 +218,9 @@ impl Session {
                 cmd.env("QCCOM_MCU_MAKE_DIR", dir);
             }
             if let Some(project) = &self.wch_project {
+                if let Some(rules) = project.clean_rules_path() {
+                    cmd.env("QCCOM_MRS_CLEAN_RULES", rules);
+                }
                 if let (Some(ide), Some(workspace)) = (self.tools.get("MounRiver Studio"), project.workspace.as_ref()) {
                     cmd.env("QCCOM_MRS_IDE", ide);
                     cmd.env("QCCOM_MRS_WORKSPACE", workspace.path());

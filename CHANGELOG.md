@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.25
+
+- Save edited WCH project sources before a build and display the native result of Build and Clean.
+- Clean additional artifacts omitted by MounRiver's generated Makefiles.
+- Decode GNU Make's redirected output as UTF-8 or the Windows ANSI code page so Chinese paths remain readable.
+
 ## 1.9.24
 
 - Stream MounRiver Make and its recursive build output through pipes in PowerShell, including terminal shortcuts and the Build and Clean buttons.

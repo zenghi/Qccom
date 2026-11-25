@@ -96,14 +96,7 @@ function global:make {
 
 // Legacy MounRiver Make can report a short write on the UTF-8 Windows console.
 // A native pipeline gives Make and its recursive children normal pipe handles.
-pub(super) const POWERSHELL_WCH_OUTPUT: &str = r#"
-function global:Invoke-QccomWchTool {
-    $program = $args[0];
-    $toolArgs = @($args | Select-Object -Skip 1);
-    $global:LASTEXITCODE = 1;
-    & $program @toolArgs 2>&1 | ForEach-Object { $_.ToString() };
-}
-"#;
+pub(super) const POWERSHELL_WCH_OUTPUT: &str = include_str!("wch-output.ps1");
 
 pub(super) const POWERSHELL_MAKE: &str = r#"
 function global:make {
@@ -113,12 +106,20 @@ function global:make {
     if ($PWD.ProviderPath -eq $env:QCCOM_MCU_PROJECT -and
         !(Test-Path -LiteralPath 'Makefile','makefile','GNUmakefile' -PathType Leaf | Where-Object { $_ }) -and
         !($args -cmatch '^(-C|-f|--directory|--file|--makefile)')) {
-        if ($env:QCCOM_MCU_MAKE_DIR -and
-            (@('GNUmakefile','makefile','Makefile') | Where-Object {
+        $projectMakefile = if ($env:QCCOM_MCU_MAKE_DIR) {
+            @('GNUmakefile','makefile','Makefile') | Where-Object {
                 Test-Path -LiteralPath (Join-Path $env:QCCOM_MCU_MAKE_DIR $_) -PathType Leaf
-            })) {
+            } | Select-Object -First 1;
+        };
+        if ($projectMakefile) {
             $projectArgs = @('-C', $env:QCCOM_MCU_MAKE_DIR);
             if ($buildOnly) { $makeArgs += 'all'; }
+            if ($env:QCCOM_MRS_CLEAN_RULES -and $args.Count -eq 1 -and $args[0] -ceq 'clean') {
+                $makefilePath = Join-Path $env:QCCOM_MCU_MAKE_DIR $projectMakefile;
+                if (Get-Content -LiteralPath $makefilePath -TotalCount 5 | Select-String -SimpleMatch 'Automatically-generated file. Do not edit!') {
+                    $projectArgs += @('-f', $projectMakefile, '-f', $env:QCCOM_MRS_CLEAN_RULES);
+                }
+            }
         } elseif ($env:QCCOM_MRS_IDE -and !($args -cnotmatch '^(-j[0-9]*|--jobs(=[0-9]+)?|[0-9]+|all|clean)$')) {
             if ($args -ccontains 'clean') { return }
             Invoke-QccomWchTool $env:QCCOM_MRS_IDE -nosplash --launcher.suppressErrors -application org.eclipse.cdt.managedbuilder.core.headlessbuild -data $env:QCCOM_MRS_WORKSPACE -import $env:QCCOM_MCU_PROJECT -build $env:QCCOM_MRS_SELECTION;
@@ -494,12 +495,23 @@ impl Session {
             }
             Profile::Make | Profile::Stm32 | Profile::Wch if self.profile == Profile::Make || !self.cmake || (self.make || self.wch_generated_make_dir().is_some()) && preset.is_empty() => {
                 let mut args = Vec::new();
+                let clean_rules;
                 if !self.make && self.profile == Profile::Wch && action != Version {
                     let dir = self
                         .wch_generated_make_dir()
                         .and_then(Path::to_str)
                         .ok_or_else(|| t("请先在 MounRiver Studio 生成工程的 Makefile，或提供 Make/CMake 工程。").to_owned())?;
                     args.extend(["-C", dir]);
+                    if action == Clean {
+                        let build_dir = self.root.join(dir);
+                        if let Some(name) = wch::makefile_name(&build_dir).filter(|name| wch::is_managed_makefile(&build_dir.join(name))) {
+                            clean_rules = self.wch_project.as_ref().and_then(wch::Project::clean_rules_path);
+                            if let Some(rules) = &clean_rules {
+                                let rules = rules.to_str().ok_or_else(|| t("工程或工具路径不是 UTF-8").to_owned())?;
+                                args.extend(["-f", name, "-f", rules]);
+                            }
+                        }
+                    }
                 }
                 let target_args = match action {
                     Build if self.profile == Profile::Wch && !self.make => vec!["-j8", "all"],
@@ -766,8 +778,18 @@ mod tests {
         assert_eq!(plan[0].program, ide);
         assert_eq!(&plan[0].args[plan[0].args.len() - 2..], ["-build", r"Board \(test\)/Release"]);
         fs::create_dir(root.join("obj-release")).unwrap();
-        fs::write(root.join("obj-release/Makefile"), "all:").unwrap();
+        let makefile = root.join("obj-release/Makefile");
+        fs::write(&makefile, "all:").unwrap();
         assert_eq!(session.plan(Action::Build, "").unwrap()[0].args, ["-C", "obj-release", "-j8", "all"]);
+        assert_eq!(session.plan(Action::Clean, "").unwrap()[0].args, ["-C", "obj-release", "clean"]);
+
+        // The generated marker is ASCII even when the target names use a Windows code page.
+        fs::write(&makefile, b"# header\r\n# Automatically-generated file. Do not edit!\r\n#\xb7\xad\r\nclean:").unwrap();
+        let rules = session.wch_project.as_ref().unwrap().clean_rules_path().unwrap();
+        assert_eq!(
+            session.plan(Action::Clean, "").unwrap()[0].args,
+            ["-C", "obj-release", "-f", "Makefile", "-f", rules.to_str().unwrap(), "clean"],
+        );
     }
 
     #[test]

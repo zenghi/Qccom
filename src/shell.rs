@@ -283,7 +283,14 @@ impl Shell {
     }
 
     fn command_event(&self, line: String, data: Vec<u8>, monitor: Option<String>) -> ShellEvt {
-        ShellEvt::Command(self.id, line, self.tv.cursor_row(), data, monitor)
+        ShellEvt::Command(ShellCommand {
+            id: self.id,
+            line,
+            row: self.tv.cursor_row(),
+            data,
+            monitor,
+            build_workspace: None,
+        })
     }
 
     fn serial_shortcut(&mut self, line: &str, port: &str) -> Option<Option<ShellEvt>> {
@@ -489,10 +496,19 @@ pub enum ShellEvt {
     /// 点了任务按钮：(任务名, 命令)
     Task(String, String),
     /// 在本机终端里执行了一条命令：(终端编号, 提示符 + 命令, 回车时光标所在行)
-    Command(usize, String, u64, Vec<u8>, Option<String>),
+    Command(ShellCommand),
     SelectSerial(String),
     ShowSerialDevices,
     MonitorSerial,
+}
+
+pub struct ShellCommand {
+    pub id: usize,
+    pub line: String,
+    pub row: u64,
+    pub data: Vec<u8>,
+    pub monitor: Option<String>,
+    pub build_workspace: Option<PathBuf>,
 }
 
 struct PendingShortcut {
@@ -590,7 +606,7 @@ impl Shells {
         }
         let action = if flash { Action::Flash } else { Action::Build };
         let cmd = m.command(syntax, action, port)?;
-        self.submit_task(index, Task { name: action.label().into(), cmd }, flash, (flash && !port.is_empty()).then(|| port.to_owned()));
+        self.submit_mcu_task(index, action, cmd, flash, (flash && !port.is_empty()).then(|| port.to_owned()));
         Ok(())
     }
 
@@ -656,6 +672,23 @@ impl Shells {
     }
 
     fn submit_task(&mut self, index: usize, task: Task, check_flash: bool, monitor: Option<String>) {
+        self.submit_command(index, task, check_flash, monitor, None);
+    }
+
+    fn submit_mcu_task(&mut self, index: usize, action: Action, mut cmd: String, check_flash: bool, monitor: Option<String>) {
+        let mut build_workspace = None;
+        if let Some((session, syntax)) = self.tabs.get(index).and_then(|sh| sh.mcu.as_ref().zip(sh.syntax)).filter(|(session, _)| session.profile == mcu::Profile::Wch) {
+            if matches!(action, Action::Build | Action::Clean) {
+                cmd = wch_task_result(syntax, action, &cmd);
+            }
+            if action == Action::Build {
+                build_workspace = Some(session.workspace.clone());
+            }
+        }
+        self.submit_command(index, Task { name: action.label().into(), cmd }, check_flash, monitor, build_workspace);
+    }
+
+    fn submit_command(&mut self, index: usize, task: Task, check_flash: bool, monitor: Option<String>, build_workspace: Option<PathBuf>) {
         let Some(sh) = self.tabs.get_mut(index) else { return };
         if sh.pending_write.is_some() {
             return;
@@ -668,7 +701,14 @@ impl Shells {
             self.events.push(ShellEvt::Task(task.name, task.cmd.clone()));
         }
         if !sh.remote {
-            self.events.push(sh.command_event(format!("{} {}", sh.tv.cursor_line(), task.cmd), data, monitor));
+            self.events.push(ShellEvt::Command(ShellCommand {
+                id: sh.id,
+                line: format!("{} {}", sh.tv.cursor_line(), task.cmd),
+                row: sh.tv.cursor_row(),
+                data,
+                monitor,
+                build_workspace,
+            }));
         } else {
             sh.write(&data);
         }
@@ -1408,9 +1448,10 @@ impl Shells {
         } else if let Some(action) = action_run {
             if let Some((m, syntax)) = self.tabs.get(self.active).and_then(|sh| sh.mcu.as_ref().zip(sh.syntax)) {
                 match m.command(syntax, action, port) {
-                    Ok(cmd) => self.submit_task(
+                    Ok(cmd) => self.submit_mcu_task(
                         self.active,
-                        Task { name: action.label().into(), cmd },
+                        action,
+                        cmd,
                         m.workspace == cwd && matches!(action, Action::Flash | Action::AppFlash | Action::AppFlashMonitor),
                         action.monitor_after().then(|| port.to_owned()),
                     ),
@@ -1439,6 +1480,32 @@ impl Shells {
     }
 }
 
+/// Show the status collected from the native tool rather than the PowerShell pipeline or Pop-Location.
+fn wch_task_result(syntax: Syntax, action: Action, cmd: &str) -> String {
+    let title = action.label();
+    let success = tf("{}成功", &[&title]);
+    let failure = tf("{}失败，退出码 {}", &[&title, &"{0}"]);
+    match syntax {
+        Syntax::PowerShell => {
+            let success = success.replace('\'', "''");
+            let failure = failure.replace('\'', "''");
+            format!(
+                "$global:LASTEXITCODE = 1; {cmd}; if ($LASTEXITCODE -eq 0) {{ Write-Host '[QCCOM] {success}' -ForegroundColor Green }} else {{ Write-Host ('[QCCOM] {failure}' -f $LASTEXITCODE) -ForegroundColor Red }}"
+            )
+        }
+        Syntax::Posix => {
+            let success = success.replace('\'', "'\\''");
+            let (before, after) = failure.split_once("{0}").unwrap_or((&failure, ""));
+            let before = before.replace('\'', "'\\''");
+            let after = after.replace('\'', "'\\''");
+            format!(
+                "({cmd}; qccom_exit=$?; if [ \"$qccom_exit\" -eq 0 ]; then printf '%s\\n' '[QCCOM] {success}'; else printf '%s%d%s\\n' '[QCCOM] {before}' \"$qccom_exit\" '{after}'; fi; exit \"$qccom_exit\")"
+            )
+        }
+        Syntax::Cmd | Syntax::Fish => cmd.into(),
+    }
+}
+
 fn action_button(ui: &mut egui::Ui, mcu: &mcu::Session, syntax: Syntax, action: Action, ready: bool, port: &str) -> bool {
     if action == Action::Monitor {
         return ui.small_button(action.label()).on_hover_text(t("请在调试页查看串口日志")).clicked();
@@ -1459,6 +1526,20 @@ fn action_button(ui: &mut egui::Ui, mcu: &mcu::Session, syntax: Syntax, action: 
 #[cfg(test)]
 mod tests {
     use super::{parse_problems, prompt_of, uses_port};
+
+    #[cfg(unix)]
+    #[test]
+    fn mcu_build_result_uses_the_reported_make_exit_code() {
+        use super::*;
+        for (code, command) in [(0, "true"), (7, "sh -c 'exit 7'")] {
+            let cmd = wch_task_result(Syntax::Posix, Action::Build, command);
+            let result = std::process::Command::new("sh").args(["-c", &cmd]).output().unwrap();
+            assert_eq!(result.status.code(), Some(code));
+            let output = String::from_utf8(result.stdout).unwrap();
+            let expected = if code == 0 { tf("{}成功", &[&Action::Build.label()]) } else { tf("{}失败，退出码 {}", &[&Action::Build.label(), &code]) };
+            assert!(output.contains(&expected));
+        }
+    }
 
     #[cfg(unix)]
     #[test]

@@ -2,12 +2,15 @@ use super::*;
 use std::fs;
 
 pub(super) const MAKEFILES: &[&str] = &["GNUmakefile", "makefile", "Makefile"];
+const GENERATED: &str = "Automatically-generated file. Do not edit!";
+const CLEAN_RULES: &str = "qccom-clean.mk";
 
 pub(super) struct Project {
     pub name: String,
     pub configuration: String,
     pub dir: PathBuf,
     pub workspace: Option<tempfile::TempDir>,
+    clean_rules: Option<tempfile::TempDir>,
     #[cfg(unix)]
     pub shims: Option<tempfile::TempDir>,
 }
@@ -34,6 +37,7 @@ impl Project {
             configuration: configuration.into(),
             dir,
             workspace: None,
+            clean_rules: None,
             #[cfg(unix)]
             shims: None,
         })
@@ -41,6 +45,17 @@ impl Project {
 
     pub(super) fn selection(&self) -> String {
         format!("{}/{}", regex_lite::escape(&self.name), regex_lite::escape(&self.configuration))
+    }
+
+    pub(super) fn prepare_clean_rules(&mut self) -> std::io::Result<()> {
+        let dir = tempfile::tempdir()?;
+        fs::write(dir.path().join(CLEAN_RULES), include_str!("wch-clean.mk"))?;
+        self.clean_rules = Some(dir);
+        Ok(())
+    }
+
+    pub(super) fn clean_rules_path(&self) -> Option<PathBuf> {
+        self.clean_rules.as_ref().map(|dir| dir.path().join(CLEAN_RULES))
     }
 
     #[cfg(unix)]
@@ -96,6 +111,20 @@ impl IspConfig {
     }
 }
 
+pub(super) fn makefile_name(root: &Path) -> Option<&'static str> {
+    MAKEFILES.iter().copied().find(|name| root.join(name).is_file())
+}
+
 pub(super) fn has_makefile(root: &Path) -> bool {
-    MAKEFILES.iter().any(|name| root.join(name).is_file())
+    makefile_name(root).is_some()
+}
+
+pub(super) fn is_managed_makefile(path: &Path) -> bool {
+    use std::io::{BufRead, BufReader, Read};
+    let Ok(file) = fs::File::open(path) else { return false };
+    BufReader::new(file.take(4096))
+        .split(b'\n')
+        .take(5)
+        .flatten()
+        .any(|line| line.windows(GENERATED.len()).any(|token| token == GENERATED.as_bytes()))
 }

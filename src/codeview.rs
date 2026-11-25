@@ -766,6 +766,49 @@ impl CodeView {
         self.root.as_deref()
     }
 
+    pub(crate) fn save_for_mcu_build(&mut self, workspace: &Path) -> Result<(), String> {
+        let pending: Vec<_> = self.tabs.iter().enumerate()
+            .filter(|(_, doc)| doc.textual() && doc.dirty() && doc.path.starts_with(workspace))
+            .map(|(index, _)| index)
+            .collect();
+        // Check every dirty file before writing any of them. Disk polling may
+        // not have noticed a conflicting external edit when Build is clicked.
+        for &index in &pending {
+            let doc = &mut self.tabs[index];
+            let unchanged = std::fs::read(&doc.path).ok().is_some_and(|bytes| {
+                doc.bom == bytes.starts_with(b"\xef\xbb\xbf")
+                    && cindex::decode(&bytes).is_some_and(|(text, gbk)| {
+                        doc.gbk == gbk && doc.crlf == text.contains("\r\n") && doc.saved == text.replace("\r\n", "\n")
+                    })
+            });
+            if doc.ext_changed || !unchanged {
+                doc.ext_changed = true;
+                self.active = index;
+                return Err(tf("编译已暂停：{} 在磁盘上的内容已更改，请处理冲突后重试", &[&doc.rel]));
+            }
+        }
+        let mut saved = Vec::new();
+        let mut result = Ok(());
+        for index in pending {
+            let doc = &mut self.tabs[index];
+            match doc.save() {
+                Ok(()) => saved.push(doc.path.clone()),
+                Err(error) => {
+                    self.active = index;
+                    result = Err(tf("编译已暂停：无法保存 {}（{}）", &[&doc.rel, &error]));
+                    break;
+                }
+            }
+        }
+        for path in &saved {
+            self.after_save(path);
+        }
+        if !saved.is_empty() {
+            self.refresh_git();
+        }
+        result
+    }
+
     fn toast(&mut self, m: impl Into<String>, c: Color32) {
         self.events.push(CodeEvt::Toast(m.into(), c));
     }
@@ -5244,6 +5287,39 @@ fn branch_label(b: &str) -> String {
 #[cfg(test)]
 mod close_tests {
     use super::*;
+
+    #[test]
+    fn mcu_build_saves_dirty_project_buffers_and_stops_on_external_conflict() {
+        let tmp = tempfile::tempdir().unwrap();
+        let project = tmp.path().join("firmware");
+        std::fs::create_dir(&project).unwrap();
+        let source = project.join("main.c");
+        let other = tmp.path().join("other.c");
+        let original = "int original;\n";
+        std::fs::write(&source, original).unwrap();
+        std::fs::write(&other, original).unwrap();
+
+        let mut view = CodeView::new(CodeSettings::default());
+        for path in [&source, &other] {
+            let mut doc = Doc::load(path, &project).unwrap();
+            doc.ed.replace_ranges(&mut doc.buf, vec![(0..0, "#error unsaved change\n".into())], 0.0);
+            view.tabs.push(doc);
+        }
+        view.save_for_mcu_build(&project).unwrap();
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), format!("#error unsaved change\n{original}"));
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), original);
+        assert!(!view.tabs[0].dirty());
+        assert!(view.tabs[1].dirty());
+
+        let doc = &mut view.tabs[0];
+        doc.ed.replace_ranges(&mut doc.buf, vec![(0..0, "// local change\n".into())], 1.0);
+        let external = "int external;\n";
+        std::fs::write(&source, external).unwrap();
+        assert!(view.save_for_mcu_build(&project).is_err());
+        assert_eq!(std::fs::read_to_string(&source).unwrap(), external);
+        assert!(view.tabs[0].dirty());
+        assert!(view.tabs[0].ext_changed);
+    }
 
     #[test]
     fn closing_the_last_c_tab_during_paint_leaves_the_viewer_usable() {

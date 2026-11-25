@@ -7,7 +7,7 @@
   "notes": "优化 Ctrl + 单击函数跳转，新增代码联想补全，默认展开上下文窗口。\n新增两个自定义文本或 HEX 发送按钮。终端可导入和命名工具链环境，供编译、烧录和清理任务使用。\n电路仿真默认展示示波器，支持八个电压探针通道和支路电流波形。首次启动可选择启用系统右键菜单。",
   "force": false,
   "pending_release": {
-    "version": "1.9.24",
-    "notes": "修复 Windows PowerShell 中沁恒编译或清理时 GNU Make 写入 stdout 失败。终端 make、编译和清理按钮使用兼容输出管道，保留编译输出和退出码。自动烧录优先使用已安装的 WCHISPStudio 官方命令行工具，支持 CH57x–CH59x 等芯片系列，串口沿用调试区当前设备。"
+    "version": "1.9.25",
+    "notes": "沁恒工程点击编译时先保存编辑器中修改的工程文件，编译和清理显示实际结果及退出码。补齐 MounRiver 生成 Makefile 清理遗漏的 BIN、MAP 等构建产物。Windows PowerShell 同时识别 UTF-8 和系统 ANSI 代码页，修复旧版 Make 输出的中文路径和文件名乱码。"
   }
 }

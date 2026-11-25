@@ -152,6 +152,9 @@ fn detect(workspace: PathBuf, root: PathBuf, options: Options, selected: Option<
                         Err(e) => s.issue = Some(tf("无法创建 MounRiver Studio 工作区：{}", &[&e])),
                     }
                 }
+                if let Err(e) = project.prepare_clean_rules() {
+                    s.issue = Some(tf("无法准备 MounRiver 清理规则：{}", &[&e]));
+                }
                 #[cfg(unix)]
                 if let Err(e) = project.make_shim() {
                     s.issue = Some(tf("无法初始化 WCH 的 make 命令：{}", &[&e]));

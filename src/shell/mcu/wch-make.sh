@@ -12,6 +12,16 @@ for arg do
 done
 if [ -n "$QCCOM_MCU_MAKE_DIR" ] &&
     { [ -f "$QCCOM_MCU_MAKE_DIR/GNUmakefile" ] || [ -f "$QCCOM_MCU_MAKE_DIR/makefile" ] || [ -f "$QCCOM_MCU_MAKE_DIR/Makefile" ]; }; then
+    if [ "$#" = 1 ] && [ "$1" = clean ] && [ -n "$QCCOM_MRS_CLEAN_RULES" ]; then
+        for makefile in GNUmakefile makefile Makefile; do
+            path="$QCCOM_MCU_MAKE_DIR/$makefile"
+            [ -f "$path" ] || continue
+            if head -n 5 "$path" | grep -Fq 'Automatically-generated file. Do not edit!'; then
+                set -- -f "$makefile" -f "$QCCOM_MRS_CLEAN_RULES" "$@"
+            fi
+            break
+        done
+    fi
     if [ "$build_only" = 1 ]; then set -- "$@" all; fi
     exec "$QCCOM_REAL_MAKE" -C "$QCCOM_MCU_MAKE_DIR" "$@"
 fi

@@ -5742,7 +5742,15 @@ impl eframe::App for App {
                     self.reveal(Pane::Code, "shell.open", work::Strength::Strong);
                 }
                 ShellEvt::Task(name, cmd) => self.flash_checkpoint(&name, &cmd),
-                ShellEvt::Command(id, line, row, data, monitor) => {
+                ShellEvt::Command(command) => {
+                    let crate::shell::ShellCommand { id, line, row, data, monitor, build_workspace } = command;
+                    if let Some(workspace) = build_workspace {
+                        if let Err(error) = self.code.save_for_mcu_build(&workspace) {
+                            self.toast(error, ERR());
+                            self.reveal(Pane::Code, "mcu.save", work::Strength::Strong);
+                            continue;
+                        }
+                    }
                     let monitor = monitor.as_deref().and_then(|name| {
                         if name == mcu_port {
                             Some(mcu_slot)

@@ -3725,3 +3725,8 @@ MounRiver 构建配置	MounRiver build configuration	MounRiver 建置設定					
 官方 ISP 程序	Official ISP executable	官方 ISP 程式							Executável ISP oficial
 未找到官方 ISP 程序。请安装 WCHISPStudio 或在 MCU 工具链中选择命令行程序。	Official ISP executable not found. Install WCHISPStudio or select the command-line executable in MCU Toolchain.	找不到官方 ISP 程式。請安裝 WCHISPStudio，或在 MCU 工具鏈中選擇命令列程式。							Executável ISP oficial não encontrado. Instale o WCHISPStudio ou selecione o executável nas ferramentas de MCU.
 烧录接口与 WCHISPStudio 配置不一致，请导入对应接口的 INI。	The flash interface differs from the WCHISPStudio configuration. Select the INI for the desired interface.	燒錄介面與 WCHISPStudio 設定不一致，請匯入對應介面的 INI。							A interface de gravação difere da configuração do WCHISPStudio. Selecione o INI da interface desejada.
+无法准备 MounRiver 清理规则：{}	Could not prepare MounRiver clean rules: {}	無法準備 MounRiver 清除規則：{}							Não foi possível preparar as regras de limpeza do MounRiver: {}
+编译已暂停：{} 在磁盘上的内容已更改，请处理冲突后重试	Build paused. {} changed on disk. Resolve the conflict and retry.	編譯已暫停：{} 在磁碟上的內容已變更，請處理衝突後重試							Compilação pausada. {} mudou no disco. Resolva o conflito e tente novamente.
+编译已暂停：无法保存 {}（{}）	Build paused. Could not save {} ({}).	編譯已暫停：無法儲存 {}（{}）							Compilação pausada. Não foi possível salvar {} ({}).
+{}成功	{} succeeded	{}成功							{} concluído
+{}失败，退出码 {}	{} failed with exit code {}	{}失敗，結束代碼 {}							{} falhou com o código de saída {}

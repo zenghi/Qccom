@@ -21,6 +21,8 @@ mod editx;
 mod fileops;
 mod gen;
 mod insight;
+mod locals;
+mod watch;
 mod regs;
 mod preprocess;
 use crate::git;
@@ -173,6 +175,7 @@ struct Doc {
     crlf: bool,
     lang: Lang,
     syms: Vec<Sym>,
+    locals: locals::Locals,
     /// 改过文字后，符号表等一会儿再重新解析（连续打字时不用每个字都解析）
     syms_stale: Option<f64>,
     json_keys: Vec<String>,
@@ -241,6 +244,7 @@ impl Doc {
             crlf,
             lang: Lang::from_path(path),
             syms: vec![],
+            locals: Default::default(),
             syms_stale: None,
             json_keys: vec![],
             defined_words: Arc::default(),
@@ -534,6 +538,8 @@ pub struct CodeView {
 
     index: Option<Arc<Index>>,
     index_rx: Option<Receiver<Index>>,
+    disk_watch: Option<watch::ProjectWatch>,
+    index_dirty_at: Option<Instant>,
     index_prog: Option<Arc<Progress>>,
     index_t: Option<Instant>,
 
@@ -646,6 +652,8 @@ impl CodeView {
             filter: String::new(),
             index: None,
             index_rx: None,
+            disk_watch: None,
+            index_dirty_at: None,
             index_prog: None,
             index_t: None,
             git_marks: HashMap::new(),
@@ -795,6 +803,8 @@ impl CodeView {
         self.index = None;
         self.sem = None;
         self.root = Some(p.clone());
+        self.disk_watch = None;
+        self.index_dirty_at = None;
         self.hist_restart = true;
         self.reindex();
         self.refresh_git();
@@ -804,8 +814,13 @@ impl CodeView {
     }
 
     fn reindex(&mut self) {
-        let Some(root) = self.root.clone() else { return };
         self.lsp_for = None; // 顺便重新检测 clangd / compile_commands.json
+        self.reindex_symbols();
+    }
+
+    fn reindex_symbols(&mut self) {
+        let Some(root) = self.root.clone() else { return };
+        self.index_dirty_at = None;
         if let Some(p) = &self.index_prog {
             p.cancel.store(true, Ordering::Relaxed);
         }
@@ -1047,26 +1062,39 @@ impl CodeView {
 
     // ------------------------------------------------------------ 跳转定义
 
-    fn definitions(&self, word: &str) -> Vec<(PathBuf, u32, &'static str, String)> {
-        let mut v = vec![];
+    fn symbol_sites(&self, word: &str) -> Vec<(&Path, &Sym)> {
+        let mut sites = Vec::new();
+        for d in self.tabs.iter().filter(|d| !d.virt) {
+            sites.extend(d.syms.iter().filter(|s| s.name == word).map(|s| (d.path.as_path(), s)));
+        }
         if let Some(idx) = &self.index {
             for s in idx.lookup(word) {
-                v.push((idx.path_of(s).to_path_buf(), s.line, s.kind.label(), s.sig.clone()));
-            }
-        }
-        // 当前文件里的（索引还没建好、或文件不在工作区里时也能跳）
-        if let Some(d) = self.tabs.get(self.active) {
-            for s in d.syms.iter().filter(|s| s.name == word) {
-                if !v.iter().any(|x| x.0 == d.path && x.1 == s.line) {
-                    v.push((d.path.clone(), s.line, s.kind.label(), s.sig.clone()));
+                let path = idx.path_of(s);
+                if !self.tabs.iter().any(|d| !d.virt && d.path == path) && idx.current_site(s) {
+                    sites.push((path, s));
                 }
             }
         }
-        v
+        sites.sort_by_key(|(p, s)| (s.kind == Kind::Proto, self.tabs.get(self.active).is_none_or(|d| d.path != *p)));
+        sites
+    }
+
+    fn definitions(&self, word: &str) -> Vec<(PathBuf, u32, &'static str, String)> {
+        self.symbol_sites(word).into_iter().map(|(p, s)| (p.to_owned(), s.line, s.kind.label(), s.sig.clone())).collect()
     }
 
     /// 跳转定义：clangd 就绪时先问它（知道光标所在的字节位置才能问），否则用内置索引
     fn goto_definition(&mut self, word: &str, at: egui::Pos2, byte: Option<usize>, now: f64) {
+        if let Some((d, local)) = self.tabs.get_mut(self.active).and_then(|d| {
+            let (start, _, _) = d.word_at(byte?)?;
+            let local = d.locals.find(d, word, start)?;
+            Some((d, local))
+        }) {
+            self.lsp_def = None;
+            d.goto = Some((local.line as usize, Some((local.span.start, local.span.end))));
+            return;
+        }
+
         if let (Some(lsp), Some(b), Some(d)) = (self.lsp.as_mut(), byte, self.tabs.get(self.active)) {
             if lsp.ready() && d.lang == Lang::C {
                 let b = d.word_at(b).filter(|(_, _, w)| *w == word).map_or(b, |(s, _, _)| s);
@@ -1133,7 +1161,13 @@ impl CodeView {
         };
         let (word, at) = (word.clone(), *at);
         self.lsp_def = None;
-        let locs = res.unwrap_or_default();
+        let mut locs = res.unwrap_or_default();
+        locs.retain(|(p, line, _)| {
+            if let Some(d) = self.tabs.iter().find(|d| d.path == *p) {
+                return *line < d.buf.lines() && find_word(d.buf.line(*line), &word).is_some();
+            }
+            cindex::read_text(p).and_then(|text| text.lines().nth(*line).map(|l| find_word(l, &word).is_some())).unwrap_or(false)
+        });
         // clangd 的后台索引还没建好时，别的 .c 里的定义它不知道，只会给头文件里的声明；
         // 这时内置索引如果知道真正的定义，就用内置索引
         let is_header = |p: &Path| matches!(p.extension().and_then(|e| e.to_str()), Some("h" | "hh" | "hpp" | "hxx"));
@@ -1169,7 +1203,7 @@ impl CodeView {
             defs.retain(|d| d.2 != Kind::Proto.label());
         }
         match defs.len() {
-            0 if self.index_rx.is_some() => {
+            0 if self.index_rx.is_some() || self.index_dirty_at.is_some() => {
                 self.toast(t("工程索引正在构建，请稍后再跳转"), WARN());
             }
             0 => {
@@ -1489,24 +1523,34 @@ impl CodeView {
                 drop_backup(d);
             }
         }
+        if !self.tabs.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(1500));
+        }
         if now - self.last_stat < 1.5 {
             return;
         }
         self.last_stat = now;
-        let mut reloaded = vec![];
+        let mut reloaded = false;
         for d in self.tabs.iter_mut().filter(|d| !d.virt) {
             let Ok(m) = std::fs::metadata(&d.path).and_then(|m| m.modified()) else { continue };
             if d.mtime == Some(m) {
                 continue;
             }
-            d.mtime = Some(m);
             if d.dirty() {
+                d.mtime = Some(m);
                 d.ext_changed = true;
             } else if d.reload(now).is_ok() {
-                reloaded.push(d.rel.clone());
+                reloaded = true;
+                if let Some(lsp) = &mut self.lsp {
+                    lsp.close(&d.path);
+                }
             }
         }
-        if !reloaded.is_empty() {
+        if reloaded {
+            self.insight_reset();
+            if self.index_dirty_at.is_none() {
+                self.index_dirty_at = Some(Instant::now());
+            }
             self.refresh_git();
         }
     }
@@ -1582,6 +1626,8 @@ impl CodeView {
                 Some(0) => {
                     if let Err(e) = d.reload(now) {
                         self.events.push(CodeEvt::Toast(e, ERR()));
+                    } else {
+                        self.insight_reset();
                     }
                     self.refresh_git();
                 }
@@ -1795,9 +1841,25 @@ impl CodeView {
                 else { ctx.request_repaint_after(std::time::Duration::from_secs_f64((t + 0.4 - now).max(0.0))); }
             }
         }
+        if self.disk_watch.is_none() {
+            if let Some(root) = self.root.clone() {
+                self.disk_watch = Some(watch::ProjectWatch::start(root, ctx.clone()));
+            }
+        }
+        if self.disk_watch.as_ref().is_some_and(watch::ProjectWatch::changed) {
+            self.last_stat = f64::NEG_INFINITY;
+            self.index_dirty_at = Some(Instant::now());
+        }
+        self.poll_disk(ctx);
+        if let Some(dirty) = self.index_dirty_at {
+            if self.index_rx.is_none() && dirty.elapsed() >= std::time::Duration::from_millis(220) {
+                self.reindex_symbols();
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(220));
+            }
+        }
         self.poll_lsp(ctx);
         self.poll_git_lines(ctx);
-        self.poll_disk(ctx);
         if self.hist_restart {
             self.hist_restart = false;
             self.hist_start(ctx);

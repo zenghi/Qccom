@@ -266,10 +266,17 @@ enum Update {
 #[derive(Default)]
 pub(super) struct Shading {
     displayed: Option<u64>,
+    source_ver: u64,
     result: Analysis,
     worker: Option<(u64, Receiver<Update>)>,
     edit: Option<(u64, Instant)>,
     last_check: Option<Instant>,
+}
+
+impl Shading {
+    pub(super) fn ranges_for(&self, version: u64) -> &[(usize, usize)] {
+        if self.displayed.is_some() && self.source_ver == version { &self.result.ranges } else { &[] }
+    }
 }
 
 impl CodeView {
@@ -288,6 +295,7 @@ impl CodeView {
             header.buf.ver.hash(&mut h);
         }
         let key = h.finish();
+        let source_ver = d.buf.ver;
         let now = Instant::now();
         let cache = &mut self.tabs[i].inactive;
         if let Some((k, rx)) = &cache.worker {
@@ -297,6 +305,8 @@ impl CodeView {
                         Update::Ready(r) => {
                             cache.result = r;
                             cache.displayed = Some(key);
+                            cache.source_ver = source_ver;
+                            self.ins.context_changed();
                         }
                         Update::Stale => cache.displayed = None,
                         Update::Unchanged => {}

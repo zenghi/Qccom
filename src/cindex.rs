@@ -74,6 +74,14 @@ pub struct Index {
     pub include_paths: HashMap<std::ffi::OsString, Vec<PathBuf>>,
     /// syms 里引用的文件路径表
     pub sym_files: Vec<PathBuf>,
+    symbol_stamps: Vec<Option<FileStamp>>,
+}
+
+type FileStamp = (std::time::SystemTime, u64);
+
+fn file_stamp(path: &Path) -> Option<FileStamp> {
+    let metadata = fs::metadata(path).ok()?;
+    Some((metadata.modified().ok()?, metadata.len()))
 }
 
 pub struct Progress {
@@ -140,7 +148,8 @@ pub fn build(root: &Path, prog: &Progress) -> Index {
             if !lang.is_code() || matches!(lang, Lang::Make | Lang::Shell | Lang::Kconfig | Lang::Dts | Lang::Ld) {
                 continue;
             }
-            if e.metadata().map(|m| m.len() > MAX_PARSE).unwrap_or(true) {
+            let stamp = file_stamp(&p);
+            if stamp.is_none_or(|(_, len)| len > MAX_PARSE) {
                 continue;
             }
             let Some(text) = read_text(&p) else { continue };
@@ -161,6 +170,7 @@ pub fn build(root: &Path, prog: &Progress) -> Index {
                     words.extend(idx.syms[before..].iter().map(|sym| sym.name.clone()));
                 }
                 idx.sym_files.push(p);
+                idx.symbol_stamps.push(stamp);
             }
             prog.files.fetch_add(1, Ordering::Relaxed);
         }
@@ -685,6 +695,11 @@ impl Index {
         let mut v: Vec<&Sym> = self.by_name.get(name).map(|ids| ids.iter().map(|&i| &self.syms[i as usize]).collect()).unwrap_or_default();
         v.sort_by_key(|s| s.kind.rank());
         v
+    }
+
+    /// An index built before a write may still be in use while its replacement is being built.
+    pub fn current_site(&self, symbol: &Sym) -> bool {
+        self.symbol_stamps.get(symbol.file as usize).is_none_or(|stamp| *stamp == file_stamp(self.path_of(symbol)))
     }
 
     pub fn path_of(&self, s: &Sym) -> &Path {

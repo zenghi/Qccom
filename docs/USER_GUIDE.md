@@ -326,6 +326,8 @@ The Code page, the Git page, the terminal panel and the TFTP / HTTP servers shar
 
 ### Navigating
 
+In C, C++ and Rust, **F12** and the Context pane resolve local variables and parameters within their scope. When another editor saves a project file, QCCOM refreshes the preview and jump locations in the background.
+
 | Keys | Action |
 |---|---|
 | Alt+← / Alt+→, mouse back / forward | Back / forward |

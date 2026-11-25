@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.21
+
+- Show scoped C, C++ and Rust local variables and parameters in the editor Context pane and jump to their declarations with F12.
+- Watch project source files for external edits and refresh symbol locations in the background, including definitions in unopened files.
+
 ## 1.9.20
 
 - Record a Windows global shortcut by pressing its keys, skip unused rows on apply, and show invalid or occupied shortcuts in the settings panel.

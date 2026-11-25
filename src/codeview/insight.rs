@@ -26,13 +26,17 @@ struct CtxView {
     path: PathBuf,
     line: u32,
     kind: Kind,
+    local: Option<locals::Local>,
+    version: Option<u64>,
     first: u32,
     lines: Vec<String>,
     lang: Lang,
 }
 
 pub(super) struct Insight {
-    ctx_word: String,
+    ctx_source: Option<(PathBuf, u64, usize, String)>,
+    ctx_dirty: bool,
+    ctx_retry: Option<(String, PathBuf, u32, bool, Kind)>,
     ctx_since: f64,
     ctx: Option<CtxView>,
     tab: RelTab,
@@ -49,7 +53,9 @@ pub(super) struct Insight {
 impl Default for Insight {
     fn default() -> Self {
         Insight {
-            ctx_word: String::new(),
+            ctx_source: None,
+            ctx_dirty: false,
+            ctx_retry: None,
             ctx_since: 0.0,
             ctx: None,
             tab: RelTab::Callees,
@@ -61,6 +67,12 @@ impl Default for Insight {
             callers_rx: vec![],
             open: HashSet::new(),
         }
+    }
+}
+
+impl Insight {
+    pub(super) fn context_changed(&mut self) {
+        self.ctx_dirty = true;
     }
 }
 
@@ -88,6 +100,7 @@ impl CodeView {
         self.ins.callees.clear();
         self.ins.callers.clear();
         self.ins.callers_rx.clear();
+        self.ins.context_changed();
     }
 
     fn file_text(&self, p: &Path) -> Option<String> {
@@ -99,11 +112,10 @@ impl CodeView {
 
     /// 函数（或函数式宏）的定义位置
     fn func_def(&self, name: &str) -> Option<(PathBuf, u32, Kind)> {
-        let idx = self.index.as_ref()?;
-        idx.lookup(name)
+        self.symbol_sites(name)
             .into_iter()
-            .find(|s| matches!(s.kind, Kind::Func | Kind::Macro))
-            .map(|s| (idx.path_of(s).to_path_buf(), s.line, s.kind))
+            .find(|(_, s)| matches!(s.kind, Kind::Func | Kind::Macro))
+            .map(|(p, s)| (p.to_path_buf(), s.line, s.kind))
     }
 
     /// 光标所在的函数（光标停在函数名上时就是那个函数）
@@ -276,45 +288,101 @@ impl CodeView {
     // ------------------------------------------------------------ 上下文窗口
 
     fn update_context(&mut self, now: f64) {
+        let dirty = std::mem::take(&mut self.ins.ctx_dirty);
         if self.ins.ctx_pinned {
+            let target = self
+                .ins
+                .ctx
+                .as_ref()
+                .and_then(|c| {
+                    let version = self.tabs.iter().find(|d| d.path == c.path).map(|d| d.buf.ver);
+                    (dirty || version != c.version).then(|| (c.word.clone(), c.path.clone(), c.line, c.local.is_some(), c.kind))
+                })
+                .or_else(|| if dirty { self.ins.ctx_retry.take() } else { None });
+            if let Some((word, path, line, local, kind)) = target {
+                self.ins.ctx = if local {
+                    self.refresh_local_context(&word, &path, line)
+                } else {
+                    self.symbol_sites(&word)
+                        .into_iter()
+                        .find(|(p, s)| *p == path && kind == s.kind)
+                        .map(|(_, s)| (path.clone(), s.line, s.kind))
+                        .or_else(|| self.ctx_def(&word))
+                        .and_then(|site| self.build_ctx(&word, site, None))
+                };
+                self.ins.ctx_retry = self.ins.ctx.is_none().then_some((word, path, line, local, kind));
+            }
             return;
         }
-        let w = self.cursor_word().unwrap_or_default();
-        if w != self.ins.ctx_word {
-            self.ins.ctx_word = w;
+        let source = self.tabs.get(self.active).and_then(|d| {
+            let (byte, _, word) = d.word_at(d.ed.head())?;
+            Some((&d.path, d.buf.ver, byte, word))
+        });
+        let same = source.is_none() && self.ins.ctx_source.is_none()
+            || source
+                .as_ref()
+                .is_some_and(|(path, ver, at, word)| self.ins.ctx_source.as_ref().is_some_and(|(p, v, b, w)| p == *path && *v == *ver && *b == *at && w == *word));
+        if !same {
+            self.ins.ctx_source = source.map(|(p, v, b, w)| (p.clone(), v, b, w.to_owned()));
+            self.ins.ctx = None;
             self.ins.ctx_since = now;
             return;
         }
-        if now - self.ins.ctx_since < 0.25 || w.is_empty() || self.ins.ctx.as_ref().is_some_and(|c| c.word == w) {
+        if now - self.ins.ctx_since < 0.25 || self.ins.ctx.is_some() && !dirty {
             return;
         }
-        if let Some(c) = self.build_ctx(&w, None) {
-            self.ins.ctx = Some(c);
+        if let Some((path, _, byte, word)) = self.ins.ctx_source.clone() {
+            self.ins.ctx = self.context_at(&word, &path, byte);
         }
     }
 
-    /// 在上下文窗口里预览一个符号（调用关系、上下文窗口里单击时用），并固定住
+    fn context_at(&self, word: &str, path: &Path, byte: usize) -> Option<CtxView> {
+        if let Some(d) = self.tabs.iter().find(|d| d.path == path) {
+            if let Some(local) = d.locals.find(d, word, byte) {
+                return self.build_ctx(word, (d.path.clone(), local.line, Kind::Var), Some(local));
+            }
+        }
+        self.ctx_def(word).and_then(|site| self.build_ctx(word, site, None))
+    }
+
+    fn refresh_local_context(&self, word: &str, path: &Path, line: u32) -> Option<CtxView> {
+        let d = self.tabs.iter().find(|d| d.path == path)?;
+        let last = d.buf.lines().saturating_sub(1);
+        let line = (line as usize).min(last);
+        let lines = (0..=64).flat_map(|n| [line.checked_sub(n), (line + n <= last).then_some(line + n)]);
+        for i in lines.flatten() {
+            for (offset, _) in d.buf.line(i).match_indices(word) {
+                let byte = d.buf.start(i) + offset;
+                if let Some(local) = d.locals.find(d, word, byte).filter(|local| local.span.start == byte) {
+                    return self.build_ctx(word, (d.path.clone(), local.line, Kind::Var), Some(local));
+                }
+            }
+        }
+        None
+    }
+
+    /// Pin an explicit definition selected from the call hierarchy.
     pub(super) fn preview_ctx(&mut self, w: &str, at: Option<(PathBuf, u32)>) {
-        if let Some(c) = self.build_ctx(w, at) {
+        let site = match at {
+            Some((p, l)) => Some((p, l, self.ctx_def(w).map_or(Kind::Func, |s| s.2))),
+            None => self.ctx_def(w),
+        };
+        if let Some(c) = site.and_then(|site| self.build_ctx(w, site, None)) {
             self.ins.ctx = Some(c);
             self.ins.ctx_pinned = true;
+            self.ins.ctx_retry = None;
             self.s.context_win = true;
         }
     }
 
-    fn build_ctx(&self, w: &str, at: Option<(PathBuf, u32)>) -> Option<CtxView> {
-        let w = w.to_string();
-        let (path, line, kind) = match at {
-            Some((p, l)) => {
-                let k = self.ctx_def(&w).map_or(Kind::Func, |x| x.2);
-                (p, l, k)
-            }
-            None => self.ctx_def(&w)?,
-        };
+    fn build_ctx(&self, w: &str, (path, line, kind): (PathBuf, u32, Kind), local: Option<locals::Local>) -> Option<CtxView> {
         let text = self.file_text(&path)?;
         let lang = Lang::from_path(&path);
         let all: Vec<&str> = text.split('\n').collect();
         let l = line as usize;
+        if l >= all.len() {
+            return None;
+        }
         // 函数、结构体、枚举显示到配对的 }；宏显示续行；其他显示前后几行
         let end = match kind {
             Kind::Func | Kind::Struct | Kind::Enum | Kind::Class | Kind::Typedef => {
@@ -357,11 +425,14 @@ impl CodeView {
             }
         }
         let lines = all[first..=end.min(all.len() - 1)].iter().map(|s| s.to_string()).collect();
+        let version = self.tabs.iter().find(|d| d.path == path).map(|d| d.buf.ver);
         Some(CtxView {
-            word: w,
+            word: w.to_owned(),
             path,
             line,
             kind,
+            local,
+            version,
             first: first as u32,
             lines,
             lang,
@@ -369,13 +440,7 @@ impl CodeView {
     }
 
     fn ctx_def(&self, w: &str) -> Option<(PathBuf, u32, Kind)> {
-        if let Some(idx) = &self.index {
-            if let Some(s) = idx.lookup(w).first() {
-                return Some((idx.path_of(s).to_path_buf(), s.line, s.kind));
-            }
-        }
-        let d = self.tabs.get(self.active)?;
-        d.syms.iter().find(|s| s.name == w).map(|s| (d.path.clone(), s.line, s.kind))
+        self.symbol_sites(w).first().map(|(p, s)| (p.to_path_buf(), s.line, s.kind))
     }
 
     pub(super) fn context_ui(&mut self, ui: &mut Ui) {
@@ -385,22 +450,26 @@ impl CodeView {
         if self.ins.ctx_since + 0.3 > now {
             ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
         }
-        let mut go: Option<(PathBuf, u32, String)> = None;
+        let mut go = None;
         let mut close = false;
         ui.horizontal(|ui| {
             ui.add_space(10.0);
             ui.label(RichText::new(t("上下文")).size(12.0).color(TEXT3()));
             if let Some(c) = &self.ins.ctx {
                 ui.add_space(4.0);
-                kind_pill(ui, c.kind);
+                if c.local.is_some() {
+                    ui.label(RichText::new(t("局部变量")).small().color(ACCENT()));
+                } else {
+                    kind_pill(ui, c.kind);
+                }
                 ui.label(RichText::new(&c.word).font(FontId::new(12.5, FontFamily::Monospace)).color(TEXT()));
                 let rel = self.root.as_ref().and_then(|r| c.path.strip_prefix(r).ok()).unwrap_or(&c.path).to_string_lossy().replace('\\', "/");
                 let r = ui.add(egui::Label::new(RichText::new(format!("{rel}:{}", c.line + 1)).size(11.5).color(ACCENT())).sense(Sense::click()));
                 if r.on_hover_text(t("打开定义")).clicked() {
-                    go = Some((c.path.clone(), c.line, c.word.clone()));
+                    go = Some((c.path.clone(), c.line, c.word.clone(), c.local.clone()));
                 }
             } else {
-                ui.label(RichText::new(t("把光标停在函数、宏、类型上，这里显示它的定义")).size(11.5).color(TEXT3()));
+                ui.label(RichText::new(t("把光标放在变量、函数、宏或类型上，这里显示其定义")).size(11.5).color(TEXT3()));
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(6.0);
@@ -415,7 +484,8 @@ impl CodeView {
                 if icon_button(ui, Icon::Bookmark, pin_tip, self.ins.ctx_pinned).clicked() {
                     self.ins.ctx_pinned = !self.ins.ctx_pinned;
                     if !self.ins.ctx_pinned {
-                        self.ins.ctx_word.clear();
+                        self.ins.ctx_source = None;
+                        self.ins.ctx_retry = None;
                         self.ins.ctx = None;
                     }
                 }
@@ -428,7 +498,7 @@ impl CodeView {
         });
         let rect = ui.available_rect_before_wrap();
         ui.painter().rect_filled(rect, 0.0, BG0());
-        let mut preview: Option<String> = None;
+        let mut preview = None;
         if let Some(c) = &self.ins.ctx {
             let font = FontId::new((self.s.font_size - 1.0).max(9.0), FontFamily::Monospace);
             let text = c.lines.join("\n").replace('\t', "    ");
@@ -454,9 +524,19 @@ impl CodeView {
                     }
                     let word: String = chars[a..b].iter().collect();
                     if resp.double_clicked() {
-                        go = Some((c.path.clone(), c.first + row as u32, word));
+                        go = Some((c.path.clone(), c.first + row as u32, word, None));
                     } else if !word.is_empty() && word.starts_with(|ch: char| !ch.is_ascii_digit()) && word != c.word {
-                        preview = Some(word);
+                        // Map the display column back to the original source (tabs expand to four spaces).
+                        let display = &chars[..a];
+                        let column = display.iter().rev().take_while(|&&ch| ch != '\n').count();
+                        let src = &c.lines[row];
+                        let mut cells = 0;
+                        let column_byte = src.char_indices().find_map(|(byte, ch)| {
+                            let previous = cells;
+                            cells += if ch == '\t' { 4 } else { 1 };
+                            (previous == column).then_some(byte)
+                        });
+                        preview = Some((word, c.path.clone(), c.first as usize + row, column_byte));
                     }
                 }
                 let p = ui.painter();
@@ -477,13 +557,24 @@ impl CodeView {
         if close {
             self.s.context_win = false;
         }
-        if let Some(w) = preview {
-            if self.ctx_def(&w).is_some() {
-                self.preview_ctx(&w, None);
+        if let Some((word, path, line, column)) = preview {
+            let byte = self.tabs.iter().find(|d| d.path == path).and_then(|d| Some(d.buf.start(line) + column?));
+            if let Some(c) = byte.and_then(|b| self.context_at(&word, &path, b)) {
+                self.ins.ctx = Some(c);
+                self.ins.ctx_pinned = true;
+            } else {
+                self.preview_ctx(&word, None);
             }
         }
-        if let Some((p, l, w)) = go {
-            self.open_at_word(&p, l as usize, &w);
+        if let Some((p, l, w, local)) = go {
+            if let Some(local) = local {
+                self.open_file(&p, None);
+                if let Some(d) = self.tabs.get_mut(self.active).filter(|d| d.path == p) {
+                    d.goto = Some((l as usize, Some((local.span.start, local.span.end))));
+                }
+            } else {
+                self.open_at_word(&p, l as usize, &w);
+            }
         }
     }
 
@@ -663,4 +754,60 @@ fn is_decl(before: &str) -> bool {
 
 fn t_file_scope() -> String {
     t("(文件作用域)").to_string()
+}
+
+#[cfg(test)]
+mod context_tests {
+    use super::*;
+
+    #[test]
+    fn same_word_in_separate_functions_refreshes_context_and_f12() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("setup.c");
+        let text = "void a(void) { int count = 1; send(count); }\nvoid b(void) { long count = 2; send(count); }\n";
+        std::fs::write(&path, text).unwrap();
+        let mut view = CodeView::new(CodeSettings::default());
+        view.tabs.push(Doc::load(&path, tmp.path()).unwrap());
+        for (time, byte, expected) in [(0.0, text.find("send(count").unwrap() + 5, 0), (1.0, text.rfind("send(count").unwrap() + 5, 1)] {
+            view.tabs[0].ed.select(byte, byte);
+            view.update_context(time);
+            view.update_context(time + 0.4);
+            let context = view.ins.ctx.as_ref().unwrap();
+            assert!(context.local.is_some());
+            assert_eq!(context.line, expected);
+            view.goto_definition("count", pos2(0., 0.), Some(byte), time + 0.5);
+            let (line, span) = view.tabs[0].goto.unwrap();
+            assert_eq!(line, expected as usize);
+            let start = text[..byte].rfind("count").unwrap();
+            assert_eq!(span, Some((start, start + "count".len())));
+        }
+        std::fs::write(&path, format!("// external\n\n{text}")).unwrap();
+        view.tabs[0].reload(2.0).unwrap();
+        view.update_context(2.0);
+        view.update_context(2.4);
+        assert_eq!(view.ins.ctx.as_ref().unwrap().line, 3);
+    }
+
+    #[test]
+    fn fresh_tabs_and_rebuilt_index_replace_old_locations_and_preview() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("device.c");
+        std::fs::write(&path, "int device(void) { return 1; }\n").unwrap();
+        let mut view = CodeView::new(CodeSettings::default());
+        view.index = Some(Arc::new(cindex::build(tmp.path(), &cindex::shared_progress())));
+        view.preview_ctx("device", None);
+        assert_eq!(view.ins.ctx.as_ref().unwrap().line, 0);
+        std::fs::write(&path, "\n\nint device(void) { return 2; }\n").unwrap();
+        view.index = Some(Arc::new(cindex::build(tmp.path(), &cindex::shared_progress())));
+        view.insight_reset();
+        view.update_context(1.0);
+        assert_eq!(view.ins.ctx.as_ref().unwrap().line, 2);
+        assert!(view.ins.ctx.as_ref().unwrap().lines[0].contains("return 2"));
+        std::fs::write(&path, "\n\n\nint device(void) { return 3; }\n").unwrap();
+        view.tabs.push(Doc::load(&path, tmp.path()).unwrap());
+        let defs = view.definitions("device");
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].1, 3);
+        assert!(view.build_ctx("device", (path, 500, Kind::Func), None).is_none());
+    }
 }

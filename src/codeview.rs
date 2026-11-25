@@ -293,7 +293,6 @@ impl Doc {
             names.dedup();
             self.defined_words = names.into();
         }
-        self.syms.retain(|s| s.kind != Kind::EnumConst);
         self.syms_stale = None;
     }
 
@@ -3389,7 +3388,7 @@ impl CodeView {
         let syms: Vec<(String, Kind, u32)> = d
             .syms
             .iter()
-            .filter(|s| f.is_empty() || s.name.to_lowercase().contains(&f))
+            .filter(|s| s.kind != Kind::EnumConst && (f.is_empty() || s.name.to_lowercase().contains(&f)))
             .map(|s| (s.name.clone(), s.kind, s.line))
             .collect();
         let current = syms.iter().rposition(|s| s.2 as usize <= cur_line);
@@ -4574,7 +4573,7 @@ impl CodeView {
             QuickMode::FileSymbols => {
                 if let Some(d) = self.tabs.get(self.active) {
                     let ql = q.to_lowercase();
-                    for s in d.syms.iter().filter(|s| ql.is_empty() || s.name.to_lowercase().contains(&ql)).take(200) {
+                    for s in d.syms.iter().filter(|s| s.kind != Kind::EnumConst && (ql.is_empty() || s.name.to_lowercase().contains(&ql))).take(200) {
                         items.push((s.name.clone(), format!("{} {}", t("行"), s.line + 1), Some(s.kind), d.path.clone(), Some(s.line)));
                     }
                 }

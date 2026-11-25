@@ -808,6 +808,10 @@ mod context_tests {
         let defs = view.definitions("device");
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].1, 3);
-        assert!(view.build_ctx("device", (path, 500, Kind::Func), None).is_none());
+        assert!(view.build_ctx("device", (path.clone(), 500, Kind::Func), None).is_none());
+        std::fs::write(&path, "enum State { STATE_READY = 20 };\n").unwrap();
+        view.tabs[0].reload(2.0).unwrap();
+        assert_eq!(view.definitions("STATE_READY")[0].1, 0);
+        assert!(view.definitions("device").is_empty());
     }
 }

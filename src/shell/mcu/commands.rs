@@ -618,8 +618,8 @@ mod tests {
         fs::create_dir(root.join("obj")).unwrap();
         fs::write(root.join("board.wvproj"), "").unwrap();
         fs::write(root.join("obj/makefile"), "").unwrap();
-        let image = root.join("obj/board.elf");
-        let hex = root.join("obj/board.hex");
+        let image = root.join("obj").join("board.elf");
+        let hex = root.join("obj").join("board.hex");
         fs::write(&image, "").unwrap();
         fs::write(&hex, "").unwrap();
         let mut s = Session::discover(root.to_owned(), Options::default());

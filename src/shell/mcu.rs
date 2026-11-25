@@ -81,6 +81,7 @@ pub(super) struct Options {
     pub flash_target: String,
     pub stm32_serial: bool,
     pub wch_programmer: WchProgrammer,
+    pub wch_isp_tool: PathBuf,
     pub wch_isp_config: String,
     pub wch_isp_device: String,
     pub pio_project_upload: bool,
@@ -89,6 +90,9 @@ pub(super) struct Options {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum WchProgrammer {
     #[default]
+    #[serde(alias = "Link")]
+    Auto,
+    #[serde(rename = "WchLink")]
     Link,
     UsbIsp,
     SerialIsp,
@@ -147,6 +151,38 @@ impl Session {
         self.wch_output_dir().filter(|dir| wch::has_makefile(&self.root.join(dir)))
     }
 
+    fn wch_programmer(&self) -> WchProgrammer {
+        if self.options.wch_programmer != WchProgrammer::Auto {
+            return self.options.wch_programmer;
+        }
+        if self.wch_official_tool().is_none() && self.options.wch_isp_tool.as_os_str().is_empty() {
+            return WchProgrammer::Link;
+        }
+        if self.wch_official_tool() == Some("WCHISPStudio")
+            && self.wch_isp_config_path().and_then(|config| wch::IspConfig::read(&config)).and_then(|config| config.serial) == Some(false)
+        {
+            return WchProgrammer::VendorUsbIsp;
+        }
+        WchProgrammer::VendorSerialIsp
+    }
+
+    fn wch_official_tool(&self) -> Option<&'static str> {
+        ["WCHISPStudio", "WCHISPTool_CMD"].into_iter().find(|tool| self.tools.contains_key(tool))
+    }
+
+    fn wch_isp_config_path(&self) -> Option<PathBuf> {
+        let configured = self.options.wch_isp_config.trim();
+        let path = if configured.is_empty() {
+            ["WCHISPTool.ini", "wchisp.ini", "Config.ini"]
+                .into_iter()
+                .flat_map(|name| [self.root.join(name), self.workspace.join(name)])
+                .find(|path| path.is_file())?
+        } else {
+            self.root.join(configured)
+        };
+        (path.is_file() && path.extension().is_some_and(|ext| ext.eq_ignore_ascii_case("ini"))).then_some(path)
+    }
+
     pub(super) fn apply(&self, cmd: &mut CommandBuilder, syntax: Syntax) {
         for (key, val) in &self.env {
             cmd.env(key, val);
@@ -198,6 +234,9 @@ impl Session {
         }
         if syntax == Syntax::PowerShell && self.starts_shell(syntax) {
             let mut script = String::from(commands::POWERSHELL_ENV);
+            if self.profile == Profile::Wch {
+                script.push_str(commands::POWERSHELL_WCH_OUTPUT);
+            }
             if self.has_esp() {
                 script.push_str(commands::POWERSHELL_ESP);
             } else if self.profile == Profile::Wch && !self.make && !self.cmake {

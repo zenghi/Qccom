@@ -3721,3 +3721,7 @@ MounRiver 构建配置	MounRiver build configuration	MounRiver 建置設定					
 选择沁恒子工程	Select WCH subproject	選擇沁恆子工程							Selecionar subprojeto WCH
 沁恒子工程	WCH subproject	沁恆子工程							Subprojeto WCH
 当前构建目录：{}	Current build directory: {}	目前建置目錄：{}							Diretório de compilação atual: {}
+自动（优先 WCHISPStudio）	Auto (prefer WCHISPStudio)	自動（優先 WCHISPStudio）							Automático (priorizar WCHISPStudio)
+官方 ISP 程序	Official ISP executable	官方 ISP 程式							Executável ISP oficial
+未找到官方 ISP 程序。请安装 WCHISPStudio 或在 MCU 工具链中选择命令行程序。	Official ISP executable not found. Install WCHISPStudio or select the command-line executable in MCU Toolchain.	找不到官方 ISP 程式。請安裝 WCHISPStudio，或在 MCU 工具鏈中選擇命令列程式。							Executável ISP oficial não encontrado. Instale o WCHISPStudio ou selecione o executável nas ferramentas de MCU.
+烧录接口与 WCHISPStudio 配置不一致，请导入对应接口的 INI。	The flash interface differs from the WCHISPStudio configuration. Select the INI for the desired interface.	燒錄介面與 WCHISPStudio 設定不一致，請匯入對應介面的 INI。							A interface de gravação difere da configuração do WCHISPStudio. Selecione o INI da interface desejada.

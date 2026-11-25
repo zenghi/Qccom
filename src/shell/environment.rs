@@ -275,6 +275,7 @@ fn project_fields(ui: &mut egui::Ui, project: &mut mcu::Options, profile: mcu::P
     if profile == Wch {
         use mcu::WchProgrammer::*;
         let modes = [
+            (Auto, t("自动（优先 WCHISPStudio）")),
             (Link, "WCH-Link"),
             (VendorSerialIsp, t("官方 ISP · 调试串口")),
             (VendorUsbIsp, t("官方 ISP · USB")),
@@ -290,7 +291,19 @@ fn project_fields(ui: &mut egui::Ui, project: &mut mcu::Options, profile: mcu::P
                 }
             });
         });
-        if matches!(project.wch_programmer, VendorSerialIsp | VendorUsbIsp) {
+        if matches!(project.wch_programmer, Auto | VendorSerialIsp | VendorUsbIsp) {
+            ui.horizontal(|ui| {
+                ui.label(t("官方 ISP 程序"));
+                let mut path = project.wch_isp_tool.to_string_lossy().into_owned();
+                if ui.add(egui::TextEdit::singleline(&mut path).hint_text(t("留空自动搜索"))).changed() {
+                    project.wch_isp_tool = PathBuf::from(path);
+                }
+                if ui.small_button(t("浏览…")).clicked() {
+                    if let Some(path) = crate::diagnostics::file_dialog().pick_file() {
+                        project.wch_isp_tool = path;
+                    }
+                }
+            });
             ui.horizontal(|ui| {
                 ui.label(t("芯片配置"));
                 ui.add(egui::TextEdit::singleline(&mut project.wch_isp_config).hint_text("Config.ini"));

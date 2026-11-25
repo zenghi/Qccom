@@ -3,6 +3,7 @@ use std::fs;
 use std::io::Read;
 
 mod esp;
+mod isp;
 mod nested;
 pub(in crate::shell) use nested::Projects;
 #[cfg(windows)]
@@ -156,7 +157,9 @@ fn detect(workspace: PathBuf, root: PathBuf, options: Options, selected: Option<
                     s.issue = Some(tf("无法初始化 WCH 的 make 命令：{}", &[&e]));
                 }
             }
-            wch_isp_paths(&host, sdk.as_deref(), &s.root, &mut paths);
+            if let Some((kind, executable)) = isp::find(&host, &s, sdk.as_deref(), &paths) {
+                s.tools.insert(kind, executable);
+            }
             &[
                 ("cmake", &["cmake"]),
                 ("ninja", &["ninja"]),
@@ -168,7 +171,6 @@ fn detect(workspace: PathBuf, root: PathBuf, options: Options, selected: Option<
                 ("arm-none-eabi-gcc", &["arm-none-eabi-gcc"]),
                 ("wlink", &["wlink"]),
                 ("wchisp", &["wchisp"]),
-                ("WCHISPTool_CMD", &["WCHISPTool_CMD", "WCHISPTool_CMD_x64", "WCHISPTool_CMD_x86", "wchisptool_cmd"]),
                 ("openocd", &["openocd"]),
             ]
         }
@@ -374,39 +376,6 @@ fn wch_paths(host: &Host, sdk: Option<&Path>, paths: &mut Vec<PathBuf>) -> (Opti
         }
     }
     (location, ide)
-}
-
-fn wch_isp_paths(host: &Host, sdk: Option<&Path>, project: &Path, paths: &mut Vec<PathBuf>) {
-    // Official ZIP distributions use platform folders, while the Windows
-    // installer can put the command line tool alongside WCHISPStudio.
-    let mut roots: Vec<_> = sdk.into_iter().map(Path::to_owned).collect();
-    roots.extend(host.var("WCHISPTOOL_HOME"));
-    roots.extend(registered_dirs(&["wchisptool", "wchispstudio"]));
-    let mut parents = host.program_files.clone();
-    parents.extend(host.home.iter().cloned());
-    parents.extend(host.home.iter().map(|home| home.join("Downloads")));
-    parents.extend(host.var("LOCALAPPDATA").map(|path| path.join("Programs")));
-    parents.push(project.to_owned());
-    if !cfg!(windows) {
-        parents.push(PathBuf::from("/opt"));
-    }
-    for parent in parents {
-        for prefix in ["wchisptool", "wchispstudio"] {
-            roots.extend(child_dirs(&parent, prefix));
-            roots.extend(child_dirs(&parent.join("WCH"), prefix));
-        }
-    }
-    let platform = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "mac" } else { "linux" };
-    for root in roots {
-        let folders: Vec<_> = child_dirs(&root, platform);
-        for folder in std::iter::once(root).chain(folders) {
-            for directory in [folder.join("bin"), folder] {
-                paths.extend(child_dirs(&directory, if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" }));
-                paths.extend(child_dirs(&directory, "amd64"));
-                paths.push(directory);
-            }
-        }
-    }
 }
 
 const WCH_IDES: &[&str] = &["MounRiver Studio_Communityc", "MounRiver Studio_Community", "MounRiver Studioc", "MounRiver Studio", "MounRiverStudio"];

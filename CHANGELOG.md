@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.24
+
+- Stream MounRiver Make and its recursive build output through pipes in PowerShell, including terminal shortcuts and the Build and Clean buttons.
+- Prefer the official WCHISPStudio command-line programmer for WCH projects and use the selected Debug device for serial ISP.
+
 ## 1.9.23
 
 - Discover nested WCH projects from an enclosing workspace. Start the MCU terminal in the selected build root and remember a manual selection for workspaces with multiple targets.

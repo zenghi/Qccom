@@ -55,6 +55,47 @@ impl Project {
     }
 }
 
+pub(super) struct IspConfig {
+    pub model: String,
+    pub serial: Option<bool>,
+}
+
+impl IspConfig {
+    pub(super) fn read(path: &Path) -> Option<Self> {
+        use std::io::Read;
+        let mut bytes = Vec::new();
+        fs::File::open(path).ok()?.take(64 * 1024).read_to_end(&mut bytes).ok()?;
+        let text = if let Some(bytes) = bytes.strip_prefix(&[0xff, 0xfe]) {
+            String::from_utf16_lossy(&bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect::<Vec<_>>())
+        } else {
+            String::from_utf8_lossy(&bytes).into_owned()
+        };
+        let mut section = "";
+        let mut model = None;
+        let mut serial = None;
+        for line in text.trim_start_matches('\u{feff}').lines().map(str::trim) {
+            if line.starts_with('[') {
+                section = line;
+            } else if let Some((key, value)) = line.split_once('=') {
+                let value = value.trim().trim_matches('"');
+                if section.eq_ignore_ascii_case("[Public]") && key.trim().eq_ignore_ascii_case("MCUName") && !value.is_empty() {
+                    model = Some(value.to_owned());
+                }
+                // The CH57x–59x family uses this setting to select the hardware
+                // interface, even if a serial port is present on the command line.
+                if section.eq_ignore_ascii_case("[CH57x-59xUICfg]") && key.trim().eq_ignore_ascii_case("bDnInterType") {
+                    serial = match value {
+                        "0" => Some(false),
+                        "1" => Some(true),
+                        _ => None,
+                    };
+                }
+            }
+        }
+        Some(Self { model: model?, serial })
+    }
+}
+
 pub(super) fn has_makefile(root: &Path) -> bool {
     MAKEFILES.iter().any(|name| root.join(name).is_file())
 }

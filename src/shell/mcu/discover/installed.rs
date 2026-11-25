@@ -47,11 +47,13 @@ pub(super) fn directories(names: &[&str]) -> Vec<PathBuf> {
                 }
                 let install = value(key, &subkey, w!("InstallLocation")).map(|value| PathBuf::from(value.to_string_lossy().trim().trim_matches('"')));
                 let location = install.filter(|p| p.is_absolute() && p.is_dir()).or_else(|| {
-                    let icon = value(key, &subkey, w!("DisplayIcon"))?;
-                    let icon = icon.to_string_lossy();
-                    let end = icon.to_ascii_lowercase().find(".exe")? + 4;
-                    let path = PathBuf::from(icon[..end].trim().trim_start_matches('"'));
-                    path.is_absolute().then(|| path.parent().map(|p| p.to_owned())).flatten()
+                    [w!("DisplayIcon"), w!("UninstallString")].into_iter().find_map(|entry| {
+                        let command = value(key, &subkey, entry)?;
+                        let command = command.to_string_lossy();
+                        let end = command.to_ascii_lowercase().find(".exe")? + 4;
+                        let path = PathBuf::from(command[..end].trim().trim_start_matches('"'));
+                        path.parent().filter(|dir| dir.is_absolute() && dir.is_dir()).map(PathBuf::from)
+                    })
                 });
                 if let Some(path) = location.filter(|path| path.is_dir() && !out.contains(path)) {
                     out.push(path);
@@ -61,6 +63,32 @@ pub(super) fn directories(names: &[&str]) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+pub(super) fn app_path_dirs(executables: &[&str]) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+    for root in [HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE] {
+        for view in [KEY_WOW64_64KEY, KEY_WOW64_32KEY] {
+            for program in executables {
+                let subkey: Vec<_> = format!(r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\{program}.exe").encode_utf16().chain([0]).collect();
+                let mut key = null_mut();
+                let status = unsafe { RegOpenKeyExW(root, subkey.as_ptr(), 0, KEY_READ | view, &mut key) };
+                if status != ERROR_SUCCESS {
+                    continue;
+                }
+                let path = value(key, &[0], null());
+                unsafe { RegCloseKey(key) };
+                if let Some(path) = path {
+                    let path = path.to_string_lossy();
+                    let image = PathBuf::from(path.trim().trim_matches('"'));
+                    if let Some(parent) = image.parent().filter(|parent| parent.is_absolute() && parent.is_dir() && !dirs.iter().any(|dir| dir == *parent)) {
+                        dirs.push(parent.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    dirs
 }
 
 pub(super) fn fixed_drives() -> Vec<PathBuf> {

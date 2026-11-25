@@ -43,14 +43,21 @@ impl Syntax {
             .map(|step| {
                 let program = quote_path(&step.program)?;
                 let args = step.args.iter().map(|arg| self.quote(arg)).collect::<Result<Vec<_>, _>>()?.join(" ");
-                Ok(format!("{}{program} {args}", if self == Self::PowerShell { "& " } else { "" }).trim_end().to_owned())
+                let prefix = match self {
+                    Self::PowerShell if step.console != NativeConsole::Direct => "Invoke-QccomWchTool ",
+                    Self::PowerShell => "& ",
+                    Self::Cmd if step.console == NativeConsole::Gui => r#"start "" /b /wait "#,
+                    _ => "",
+                };
+                Ok(format!("{prefix}{program} {args}").trim_end().to_owned())
             })
             .collect::<Result<Vec<_>, String>>()?;
         Ok(match self {
             Self::PowerShell => {
                 let mut chain = String::new();
-                for cmd in commands.into_iter().rev() {
-                    chain = if chain.is_empty() { cmd } else { format!("{cmd}; if ($?) {{ {chain} }}") };
+                for (cmd, step) in commands.into_iter().zip(steps).rev() {
+                    let success = if step.console != NativeConsole::Direct { "$LASTEXITCODE -eq 0" } else { "$?" };
+                    chain = if chain.is_empty() { cmd } else { format!("{cmd}; if ({success}) {{ {chain} }}") };
                 }
                 format!("Push-Location -LiteralPath {cwd}; if ($?) {{ try {{ {chain} }} finally {{ Pop-Location }} }}")
             }
@@ -87,6 +94,17 @@ function global:make {
 }
 "#;
 
+// Legacy MounRiver Make can report a short write on the UTF-8 Windows console.
+// A native pipeline gives Make and its recursive children normal pipe handles.
+pub(super) const POWERSHELL_WCH_OUTPUT: &str = r#"
+function global:Invoke-QccomWchTool {
+    $program = $args[0];
+    $toolArgs = @($args | Select-Object -Skip 1);
+    $global:LASTEXITCODE = 1;
+    & $program @toolArgs 2>&1 | ForEach-Object { $_.ToString() };
+}
+"#;
+
 pub(super) const POWERSHELL_MAKE: &str = r#"
 function global:make {
     $projectArgs = @();
@@ -103,7 +121,7 @@ function global:make {
             if ($buildOnly) { $makeArgs += 'all'; }
         } elseif ($env:QCCOM_MRS_IDE -and !($args -cnotmatch '^(-j[0-9]*|--jobs(=[0-9]+)?|[0-9]+|all|clean)$')) {
             if ($args -ccontains 'clean') { return }
-            & $env:QCCOM_MRS_IDE -nosplash --launcher.suppressErrors -application org.eclipse.cdt.managedbuilder.core.headlessbuild -data $env:QCCOM_MRS_WORKSPACE -import $env:QCCOM_MCU_PROJECT -build $env:QCCOM_MRS_SELECTION | Out-Default;
+            Invoke-QccomWchTool $env:QCCOM_MRS_IDE -nosplash --launcher.suppressErrors -application org.eclipse.cdt.managedbuilder.core.headlessbuild -data $env:QCCOM_MRS_WORKSPACE -import $env:QCCOM_MCU_PROJECT -build $env:QCCOM_MRS_SELECTION;
             return;
         } elseif ($env:QCCOM_MCU_NO_MAKEFILE -and !($args -ccontains '--version')) {
             Write-Error $env:QCCOM_MCU_NO_MAKEFILE;
@@ -111,7 +129,11 @@ function global:make {
         }
     }
     if ($env:QCCOM_REAL_MAKE) {
-        & $env:QCCOM_REAL_MAKE @projectArgs @makeArgs;
+        if (Test-Path Function:Invoke-QccomWchTool) {
+            Invoke-QccomWchTool $env:QCCOM_REAL_MAKE @projectArgs @makeArgs;
+        } else {
+            & $env:QCCOM_REAL_MAKE @projectArgs @makeArgs;
+        }
     } else {
         Write-Error 'GNU Make was not found.';
     }
@@ -237,9 +259,17 @@ fn shortcut_words(cmd: &str) -> Option<Vec<&str>> {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+enum NativeConsole {
+    Direct,
+    Pipe,
+    Gui,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 struct Invocation {
     program: PathBuf,
     args: Vec<String>,
+    console: NativeConsole,
 }
 
 impl Session {
@@ -267,6 +297,11 @@ impl Session {
         Ok(Invocation {
             program: program.clone(),
             args: args.iter().map(|a| (*a).into()).collect(),
+            console: match (self.profile, tool) {
+                (Profile::Wch, "make" | "MounRiver Studio") => NativeConsole::Pipe,
+                (Profile::Wch, "WCHISPStudio") => NativeConsole::Gui,
+                _ => NativeConsole::Direct,
+            },
         })
     }
 
@@ -319,6 +354,7 @@ impl Session {
                     });
                 }
                 Invocation {
+                    console: NativeConsole::Direct,
                     program: esp.python.clone(),
                     args: args.into_iter().map(str::to_owned).collect(),
                 }
@@ -384,14 +420,16 @@ impl Session {
                 self.invoke("STM32_Programmer_CLI", &args)?
             }
             Profile::Wch if action == Flash && target.is_empty() => {
-                let extensions = if self.options.wch_programmer == WchProgrammer::Link { &["elf", "hex", "bin"][..] } else { &["hex", "bin"][..] };
+                let programmer = self.wch_programmer();
+                let extensions = if programmer == WchProgrammer::Link { &["elf", "hex", "bin"][..] } else { &["hex", "bin"][..] };
                 let artifact = if self.options.firmware.trim().is_empty() {
                     self.wch_firmware(extensions)?
                 } else {
                     self.firmware(extensions)?.to_owned()
                 };
                 let file = artifact.as_str();
-                match self.options.wch_programmer {
+                match programmer {
+                    WchProgrammer::Auto => unreachable!(),
                     WchProgrammer::Link => {
                         let mut args = vec!["flash"];
                         let address = self.options.address.trim();
@@ -518,27 +556,41 @@ impl Session {
     }
 
     fn wch_vendor_flash(&self, file: &str, port: &str, serial: bool) -> Result<Invocation, String> {
+        let tool = self.wch_official_tool().ok_or_else(|| t("未找到官方 ISP 程序。请安装 WCHISPStudio 或在 MCU 工具链中选择命令行程序。").to_owned())?;
+        let studio = tool == "WCHISPStudio";
+        let config_error = || t("请在 MCU 工具链选择 WCHISPStudio 导出的芯片配置 INI。").to_owned();
+        let config = self.wch_isp_config_path().ok_or_else(&config_error)?;
+        let settings = wch::IspConfig::read(&config).ok_or_else(config_error)?;
+        let path_str = |path: &Path| path.to_str().map(str::to_owned).ok_or_else(|| t("工程或工具路径不是 UTF-8").to_owned());
+        if studio {
+            if settings.serial.is_some_and(|chosen| chosen != serial) {
+                return Err(t("烧录接口与 WCHISPStudio 配置不一致，请导入对应接口的 INI。").into());
+            }
+            let config = path_str(&config)?;
+            let file = path_str(&self.root.join(file))?;
+            let mut args = vec!["-c", config.as_str(), "-o", "download", "-f", file.as_str()];
+            let port = port.to_ascii_uppercase();
+            if serial {
+                if !port.strip_prefix("COM").and_then(|n| n.parse::<u16>().ok()).is_some_and(|n| n != 0) {
+                    return Err(t("请先在「设备」中选择串口").into());
+                }
+                args.extend(["-p", port.as_str(), "-b", "115200"]);
+            }
+            return self.invoke(tool, &args);
+        }
+
         if port.is_empty() || port.starts_with('-') {
             return Err(t("请输入 WCH ISP 的 USB 设备标识").into());
         }
-        let configured = self.options.wch_isp_config.trim();
-        let config = if configured.is_empty() {
-            ["WCHISPTool.ini", "wchisp.ini", "Config.ini", "config.ini"]
-                .into_iter()
-                .find(|candidate| self.root.join(candidate).is_file())
-                .unwrap_or_default()
-        } else {
-            configured
-        };
-        if config.is_empty() || config.starts_with('-') || !self.root.join(config).is_file() {
-            return Err(t("请在 MCU 工具链选择 WCHISPStudio 导出的芯片配置 INI。").into());
-        }
+        // The standalone tool also accepts a config relative to the working directory.
+        let relative = config.strip_prefix(&self.root).ok().filter(|path| !path.to_string_lossy().starts_with('-'));
+        let config = path_str(relative.unwrap_or(&config))?;
         let mut args = vec!["-p", port];
         if serial {
             args.extend(["-b", "115200"]);
         }
-        args.extend(["-c", config, "-o", "program", "-f", file]);
-        self.invoke("WCHISPTool_CMD", &args)
+        args.extend(["-c", &config, "-o", "program", "-f", file]);
+        self.invoke(tool, &args)
     }
 
     fn wch_firmware(&self, extensions: &[&str]) -> Result<String, String> {
@@ -622,7 +674,7 @@ mod tests {
         let hex = root.join("obj").join("board.hex");
         fs::write(&image, "").unwrap();
         fs::write(&hex, "").unwrap();
-        let mut s = Session::discover(root.to_owned(), Options::default());
+        let mut s = Session::discover(root.to_owned(), Options { wch_programmer: WchProgrammer::Link, ..Options::default() });
         for tool in ["make", "wlink", "wchisp", "WCHISPTool_CMD"] {
             s.tools.insert(tool, root.join(tool));
         }
@@ -633,11 +685,61 @@ mod tests {
         assert!(s.plan(Action::Flash, "").is_err());
         assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["--serial", "--port", "COM31", "flash", hex.to_str().unwrap()]);
         s.options.wch_programmer = WchProgrammer::VendorSerialIsp;
-        fs::write(root.join("Config.ini"), "").unwrap();
+        fs::write(root.join("Config.ini"), "[Public]\nMCUName=CH582\n").unwrap();
         assert!(s.plan(Action::Flash, "").is_err());
         assert_eq!(s.plan(Action::Flash, "COM31").unwrap()[0].args, ["-p", "COM31", "-b", "115200", "-c", "Config.ini", "-o", "program", "-f", hex.to_str().unwrap()]);
         let shortcut = s.shortcut("wch-flash").unwrap();
         assert!(s.shortcut_command(Syntax::PowerShell, &shortcut, "COM31").unwrap().unwrap().cmd.contains("-p COM31"));
+    }
+
+    #[test]
+    fn wch_auto_prefers_studio_and_keeps_explicit_link() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        fs::write(root.join("board.wvproj"), "").unwrap();
+        let hex = root.join("翻盖柜 firmware.hex");
+        fs::write(&hex, "").unwrap();
+        let config = root.join("board.ini");
+        fs::write(&config, "[Public]\nMCUName=CH582\n[CH57x-59xUICfg]\nbDnInterType=1\n").unwrap();
+        let mut session = Session::discover(
+            root.to_owned(),
+            Options { wch_isp_config: "board.ini".into(), ..Default::default() },
+        );
+        let studio = root.join("WCHISPTool_CH57x-59x.exe");
+        session.tools.insert("WCHISPStudio", studio.clone());
+        session.tools.insert("wlink", root.join("wlink"));
+        let flash = session.plan(Action::Flash, "com31").unwrap().pop().unwrap();
+        let paths = ["-c", config.to_str().unwrap(), "-o", "download", "-f", flash.args[5].as_str()];
+        assert_eq!(flash.program, studio);
+        assert_eq!(Path::new(&flash.args[5]), hex);
+        let powershell = session.command(Syntax::PowerShell, Action::Flash, "COM31").unwrap();
+        assert!(powershell.contains("Invoke-QccomWchTool") && powershell.contains("-p COM31 -b 115200"));
+        let cmd = session.command(Syntax::Cmd, Action::Flash, "COM31").unwrap();
+        assert!(cmd.contains(r#"start "" /b /wait "#));
+        assert_eq!(&flash.args[..6], &paths);
+        assert_eq!(&flash.args[6..], ["-p", "COM31", "-b", "115200"]);
+        assert!(session.plan(Action::Flash, "").is_err());
+
+        session.options.wch_programmer = WchProgrammer::VendorUsbIsp;
+        assert!(session.plan(Action::Flash, "").is_err());
+        fs::write(&config, "[Public]\nMCUName=CH582\n[CH57x-59xUICfg]\nbDnInterType=0\n").unwrap();
+        assert_eq!(session.plan(Action::Flash, "").unwrap()[0].args, paths);
+        session.options.wch_programmer = WchProgrammer::Auto;
+        assert_eq!(session.plan(Action::Flash, "COM31").unwrap()[0].args, paths);
+        fs::write(config, "[Unrelated]\nMCUName=CH582\n").unwrap();
+        assert!(session.plan(Action::Flash, "").is_err());
+        session.options.wch_programmer = WchProgrammer::Link;
+        assert_eq!(session.plan(Action::Flash, "").unwrap()[0].program, root.join("wlink"));
+    }
+
+    #[test]
+    fn saved_legacy_wch_link_default_migrates_to_auto() {
+        let options: Options = serde_json::from_str(r#"{"wch_programmer":"Link"}"#).unwrap();
+        assert_eq!(options.wch_programmer, WchProgrammer::Auto);
+        let options: Options = serde_json::from_str(r#"{"wch_programmer":"WchLink"}"#).unwrap();
+        assert_eq!(options.wch_programmer, WchProgrammer::Link);
+        let options: Options = serde_json::from_str(r#"{"wch_programmer":"VendorUsbIsp"}"#).unwrap();
+        assert_eq!(options.wch_programmer, WchProgrammer::VendorUsbIsp);
     }
 
     #[test]
@@ -709,7 +811,14 @@ mod tests {
         assert_eq!(builder.get_env("QCCOM_MCU_MAKE_DIR"), Some(Path::new("obj").as_os_str()));
         let path = builder.get_env("PATH").unwrap();
         assert!(std::env::split_paths(path).any(|p| p == gcc_bin));
-        assert!(builder.get_argv().last().unwrap().to_string_lossy().contains("function global:make"));
+        let script = builder.get_argv().last().unwrap().to_string_lossy();
+        assert!(script.contains("function global:make"));
+        assert!(script.contains("function global:Invoke-QccomWchTool"));
+        let build = session.command(Syntax::PowerShell, Action::Build, "").unwrap();
+        let clean = session.command(Syntax::PowerShell, Action::Clean, "").unwrap();
+        assert!(build.contains("Invoke-QccomWchTool") && build.contains(" -C obj -j8 all"));
+        assert!(clean.contains("Invoke-QccomWchTool") && clean.contains(" -C obj clean"));
+        assert!(!session.command(Syntax::Posix, Action::Build, "").unwrap().contains("Invoke-QccomWchTool"));
     }
 
     #[test]
@@ -740,6 +849,7 @@ mod tests {
     fn shell_metacharacters_stay_in_arguments() {
         let root = Path::new("/tmp/lab & tools");
         let steps = [Invocation {
+            console: NativeConsole::Direct,
             program: root.join("python"),
             args: vec!["firmware's $build&clean".into()],
         }];

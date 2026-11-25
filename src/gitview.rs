@@ -1383,8 +1383,9 @@ impl GitView {
                         file_row(ui, code, &f.path, None, None, active)
                     } else {
                         ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
                             let w = ui.available_width();
-                            let r = ui.allocate_ui_with_layout(vec2(w - 30.0, 24.0), egui::Layout::top_down(egui::Align::Min), |ui| {
+                            let r = ui.allocate_ui_with_layout(vec2((w - 44.0).max(0.0), 24.0), egui::Layout::top_down(egui::Align::Min), |ui| {
                                 file_row(ui, code, &f.path, None, None, active)
                             }).inner;
                             let enabled = self.busy.is_none() && !self.ops.checking;

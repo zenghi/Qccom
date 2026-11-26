@@ -342,7 +342,6 @@ pub(super) struct Work {
     pub serial_device_rect: Option<Rect>,
     /// 设备栏仍显示选中的副页面，即使键盘焦点已进入设备栏
     pub serial_devices_side: bool,
-    pub restored_serial_choice: Option<usize>,
     /// 专注模式：暂停自动弹出
     pub focus: bool,
     pub typed_at: Option<Instant>,
@@ -391,7 +390,6 @@ impl Default for Work {
             serial_tab_rect: None,
             serial_device_rect: None,
             serial_devices_side: false,
-            restored_serial_choice: None,
             focus: false,
             typed_at: None,
             chip: None,
@@ -1068,7 +1066,7 @@ impl App {
 
     fn saved_serial_name(&self, slot: usize) -> Option<String> {
         let port = self.serial_port_for(slot);
-        valid_layout_port(port).then(|| port.to_owned())
+        (valid_layout_port(port) && self.serial_port_present(port)).then(|| port.to_owned())
     }
 
     fn save_work_pane(&self, pane: Pane) -> Option<SavedPane> {
@@ -1085,13 +1083,10 @@ impl App {
     }
 
     fn layout_serial_slot(&mut self, port: &str, visible_tab: bool) -> Option<usize> {
-        if !valid_layout_port(port) {
+        if !valid_layout_port(port) || !self.serial_port_present(port) {
             return None;
         }
-        let slot = self.serial_tabs.iter().copied().find(|&slot| {
-            let known = self.serial_port_for(slot);
-            known == port || (cfg!(windows) && known.eq_ignore_ascii_case(port))
-        });
+        let slot = self.serial_tabs.iter().copied().find(|&slot| sess::serial_name_eq(self.serial_port_for(slot), port));
         let slot = slot.unwrap_or_else(|| {
             let slot = self.new_serial_log_slot();
             self.with_session(slot, |app| app.s.port = port.to_owned());
@@ -1115,7 +1110,6 @@ impl App {
         }
         if !keep_requested_port {
             if let Some(slot) = layout.selected_serial.as_deref().and_then(|port| self.layout_serial_slot(port, false)) {
-                self.work.restored_serial_choice = Some(slot);
                 self.selected_serial = slot;
                 if self.page == Page::Debug {
                     self.use_session(slot);
@@ -1648,7 +1642,7 @@ mod tests {
     }
 
     #[test]
-    fn restart_restores_named_panes_geometry_and_disconnected_missing_ports() {
+    fn restart_preserves_other_panes_and_removes_missing_serial_ports() {
         let settings = Settings {
             telemetry: false,
             auto_update: false,
@@ -1694,8 +1688,10 @@ mod tests {
             name: "COM7".into(),
             desc: String::new(),
         }]);
-        assert_eq!(restored.serial_port_for(slot), "COM19");
-        assert_eq!(restored.serial_port_for(restored.selected_serial), "COM8");
+        assert!(!restored.serial_tabs.contains(&slot));
+        assert!(restored.serial_log_slots().is_empty());
+        assert_eq!(restored.serial_port_for(restored.selected_serial), "COM7");
+        assert_eq!(restored.work.tabs, [Pane::Git]);
 
         restored.close_side();
         eframe::App::save(&mut restored, &mut storage);
@@ -1704,7 +1700,7 @@ mod tests {
         let mut reopened = App::with_settings(&ctx, settings, vec![], vec![]);
         assert!(reopened.work.tabs.is_empty() && !reopened.work.detached);
         reopened.toggle_side();
-        assert_eq!(reopened.pane_label(reopened.side_pane().unwrap()), "COM19");
+        assert_eq!(reopened.side_pane(), Some(Pane::Git));
     }
 
     #[test]
@@ -1769,7 +1765,7 @@ mod tests {
     }
 
     #[test]
-    fn selected_unopened_port_survives_missing_scan_without_creating_a_log_tab() {
+    fn selected_unopened_port_is_replaced_after_the_first_scan() {
         let mut settings = Settings {
             port: "COM17".into(),
             telemetry: false,
@@ -1783,9 +1779,35 @@ mod tests {
             name: "COM5".into(),
             desc: String::new(),
         }]);
-        assert_eq!(app.s.port, "COM17");
+        assert_eq!(app.s.port, "COM5");
         assert!(app.serial_log_slots().is_empty() && app.conn.is_none());
-        assert!(app.serial_device_entries().iter().any(|port| port.name == "COM17"));
+        assert_eq!(app.serial_device_entries().into_iter().map(|port| port.name).collect::<Vec<_>>(), ["COM5"]);
+    }
+
+    #[test]
+    fn unplug_clears_only_the_missing_sessions_and_keeps_reconnect_pending() {
+        let settings = Settings { telemetry: false, auto_update: false, ..Default::default() };
+        let ctx = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let mut app = App::with_settings(&ctx, settings, vec![], vec![]);
+        app.choose_serial_port("COM2", false);
+        let keep = app.session_slot;
+        app.serial_opened = true;
+        app.buf.sys("still available");
+        app.choose_serial_port("COM3", false);
+        let missing = app.session_slot;
+        app.serial_opened = true;
+        app.buf.sys("old device data");
+        app.tv.feed(b"old terminal data");
+        app.reconnect = Some(("COM3".into(), Instant::now()));
+        app.on_ports(vec![PortEntry { name: "COM2".into(), desc: String::new() }]);
+        assert_eq!(app.session_slot, keep);
+        assert_eq!(app.serial_log_slots(), [keep]);
+        assert_eq!(app.buf.get(0).unwrap().plain, "still available");
+        app.with_session(missing, |app| {
+            assert!(app.reconnect.is_some());
+            assert_eq!(app.buf.total(), app.buf.dropped);
+            assert!(app.tv.screen_text().is_empty());
+        });
     }
 
     #[test]

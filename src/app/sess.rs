@@ -25,6 +25,10 @@ pub(super) fn slot_of(t: Transport) -> usize {
     }
 }
 
+pub(super) fn serial_name_eq(a: &str, b: &str) -> bool {
+    a == b || (cfg!(windows) && a.eq_ignore_ascii_case(b))
+}
+
 struct SerialState {
     port: String,
     opened: bool,
@@ -380,6 +384,50 @@ impl App {
             .collect()
     }
 
+    pub(super) fn serial_port_present(&self, name: &str) -> bool {
+        !self.ports_seen
+            || name.is_empty()
+            || self.ports.iter().any(|port| serial_name_eq(&port.name, name))
+            || self.local_vcom_owner(name).is_some()
+            || self.is_mapping_monitor(name)
+    }
+
+    pub(super) fn prune_missing_serial_ports(&mut self) {
+        let missing: Vec<_> = self.serial_tabs.iter().copied().filter(|&slot| !self.serial_port_present(self.serial_port_for(slot))).collect();
+        if missing.is_empty() {
+            return;
+        }
+        for &slot in &missing {
+            self.remove_serial_pane(slot);
+        }
+        if missing.contains(&self.selected_serial) {
+            self.selected_serial = self.serial_tabs.iter().copied()
+                .find(|slot| !missing.contains(slot) && !self.serial_tab_docked(*slot))
+                .unwrap_or_else(|| self.new_serial_log_slot());
+        }
+        if missing.contains(&self.session_slot) {
+            self.use_session(self.selected_serial);
+        }
+        for slot in missing {
+            let waiting = self.with_session(slot, |app| {
+                if app.conn.is_none() && app.reconnect.is_none() && app.autobaud.is_none() && app.lent.is_none() {
+                    return false;
+                }
+                // Keep an in-flight connection or reconnect in the background, with no
+                // device tab or old log visible while the port is absent.
+                app.clear();
+                app.tv.reset();
+                app.paused = false;
+                app.pause_buf.clear();
+                app.session_unread = false;
+                true
+            });
+            if !waiting {
+                self.close_serial_tab(slot);
+            }
+        }
+    }
+
     pub(super) fn serial_port_busy(&self, name: &str) -> bool {
         if self.local_vcom_owner(name).is_some() {
             return true;
@@ -454,7 +502,10 @@ impl App {
         #[cfg(not(windows))]
         let mapped: Option<&str> = None;
         let name = mapped.unwrap_or(name);
-        let slot = owner.or_else(|| self.serial_tabs.iter().copied().find(|&slot| self.serial_port_for(slot) == name));
+        if !self.serial_port_present(name) {
+            return;
+        }
+        let slot = owner.or_else(|| self.serial_tabs.iter().copied().find(|&slot| serial_name_eq(self.serial_port_for(slot), name)));
         let connect = connect && owner.is_none() && mapped.is_none();
         let name = name.to_owned();
         let slot = slot.unwrap_or_else(|| {
@@ -541,6 +592,9 @@ impl App {
             .iter()
             .copied()
             .filter(|&k| {
+                if !self.serial_port_present(self.serial_port_for(k)) {
+                    return false;
+                }
                 if k == self.session_slot {
                     self.serial_opened
                 } else {
@@ -791,6 +845,9 @@ impl App {
         let cur = self.session_slot;
         let mut rows: Vec<(chrono::DateTime<chrono::Local>, usize, Dir, Level, String)> = vec![];
         for k in 0..self.sessions.len() {
+            if (k == 0 || k >= SLOTS) && !self.serial_port_present(self.serial_port_for(k)) {
+                continue;
+            }
             let buf = if k == cur {
                 &self.buf
             } else if let Some(s) = &self.sessions[k] {
@@ -874,6 +931,9 @@ impl App {
         let cur = self.session_slot;
         let mut v = vec![];
         for k in 0..self.sessions.len() {
+            if (k == 0 || k >= SLOTS) && !self.serial_port_present(self.serial_port_for(k)) {
+                continue;
+            }
             let (t, name, up, online, unread) = if k == cur {
                 (
                     self.s.transport,

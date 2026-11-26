@@ -554,6 +554,7 @@ impl App {
 
     fn with_settings(cc: &eframe::CreationContext<'_>, mut s: Settings, args: Vec<String>, startup: Vec<crate::shellint::Req>) -> Self {
         update::cleanup();
+        serialx::recover_missing_profile(&mut s);
         let just_updated = args.iter().any(|a| a == "--updated");
         // --open 文件 / --replay 文件：启动后打开或回放日志
         let mut open_log = None;
@@ -1169,6 +1170,7 @@ impl App {
     fn handle_events(&mut self) {
         self.configure_recording();
         let started = Instant::now();
+        let accept_serial_data = self.s.transport != Transport::Serial || self.serial_port_present(&self.s.port);
         for _ in 0..128 {
             if started.elapsed() >= Duration::from_millis(4) {
                 break;
@@ -1215,10 +1217,12 @@ impl App {
                     }
                 }
                 Evt::Opened(..) => {}
-                Evt::Data(d) => self.on_rx(d),
-                Evt::Sent(gen, d) if gen == self.conn_gen => self.record_tx(d),
+                Evt::Data(d) if accept_serial_data => self.on_rx(d),
+                Evt::Data(..) => {}
+                Evt::Sent(gen, d) if gen == self.conn_gen && accept_serial_data => self.record_tx(d),
                 Evt::Sent(..) => {}
-                Evt::DataB(d) => self.on_sniff_data(d),
+                Evt::DataB(d) if accept_serial_data => self.on_sniff_data(d),
+                Evt::DataB(..) => {}
                 Evt::Signals(gen, sig) => {
                     if gen == self.conn_gen {
                         self.signals = Some(sig);
@@ -1296,48 +1300,53 @@ impl App {
 
     fn on_ports(&mut self, mut list: Vec<PortEntry>) {
         if let Some(p) = &self.extra_port {
-            if !list.iter().any(|e| &e.name == p) {
+            if !list.iter().any(|e| sess::serial_name_eq(&e.name, p)) {
                 list.push(PortEntry {
                     name: p.clone(),
                     desc: t("命令行指定").into(),
                 });
             }
         }
-        let new: Vec<String> = list.iter().filter(|p| !self.ports.iter().any(|o| o.name == p.name)).map(|p| p.name.clone()).collect();
+        let new: Vec<_> = list.iter().filter(|p| !self.ports.iter().any(|o| sess::serial_name_eq(&o.name, &p.name))).map(|p| p.name.clone()).collect();
         let first_scan = !self.ports_seen;
-        let empty_log = self.buf.total() == 0;
         self.ports_seen = true;
         if !first_scan {
             let old = std::mem::take(&mut self.ports);
             self.note_plugs(&old, &list);
         }
         self.ports = list;
+        self.prune_missing_serial_ports();
+        self.with_slot(0, |app| app.select_after_port_scan(first_scan, &new));
+    }
+
+    fn select_after_port_scan(&mut self, first_scan: bool, new: &[String]) {
+        let empty_log = self.buf.total() == self.buf.dropped;
         if !first_scan {
-            for n in &new {
+            for n in new {
                 self.buf.sys(tf("检测到串口 {}", &[&n]));
             }
         }
-        if self.conn.is_none() && self.autobaud.is_none() && self.reconnect.is_none() {
-            if !first_scan && self.serial_tabs.len() == 1 && self.s.follow_new_port && !new.is_empty() && empty_log {
+        if self.conn.is_some() || self.autobaud.is_some() || self.reconnect.is_some() {
+            return;
+        }
+        let free = |name: &str| {
+            !self.serial_port_busy(name)
+                && !self.serial_tabs.iter().any(|&slot| slot != self.session_slot && sess::serial_name_eq(self.serial_port_for(slot), name))
+        };
+        if !first_scan && self.serial_tabs.len() == 1 && self.s.follow_new_port && empty_log {
+            if let Some(name) = new.iter().find(|name| free(name)) {
                 if self.serial_opened {
-                    self.choose_serial_port(&new[0], false);
+                    self.choose_serial_port(name, false);
                 } else {
-                    self.s.port = new[0].clone();
+                    self.s.port = name.clone();
                 }
-                self.toast(tf("新设备 {}", &[&new[0]]), ACCENT());
-            } else if !self.serial_opened
-                && (self.s.port.is_empty()
-                    || (self.work.restored_serial_choice != Some(self.session_slot) && self.serial_tabs.len() == 1 && empty_log && !self.ports.iter().any(|p| p.name == self.s.port)))
-            {
-                if let Some(p) = self.ports.iter().find(|p| {
-                    !self.serial_port_busy(&p.name)
-                        && !self.serial_tabs.iter().any(|&slot| {
-                            let port = self.serial_port_for(slot);
-                            slot != self.session_slot && (port == p.name || (cfg!(windows) && port.eq_ignore_ascii_case(&p.name)))
-                        })
-                }) {
-                    self.s.port = p.name.clone();
-                }
+                self.toast(tf("新设备 {}", &[&name]), ACCENT());
+                return;
+            }
+        }
+        if self.s.port.is_empty() {
+            if let Some(port) = self.ports.iter().find(|p| free(&p.name)) {
+                self.s.port = port.name.clone();
             }
         }
     }
@@ -1366,7 +1375,7 @@ impl App {
             }
         }
         if let Some((name, since)) = self.reconnect.as_ref().filter(|_| self.s.transport == Transport::Serial) {
-            if self.conn.is_none() && since.elapsed() > Duration::from_millis(600) && self.ports.iter().any(|p| &p.name == name) {
+            if self.conn.is_none() && since.elapsed() > Duration::from_millis(600) && self.ports.iter().any(|p| sess::serial_name_eq(&p.name, name)) {
                 self.s.port = name.clone();
                 let n = name.clone();
                 self.reconnect = None;
@@ -2102,20 +2111,6 @@ impl App {
                     desc: String::new(),
                 });
             }
-        }
-        for &slot in &self.serial_tabs {
-            let name = self.serial_port_for(slot);
-            if name.trim().is_empty() || ports.iter().any(|port| port.name == name || (cfg!(windows) && port.name.eq_ignore_ascii_case(name))) {
-                continue;
-            }
-            #[cfg(windows)]
-            if self.mappings.hidden_driver_end(name, &self.s.mapping) {
-                continue;
-            }
-            ports.push(PortEntry {
-                name: name.to_owned(),
-                desc: String::new(),
-            });
         }
         ports
     }
@@ -3848,6 +3843,23 @@ impl App {
         // resize the viewport in response, or the next frame may measure a different set of rows.
         spacing.scroll.floating = true;
         spacing.scroll.floating_allocated_width = 0.0;
+        let serial_scroll_width = if self.s.transport == Transport::Serial {
+            const WIDTH: f32 = 10.0;
+            let scroll = &mut spacing.scroll;
+            scroll.floating_width = WIDTH;
+            scroll.bar_width = WIDTH;
+            scroll.handle_min_length = 30.0;
+            scroll.foreground_color = true;
+            scroll.dormant_handle_opacity = 0.72;
+            scroll.active_handle_opacity = 0.86;
+            scroll.interact_handle_opacity = 1.0;
+            scroll.dormant_background_opacity = 0.55;
+            scroll.active_background_opacity = 0.72;
+            scroll.interact_background_opacity = 0.86;
+            WIDTH + scroll.bar_inner_margin
+        } else {
+            0.0
+        };
         let digits = (self.buf.total().max(1) as f64).log10().floor() as usize + 1;
         let char_w = ui.fonts(|f| f.glyph_width(&font, '0'));
         let gutter = if self.s.show_ln { (digits.max(4) as f32) * char_w + 22.0 } else { 10.0 };
@@ -4280,7 +4292,9 @@ impl App {
             self.bottom_total = Some(self.buf.total());
         }
         if n as f32 * row_h > out.inner_rect.height() {
-            self.overview(ui, out.inner_rect, n, open);
+            let mut rect = out.inner_rect;
+            rect.max.x -= serial_scroll_width;
+            self.overview(ui, rect, n, open);
         }
         if let Some(a) = self.auto_anchor {
             let p = ui.painter();
@@ -5728,7 +5742,7 @@ impl eframe::App for App {
         }
         let port_updates = self.port_updates.try_iter().last();
         if let Some(ports) = port_updates {
-            self.with_slot(0, |app| app.on_ports(ports));
+            self.on_ports(ports);
         }
         self.tick_background();
         self.handle_events();

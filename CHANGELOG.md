@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.31
+
+- Remove log tabs and buffered output for missing serial devices after scanning ports.
+- Restore the default serial settings when the active profile is deleted.
+- Make the serial log scrollbar wider and easier to see.
+
 ## 1.9.30
 
 - Restore in-app Windows updates with download verification and executable replacement on restart.

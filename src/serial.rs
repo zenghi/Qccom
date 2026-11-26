@@ -123,13 +123,15 @@ pub fn spawn_port_scanner(tx: Sender<Vec<PortEntry>>, ctx: egui::Context) {
         .spawn(move || {
             let mut last: Option<Vec<PortEntry>> = None;
             loop {
-                let list = scan_ports();
-                if last.as_ref() != Some(&list) {
-                    if tx.send(list.clone()).is_err() {
-                        return;
+                // An enumeration error is not a report that every device disappeared.
+                if let Ok(list) = try_scan_ports() {
+                    if last.as_ref() != Some(&list) {
+                        if tx.send(list.clone()).is_err() {
+                            return;
+                        }
+                        ctx.request_repaint();
+                        last = Some(list);
                     }
-                    ctx.request_repaint();
-                    last = Some(list);
                 }
                 thread::sleep(Duration::from_millis(1000));
             }
@@ -138,8 +140,11 @@ pub fn spawn_port_scanner(tx: Sender<Vec<PortEntry>>, ctx: egui::Context) {
 }
 
 pub(crate) fn scan_ports() -> Vec<PortEntry> {
-    let mut out: Vec<PortEntry> = serialport::available_ports()
-        .unwrap_or_default()
+    try_scan_ports().unwrap_or_default()
+}
+
+fn try_scan_ports() -> serialport::Result<Vec<PortEntry>> {
+    let mut out: Vec<PortEntry> = serialport::available_ports()?
         .into_iter()
         .filter(|p| {
             // Linux 下 /dev/ttyS* 往往有几十个空壳端口，只保留真实设备
@@ -163,7 +168,7 @@ pub(crate) fn scan_ports() -> Vec<PortEntry> {
     out.dedup_by(|a, b| a.name == b.name);
     // 电路仿真里的串口排在最后
     out.extend(crate::circuit::simport::list().into_iter().map(|(name, desc)| PortEntry { name, desc }));
-    out
+    Ok(out)
 }
 
 fn natural_key(s: &str) -> (String, u64) {

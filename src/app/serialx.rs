@@ -1,6 +1,8 @@
 //! 串口增强：信号线（DTR/RTS 开关、CTS/DSR/RI/CD 指示、复位脉冲、Break）、端口别名、
 //! 双口监听（B 口）、串口转 TCP、配置方案。
 
+use std::path::Path;
+
 use super::*;
 
 /// 让给终端命令的串口
@@ -72,8 +74,87 @@ pub struct Profile {
     pub keyword_colors: BTreeMap<String, logx::ManualColor>,
 }
 
+impl Profile {
+    fn from_settings(s: &Settings) -> Profile {
+        Profile {
+            transport: Some(s.transport),
+            port: s.port.clone(),
+            cfg: Some(s.cfg),
+            net: Some(s.net.clone()),
+            encoding: Some(s.encoding),
+            view: Some(s.view),
+            log_preset: Some(s.log_preset),
+            line_ending: Some(s.line_ending),
+            hex_send: s.hex_send,
+            dtr: s.dtr,
+            rts: s.rts,
+            groups: s.groups.clone(),
+            rules: s.rules.clone(),
+            frame: Some(s.frame.clone()),
+            triggers: s.triggers.clone(),
+            scripts: s.scripts.clone(),
+            keywords: s.keywords.clone(),
+            keyword_colors: s.keyword_colors.clone(),
+        }
+    }
+
+    fn apply_settings(self, s: &mut Settings, name: &str) {
+        let pr = self;
+        if let Some(v) = pr.cfg {
+            s.cfg = v;
+        }
+        if let Some(v) = pr.net {
+            s.net = v;
+        }
+        if let Some(v) = pr.encoding {
+            s.encoding = v;
+        }
+        if let Some(v) = pr.view {
+            s.view = v;
+        }
+        if let Some(v) = pr.log_preset {
+            s.log_preset = v;
+        }
+        if let Some(v) = pr.line_ending {
+            s.line_ending = v;
+        }
+        s.hex_send = pr.hex_send;
+        s.dtr = pr.dtr;
+        s.rts = pr.rts;
+        if !pr.groups.is_empty() {
+            s.groups = pr.groups;
+            s.cur_group = 0;
+        }
+        s.rules = pr.rules;
+        if let Some(v) = pr.frame {
+            s.frame = v;
+        }
+        s.triggers = pr.triggers;
+        if name.is_empty() || !pr.scripts.is_empty() {
+            s.scripts = pr.scripts;
+        }
+        s.keywords = pr.keywords;
+        s.keyword_colors = pr.keyword_colors;
+        s.profile = name.to_string();
+    }
+
+    fn serial_defaults() -> Self {
+        Self { net: None, ..Self::from_settings(&Settings::default()) }
+    }
+}
+
 fn profile_dir() -> PathBuf {
     crate::data_dir().join("profiles")
+}
+
+pub(super) fn recover_missing_profile(settings: &mut Settings) {
+    if settings.profile.is_empty() {
+        return;
+    }
+    let path = profile_dir().join(format!("{}.json", settings.profile));
+    if std::fs::metadata(path).is_err_and(|err| err.kind() == std::io::ErrorKind::NotFound) {
+        Profile::serial_defaults().apply_settings(settings, "");
+    }
 }
 
 pub(super) fn list_profiles() -> Vec<String> {
@@ -661,37 +742,13 @@ impl App {
 
     // ------------------------------------------------------------ 配置方案
 
-    fn current_profile(&self) -> Profile {
-        let s = &self.s;
-        Profile {
-            transport: Some(s.transport),
-            port: s.port.clone(),
-            cfg: Some(s.cfg),
-            net: Some(s.net.clone()),
-            encoding: Some(s.encoding),
-            view: Some(s.view),
-            log_preset: Some(s.log_preset),
-            line_ending: Some(s.line_ending),
-            hex_send: s.hex_send,
-            dtr: s.dtr,
-            rts: s.rts,
-            groups: s.groups.clone(),
-            rules: s.rules.clone(),
-            frame: Some(s.frame.clone()),
-            triggers: s.triggers.clone(),
-            scripts: s.scripts.clone(),
-            keywords: s.keywords.clone(),
-            keyword_colors: s.keyword_colors.clone(),
-        }
-    }
-
     fn save_profile(&mut self, name: &str) -> Result<(), String> {
         let name = safe_name(name);
         if name.is_empty() {
             return Err(t("请输入方案名称").into());
         }
         let p = profile_dir().join(format!("{name}.json"));
-        let bytes = serde_json::to_vec_pretty(&self.current_profile()).map_err(|e| e.to_string())?;
+        let bytes = serde_json::to_vec_pretty(&Profile::from_settings(&self.s)).map_err(|e| e.to_string())?;
         crate::history::save_file(&p, &bytes)?;
         self.toast(tf("已保存配置方案「{}」", &[&name]), OK());
         self.s.profile = name;
@@ -728,50 +785,26 @@ impl App {
         if self.conn.is_some() || self.reconnect.is_some() {
             self.disconnect();
         }
-        let s = &mut self.s;
-        if let Some(v) = pr.cfg {
-            s.cfg = v;
-        }
-        if let Some(v) = pr.net {
-            s.net = v;
-        }
-        if let Some(v) = pr.encoding {
-            s.encoding = v;
-        }
-        if let Some(v) = pr.view {
-            s.view = v;
-        }
-        if let Some(v) = pr.log_preset {
-            s.log_preset = v;
-        }
-        if let Some(v) = pr.line_ending {
-            s.line_ending = v;
-        }
-        s.hex_send = pr.hex_send;
-        s.dtr = pr.dtr;
-        s.rts = pr.rts;
-        if !pr.groups.is_empty() {
-            s.groups = pr.groups;
-            s.cur_group = 0;
-        }
-        s.rules = pr.rules;
-        if let Some(v) = pr.frame {
-            s.frame = v;
-        }
-        s.triggers = pr.triggers;
-        if !pr.scripts.is_empty() {
-            s.scripts = pr.scripts;
-        }
-        s.keywords = pr.keywords;
-        s.keyword_colors = pr.keyword_colors;
-        s.profile = name.to_string();
+        pr.apply_settings(&mut self.s, name);
         self.baud_text = self.s.cfg.baud.to_string();
         self.parse_keywords();
         self.compile_rules();
         self.compile_triggers();
         self.apply_frame();
         self.buf.rerender(self.s.encoding);
-        self.toast(tf("已切换到配置方案「{}」", &[&name]), OK());
+        let label = if name.is_empty() { t("默认") } else { name };
+        self.toast(tf("已切换到配置方案「{}」", &[&label]), OK());
+    }
+
+    fn delete_active_profile(&mut self, dir: &Path) -> std::io::Result<()> {
+        let path = dir.join(format!("{}.json", self.s.profile));
+        match std::fs::remove_file(path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => return Err(err),
+        }
+        self.apply_profile("", Profile::serial_defaults());
+        Ok(())
     }
 
     /// 品牌栏右边的配置方案按钮
@@ -791,6 +824,12 @@ impl App {
         }
         egui::popup::popup_below_widget(ui, id, &r, egui::PopupCloseBehavior::CloseOnClickOutside, |ui| {
             ui.set_min_width(220.0);
+            if menu_item(ui, t("默认"), if self.s.profile.is_empty() { "✓" } else { "" }) {
+                if !self.s.profile.is_empty() {
+                    self.apply_profile("", Profile::serial_defaults());
+                }
+                ui.memory_mut(|m| m.close_popup());
+            }
             let list = list_profiles();
             if list.is_empty() {
                 ui.label(RichText::new(t("还没有保存的配置方案")).small().color(TEXT3()));
@@ -818,8 +857,9 @@ impl App {
                 ui.memory_mut(|m| m.close_popup());
             }
             if !self.s.profile.is_empty() && menu_item(ui, &tf("删除「{}」", &[&self.s.profile]), "") {
-                let _ = std::fs::remove_file(profile_dir().join(format!("{}.json", self.s.profile)));
-                self.s.profile.clear();
+                if let Err(err) = self.delete_active_profile(&profile_dir()) {
+                    self.toast(err.to_string(), ERR());
+                }
                 ui.memory_mut(|m| m.close_popup());
             }
         });
@@ -866,6 +906,44 @@ impl App {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod profile_tests {
+    use super::*;
+
+    #[test]
+    fn deleting_active_profile_restores_defaults_without_replacing_the_device() {
+        let dir = tempfile::tempdir().unwrap();
+        let cc = eframe::CreationContext::_new_kittest(egui::Context::default());
+        let settings = Settings { telemetry: false, auto_update: false, ..Default::default() };
+        let mut app = App::with_settings(&cc, settings, vec![], vec![]);
+        app.s.profile = "Custom".into();
+        app.s.port = "COM19".into();
+        app.s.cfg.baud = 9600;
+        app.s.hex_send = true;
+        app.s.keywords = "custom keyword".into();
+        app.s.groups[0].name = "custom commands".into();
+
+        let path = dir.path().join("Custom.json");
+        std::fs::create_dir(&path).unwrap();
+        assert!(app.delete_active_profile(dir.path()).is_err());
+        assert_eq!(app.s.profile, "Custom");
+        assert_eq!(app.s.cfg.baud, 9600);
+
+        std::fs::remove_dir(&path).unwrap();
+        std::fs::write(&path, b"{}").unwrap();
+        app.delete_active_profile(dir.path()).unwrap();
+        let defaults = Settings::default();
+        assert!(!path.exists());
+        assert!(app.s.profile.is_empty());
+        assert_eq!(app.s.port, "COM19");
+        assert_eq!(app.s.cfg.baud, defaults.cfg.baud);
+        assert_eq!(app.baud_text, defaults.cfg.baud.to_string());
+        assert_eq!(app.s.hex_send, defaults.hex_send);
+        assert_eq!(app.s.keywords, defaults.keywords);
+        assert_eq!(app.s.groups[0].name, defaults.groups[0].name);
     }
 }
 

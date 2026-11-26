@@ -1,4 +1,4 @@
-//! 自动更新：读服务器上的版本文件，有新版就提示，下载、校验后替换自己并重启。
+//! 检查版本更新。Windows 在浏览器中下载新版，Linux 支持应用内更新。
 //!
 //! 版本文件格式（UTF-8 JSON）：
 //! ```json
@@ -18,8 +18,11 @@
 //! Linux 版只认 url_linux / sha256_linux，没填就只提示有新版、不下载（避免下到 Windows 的 exe）。
 
 use crate::i18n::{t, tf};
+#[cfg(not(windows))]
 use std::fs::{self, File};
+#[cfg(not(windows))]
 use std::io::{Read, Write};
+#[cfg(not(windows))]
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::Sender;
 use std::thread;
@@ -27,6 +30,7 @@ use std::time::Duration;
 
 use eframe::egui;
 use serde::Deserialize;
+#[cfg(not(windows))]
 use sha2::{Digest, Sha256};
 
 pub const VERSION_URL: &str = "https://www.zenghi.com/1.json";
@@ -54,9 +58,12 @@ pub struct Release {
 pub enum UpdEvt {
     /// 检查结果：Some = 有新版
     Checked(Result<Option<Release>, String>),
+    #[cfg(not(windows))]
     Progress(u64, u64),
     /// 下载并校验完成，准备好的新文件路径
+    #[cfg(not(windows))]
     Ready(PathBuf),
+    #[cfg(not(windows))]
     Failed(String),
 }
 
@@ -144,7 +151,17 @@ pub fn check(tx: Sender<UpdEvt>, ctx: egui::Context) {
         .ok();
 }
 
+#[cfg(any(windows, test))]
+pub(crate) fn windows_download_url(url: &str) -> String {
+    ureq::get(url.trim())
+        .request_url()
+        .ok()
+        .filter(|parsed| parsed.scheme() == "https" && parsed.as_url().username().is_empty() && parsed.as_url().password().is_none())
+        .map_or_else(|| "https://github.com/zenghi/Qccom/releases".into(), |parsed| parsed.as_url().to_string())
+}
+
 /// 新文件先下载到 exe 旁边（同一个分区，替换时只需改名）；没有写权限就放到临时目录
+#[cfg(not(windows))]
 fn staging_path() -> PathBuf {
     let exe = std::env::current_exe().unwrap_or_default();
     let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
@@ -157,6 +174,7 @@ fn staging_path() -> PathBuf {
     }
 }
 
+#[cfg(not(windows))]
 pub fn download(r: Release, tx: Sender<UpdEvt>, ctx: egui::Context) {
     thread::Builder::new()
         .name("update-dl".into())
@@ -194,8 +212,7 @@ pub fn download(r: Release, tx: Sender<UpdEvt>, ctx: egui::Context) {
                 if total > 0 && got != total {
                     return fail(tf("文件不完整：{} / {} 字节", &[&got, &total]));
                 }
-                let magic: &[u8] = if cfg!(windows) { b"MZ" } else { b"\x7fE" };
-                if !head.starts_with(magic) {
+                if !head.starts_with(b"\x7fE") {
                     return fail(t("下载到的不是可执行程序（服务器可能返回了网页）").into());
                 }
                 let want = r.sha256.trim().to_ascii_lowercase();
@@ -218,6 +235,7 @@ pub fn download(r: Release, tx: Sender<UpdEvt>, ctx: egui::Context) {
 
 /// 用新文件替换正在运行的 exe 并启动新版本。成功后调用方应立即退出。
 /// Windows 允许给运行中的 exe 改名，所以：当前 → .old，新文件 → 当前，下次启动时删掉 .old。
+#[cfg(not(windows))]
 pub fn install(new: &Path) -> Result<(), String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let old = exe.with_extension("old");
@@ -238,6 +256,7 @@ pub fn install(new: &Path) -> Result<(), String> {
 }
 
 /// 启动时清理上次更新留下的旧文件
+#[cfg(not(windows))]
 pub fn cleanup() {
     if let Ok(exe) = std::env::current_exe() {
         let _ = fs::remove_file(exe.with_extension("old"));
@@ -256,6 +275,15 @@ mod tests {
         assert!(!newer("0.4.0", "0.4.0"));
         assert!(!newer("0.4", "0.4.0"));
         assert!(!newer("0.3.9", "0.4.0"));
+    }
+
+    #[test]
+    fn external_windows_update_requires_https_without_embedded_credentials() {
+        let expected = "https://www.zenghi.com/1.exe";
+        assert_eq!(windows_download_url(expected), expected);
+        for url in ["file:///C:/setup.exe", "http://example.com/qccom.exe", "https://user@example.com/qccom.exe", "https://", ""] {
+            assert_eq!(windows_download_url(url), "https://github.com/zenghi/Qccom/releases");
+        }
     }
 
     #[test]

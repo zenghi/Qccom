@@ -81,9 +81,9 @@ COM 分享连通后，两端可从映射卡片的「查看日志」打开对应�
 
 ### UART 烧录
 
-使用端首次需要 Windows 可加载的 com0com 系统驱动。已有虚拟口对可直接使用。「准备虚拟串口」会检查现有端口和驱动，必要时下载校验过的驱动并请求 Windows 管理员确认。设备端直接打开实体口。实体口与虚拟口在同一映射行并排显示，应用端口可以由外部烧录软件或 QCCOM 的普通串口功能独占打开。
+使用端需要 Windows 可加载的 com0com 驱动。通过浏览器从 [com0com 官方发布页](https://sourceforge.net/projects/com0com/files/com0com/) 下载，与对应版本的设置工具一起安装并创建一对虚拟 COM 口。返回「关联网络分享」点击「重新检测虚拟串口」。设备端直接打开实体口。映射行显示实体口和虚拟口，应用端口可由外部烧录软件或 QCCOM 的普通串口功能打开。
 
-如果设备管理器显示代码 52，Windows 拒绝加载当前 com0com 驱动，虚拟 COM 口无法生成。QCCOM 会在「准备虚拟串口」显示这个原因。内置下载指向带旧式交叉签名的 com0com 3.0.0.0 原版安装包。需要在当前 Windows 上成功加载的、支持 com0com 控制线接口的驱动，才能使用虚拟 COM 烧录。[Microsoft 代码 52 说明](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-unsigned-driver)
+如果设备管理器显示代码 52，请选用与当前 Windows 兼容的已签名驱动。QCCOM 重新检测时会显示驱动未能加载的原因。 [Microsoft 代码 52 说明](https://learn.microsoft.com/en-us/windows-hardware/drivers/install/cm-prob-unsigned-driver)
 
 新映射路径由 Rust 转发串口字节、波特率、数据位、校验、停止位、DTR、RTS 和 Break。设备可用的波特率和线控由 USB 转串口驱动决定。跨网复位脉宽还受电脑调度和网络抖动影响。首次建议执行芯片识别，再烧录带读回校验的镜像。掉线时检查设备并从头开始烧录。支持串口 bootloader，USB DFU、SWD、JTAG 需要各自的接口。
 

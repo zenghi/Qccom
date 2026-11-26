@@ -315,10 +315,24 @@ enum Upd {
     Idle,
     Checking { manual: bool },
     Available(Release),
+    #[cfg(not(windows))]
     Downloading(Release, u64, u64),
+    #[cfg(not(windows))]
     Ready(Release, PathBuf),
+    #[cfg(not(windows))]
     Failed(Release, String),
 }
+
+impl Upd {
+    fn downloading(&self) -> bool {
+        match self {
+            #[cfg(not(windows))]
+            Self::Downloading(..) => true,
+            _ => false,
+        }
+    }
+}
+
 const SETTINGS_REV: u32 = 2;
 
 mod apiview;
@@ -549,6 +563,7 @@ impl App {
     }
 
     fn with_settings(cc: &eframe::CreationContext<'_>, mut s: Settings, args: Vec<String>, startup: Vec<crate::shellint::Req>) -> Self {
+        #[cfg(not(windows))]
         update::cleanup();
         let just_updated = args.iter().any(|a| a == "--updated");
         // --open 文件 / --replay 文件：启动后打开或回放日志
@@ -2263,10 +2278,9 @@ impl App {
                 });
         }
         let _ = open_network_shares;
-        if self.conn.is_some() || self.vcom.is_some() || self.bridge.is_some() || self.serial_ui.vc_installing.is_some() {
+        if self.conn.is_some() || self.vcom.is_some() || self.bridge.is_some() {
             egui::CollapsingHeader::new(t("本机和局域网"))
                 .id_salt("serial_local_sharing")
-                .open(self.serial_ui.vc_installing.is_some().then_some(true))
                 .show(ui, |ui| self.bridge_ui(ui));
         }
     }
@@ -5161,8 +5175,11 @@ impl App {
                         Upd::Idle => None,
                         Upd::Checking { .. } => Some((t("正在检查更新…").to_string(), TEXT3())),
                         Upd::Available(r) => Some((tf("发现新版本 v{}", &[&r.version]), ACCENT())),
+                        #[cfg(not(windows))]
                         Upd::Downloading(..) => Some((t("正在下载更新…").to_string(), ACCENT())),
+                        #[cfg(not(windows))]
                         Upd::Ready(..) => Some((t("更新已下载，点击安装").to_string(), OK())),
+                        #[cfg(not(windows))]
                         Upd::Failed(..) => Some((t("更新失败").to_string(), ERR())),
                     };
                     if let Some((tip, dot)) = tip {
@@ -5215,7 +5232,7 @@ impl App {
     }
 
     fn check_update(&mut self, manual: bool) {
-        if matches!(self.upd, Upd::Checking { .. } | Upd::Downloading(..)) {
+        if matches!(self.upd, Upd::Checking { .. }) || self.upd.downloading() {
             return;
         }
         self.upd = Upd::Checking { manual };
@@ -5256,18 +5273,21 @@ impl App {
                         _ => {}
                     }
                 }
+                #[cfg(not(windows))]
                 UpdEvt::Progress(a, b) => {
                     if let Upd::Downloading(_, x, y) = &mut self.upd {
                         *x = a;
                         *y = b;
                     }
                 }
+                #[cfg(not(windows))]
                 UpdEvt::Ready(p) => {
                     if let Upd::Downloading(r, ..) = std::mem::replace(&mut self.upd, Upd::Idle) {
                         self.upd = Upd::Ready(r, p);
                         self.upd_card = true;
                     }
                 }
+                #[cfg(not(windows))]
                 UpdEvt::Failed(e) => {
                     if let Upd::Downloading(r, ..) = std::mem::replace(&mut self.upd, Upd::Idle) {
                         self.upd = Upd::Failed(r, e);
@@ -5278,6 +5298,7 @@ impl App {
         }
     }
 
+    #[cfg(not(windows))]
     fn start_download(&mut self) {
         let r = match std::mem::replace(&mut self.upd, Upd::Idle) {
             Upd::Available(r) | Upd::Failed(r, _) => r,
@@ -5296,14 +5317,19 @@ impl App {
             return;
         }
         let rel = match &self.upd {
-            Upd::Available(r) | Upd::Downloading(r, ..) | Upd::Ready(r, _) | Upd::Failed(r, _) => r.clone(),
+            Upd::Available(r) => r.clone(),
+            #[cfg(not(windows))]
+            Upd::Downloading(r, ..) | Upd::Ready(r, _) | Upd::Failed(r, _) => r.clone(),
             _ => return,
         };
         enum Act {
-            Download,
             Later,
             Skip,
+            #[cfg(not(windows))]
+            Download,
+            #[cfg(not(windows))]
             Install,
+            #[cfg(not(windows))]
             Home,
         }
         let mut act = None;
@@ -5340,7 +5366,7 @@ impl App {
                                 }
                                 ui.label(RichText::new(v).font(FontId::new(11.5, FontFamily::Monospace)).color(ACCENT()));
                             });
-                            if !rel.force && !matches!(self.upd, Upd::Downloading(..)) {
+                            if !rel.force && !self.upd.downloading() {
                                 ui.with_layout(Layout::right_to_left(Align::Min), |ui| {
                                     if ui.add(egui::Button::new(RichText::new("×").size(16.0).color(TEXT3())).frame(false)).on_hover_text(t("稍后")).clicked() {
                                         act = Some(Act::Later);
@@ -5359,6 +5385,23 @@ impl App {
                         }
                         ui.add_space(12.0);
                         match &self.upd {
+                            #[cfg(windows)]
+                            Upd::Available(_) => {
+                                ui.horizontal(|ui| {
+                                    if primary_button(ui, t("在浏览器下载更新")).clicked() {
+                                        ctx.open_url(egui::OpenUrl::new_tab(update::windows_download_url(&rel.url)));
+                                    }
+                                    if !rel.force {
+                                        if ui.add(egui::Button::new(t("稍后")).frame(false)).clicked() {
+                                            act = Some(Act::Later);
+                                        }
+                                        if ui.add(egui::Button::new(t("跳过此版本")).frame(false)).clicked() {
+                                            act = Some(Act::Skip);
+                                        }
+                                    }
+                                });
+                            }
+                            #[cfg(not(windows))]
                             Upd::Available(_) if rel.url.trim().is_empty() => {
                                 ui.label(RichText::new(t("当前平台没有自动更新包，请到项目主页下载新版本。")).size(12.0).color(TEXT3()));
                                 ui.add_space(8.0);
@@ -5371,6 +5414,7 @@ impl App {
                                     }
                                 });
                             }
+                            #[cfg(not(windows))]
                             Upd::Available(_) => {
                                 ui.horizontal(|ui| {
                                     if primary_button(ui, t("立即更新")).clicked() {
@@ -5388,6 +5432,7 @@ impl App {
                                     }
                                 });
                             }
+                            #[cfg(not(windows))]
                             Upd::Downloading(_, got, total) => {
                                 let f = if *total > 0 { *got as f32 / *total as f32 } else { 0.0 };
                                 let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
@@ -5408,6 +5453,7 @@ impl App {
                                     });
                                 });
                             }
+                            #[cfg(not(windows))]
                             Upd::Ready(..) => {
                                 ui.horizontal(|ui| {
                                     let (r, _) = ui.allocate_exact_size(vec2(14.0, 14.0), Sense::hover());
@@ -5427,6 +5473,7 @@ impl App {
                                     act = Some(Act::Install);
                                 }
                             }
+                            #[cfg(not(windows))]
                             Upd::Failed(_, e) => {
                                 ui.label(RichText::new(e).size(12.0).color(ERR()));
                                 ui.add_space(8.0);
@@ -5447,9 +5494,11 @@ impl App {
                     });
             });
         match act {
+            #[cfg(not(windows))]
             Some(Act::Download) => self.start_download(),
             Some(Act::Later) => {
                 self.upd_card = false;
+                #[cfg(not(windows))]
                 if matches!(self.upd, Upd::Failed(..)) {
                     self.upd = Upd::Idle;
                 }
@@ -5459,7 +5508,9 @@ impl App {
                 self.upd_card = false;
                 self.upd = Upd::Idle;
             }
+            #[cfg(not(windows))]
             Some(Act::Home) => open_url("https://github.com/zenghi/QCCOM/releases"),
+            #[cfg(not(windows))]
             Some(Act::Install) => {
                 if let Upd::Ready(_, p) = &self.upd {
                     match update::install(p) {

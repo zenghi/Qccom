@@ -272,17 +272,15 @@ fn collect_pairs(values: impl IntoIterator<Item = (impl AsRef<str>, impl AsRef<s
     a.into_iter().filter_map(|(n, mine)| b.get(&n).map(|other| Pair { mine, other: other.clone() })).collect()
 }
 
-/// com0com 3.0.0.0 的原版安装包（setup_x64.exe，带旧式交叉签名）。不打包进 exe：QCCOM 只包含自己源码编译出的代码，
-/// 用户点「一键安装」时才下载，校验下面的 SHA256 一致才运行。环境变量 QCCOM_COM0COM_URL 可以临时换地址
-pub const COM0COM_URL: &str = "https://www.zenghi.com/com0com/setup_x64.exe";
-pub const COM0COM_SHA256: &str = "26486b28604b49a9008c54feb11b9ece0008a8287ee5caf0bcf2a62f4317128f";
-
-/// 安装包内容是否就是 com0com 官方那一份
-#[cfg_attr(not(windows), allow(dead_code))]
-pub fn com0com_ok(data: &[u8]) -> bool {
-    use sha2::{Digest, Sha256};
-    let hex: String = Sha256::digest(data).iter().map(|b| format!("{b:02x}")).collect();
-    hex == COM0COM_SHA256
+#[cfg(windows)]
+pub(crate) fn com0com_setup_ui(ui: &mut egui::Ui) -> bool {
+    use crate::i18n::t;
+    ui.small(t("请在浏览器下载并安装兼容当前 Windows 的 com0com 驱动，再用它自带的工具创建一对虚拟 COM 口。"));
+    ui.horizontal_wrapped(|ui| {
+        ui.hyperlink_to(t("com0com 官方下载"), "https://sourceforge.net/projects/com0com/files/com0com/");
+        ui.button(t("重新检测虚拟串口")).clicked()
+    })
+    .inner
 }
 
 #[cfg(windows)]
@@ -328,94 +326,6 @@ pub(crate) fn check_com0com_signature() -> Result<(), String> {
         break;
     }
     Ok(())
-}
-
-#[cfg(windows)]
-fn fetch_com0com() -> Result<Vec<u8>, String> {
-    use std::io::Read;
-    let url = std::env::var("QCCOM_COM0COM_URL").unwrap_or_else(|_| COM0COM_URL.into());
-    let resp = crate::update::agent()?.get(&url).call().map_err(|e| crate::i18n::tf("下载 com0com 失败：{}", &[&e]))?;
-    let mut data = Vec::new();
-    resp.into_reader().take(16 << 20).read_to_end(&mut data).map_err(|e| crate::i18n::tf("下载 com0com 失败：{}", &[&e]))?;
-    if !com0com_ok(&data) {
-        return Err(crate::i18n::t("下载到的 com0com 安装包校验不通过，没有运行").to_string());
-    }
-    Ok(data)
-}
-
-#[cfg(windows)]
-fn setupc() -> Option<std::path::PathBuf> {
-    use std::path::PathBuf;
-    ["ProgramW6432", "ProgramFiles", "ProgramFiles(x86)"]
-        .iter()
-        .filter_map(std::env::var_os)
-        .map(|dir| PathBuf::from(dir).join("com0com").join("setupc.exe"))
-        .find(|path| path.is_file())
-}
-
-#[cfg(windows)]
-fn create_pair(setup: std::path::PathBuf) -> Result<(), String> {
-    use std::{os::windows::process::CommandExt, path::PathBuf, process::Command};
-
-    check_com0com_signature()?;
-    let before = pairs();
-    let windows = std::env::var_os("SystemRoot").ok_or_else(|| "SystemRoot".to_owned())?;
-    let status = Command::new(PathBuf::from(windows).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"))
-        .creation_flags(0x0800_0000)
-        .env("QCCOM_PAIR_SETUP", setup)
-        .args(["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='Stop'; $p=Start-Process -FilePath $env:QCCOM_PAIR_SETUP -WorkingDirectory (Split-Path $env:QCCOM_PAIR_SETUP) -Verb RunAs -Wait -PassThru -ArgumentList 'install','PortName=COM#,ri=ropen','PortName=COM#,EmuBR=yes'; exit $p.ExitCode"])
-        .status().map_err(|e| e.to_string())?;
-    if !status.success() {
-        check_com0com_signature()?;
-        return Err(format!("com0com setup: {status}"));
-    }
-    for _ in 0..20 {
-        if pairs().iter().any(|pair| !before.contains(pair)) {
-            return Ok(());
-        }
-        thread::sleep(Duration::from_millis(250));
-    }
-    check_com0com_signature()?;
-    Err(crate::i18n::t("装好了但没找到虚拟串口").into())
-}
-
-/// Windows：一键安装 com0com（先下载官方安装包并校验），并建好一对 COM 口。会弹一次管理员确认。阻塞，放线程里跑
-#[cfg(windows)]
-pub fn install_com0com() -> Result<(), String> {
-    use crate::i18n::tf;
-    use std::os::windows::process::CommandExt;
-    if !pairs().is_empty() {
-        return Ok(());
-    }
-    if let Some(setup) = setupc() {
-        return create_pair(setup);
-    }
-    check_com0com_signature()?;
-    let bytes = fetch_com0com()?;
-    let dir = tempfile::Builder::new().prefix("qccom-driver-").tempdir().map_err(|e| e.to_string())?;
-    let exe = dir.path().join("setup_com0com_x64.exe");
-    std::fs::write(&exe, bytes).map_err(|e| e.to_string())?;
-    // Pass the verified path in the environment so portable paths are not PowerShell source.
-    let status = std::process::Command::new("powershell.exe")
-        .creation_flags(0x0800_0000)
-        .args([
-            "-NoProfile",
-            "-NonInteractive",
-            "-Command",
-            "$ErrorActionPreference='Stop'; $p=Start-Process -FilePath $env:QCCOM_DRIVER_INSTALLER -ArgumentList '/S' -Verb RunAs -Wait -PassThru; exit $p.ExitCode",
-        ])
-        .env("QCCOM_DRIVER_INSTALLER", exe)
-        .status()
-        .map_err(|e| e.to_string())?;
-    if !status.success() {
-        check_com0com_signature()?;
-        return Err(tf("com0com 安装未完成（{}）", &[&status]));
-    }
-    if !pairs().is_empty() {
-        return Ok(());
-    }
-    let setup = setupc().ok_or_else(|| crate::i18n::t("请先安装 com0com 驱动").to_owned())?;
-    create_pair(setup)
 }
 
 #[cfg(unix)]
@@ -506,12 +416,6 @@ mod pty {
 
 #[cfg(test)]
 mod pair_tests {
-    #[test]
-    fn com0com_hash_check() {
-        assert!(!super::com0com_ok(b"<html>not found</html>"));
-        assert_eq!(super::COM0COM_SHA256.len(), 64);
-    }
-
     #[test]
     fn serialcomm_pairs() {
         let values = [

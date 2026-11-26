@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.27
+
+- Build the Windows executable without UPX and pass the original build to the existing signing workflow.
+- Open the com0com download page for external driver installation and let users refresh detected port pairs.
+- Open Windows update downloads in the browser for manual installation.
+
 ## 1.9.26
 
 - Remove Windows-wide shortcuts and the mouse hook and simulated input used for desktop-wide paste.

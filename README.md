@@ -58,7 +58,7 @@ Click the mapping button beside a physical COM port to create a share address. P
 - **Git.** Branches, tags and remotes, a commit graph across all branches, commit details and line-numbered diffs; commit, push, stage by file or hunk, pre-commit checks, undo last commit, stash, tags with a suggested version, submodules, firmware size per commit, and the branch in the status bar.
 - **SSH and Telnet.** Log in to boards and gateways with several sessions open at once, using the system OpenSSH (keys, agent and `~/.ssh/config` work); drop files on the terminal to upload them.
 - **Circuit simulation and wiring log.** Build circuits on a breadboard and power them up: a real solver, smoke when wired wrong, a multimeter, oscilloscope and logic analyzer, MCU pins that work without code (and generate Arduino / STM32 HAL / ESP-IDF / 8051 code), AT modules that reach the real network, and 72 guided examples. Keep a wiring table with photos and numbered marks in the project's `.qccom/wiring/`.
-- **Virtual port.** Flashers and other serial monitors can use the device together with QCCOM without locking the COM port (on Windows a bundled driver installs with one click).
+- **Virtual port.** Flashers and other serial monitors can use the device together with QCCOM without locking the COM port (Windows uses an externally installed com0com pair).
 - **Toolbox** (`Ctrl+Shift+B`). All the communication tools (TCP, UDP, MQTT, BLE, WebSocket, SSH / Telnet, HTTP API, Modbus slave) plus TFTP / HTTP file servers, a local MQTT broker, a Syslog receiver, LAN device discovery, ping and port check, a subnet calculator, a data converter, checksums with custom CRC, timestamps, a regex tester, font / image to C arrays, a color converter, an ASCII table, a UART baud-rate calculator, CAN over SLCAN adapters and USB HID. Searchable, with favorites and recently used tools, and every tool is in the command palette; the checksum tool also hashes files (MD5 / SHA1 / SHA256).
 - **Embedded tools.** Firmware convert / merge (HEX, BIN, S-record, ELF), update-package headers with CRC, size diff between two builds (GCC, Keil and LLVM map files), worst-case stack usage, the vector table with unimplemented IRQs, an SVD register browser (also on hover in the editor), Keil / IAR project import to `compile_commands.json`, CubeMX pin tables, resistor / divider / NTC / PWM / I2C pull-up calculators, a C struct parser, CBOR / MessagePack / Protobuf decoding, a VCD waveform viewer and QR codes.
 - **Recording and export.** Save or copy the log, or record every new line to a file (split by size or time) for long unattended captures.
@@ -115,7 +115,7 @@ Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/r
 | Windows 10 / 11 x64 | `qccom-windows-x64.exe` | Double-click to run. Install the USB-serial driver for your adapter (CH340, CP210x, FTDI…) if Windows does not have it. |
 | Linux x64 | `qccom-linux-x64` | `chmod +x qccom-linux-x64 && ./qccom-linux-x64`. To open serial ports without root, add yourself to the `dialout` group (`uucp` on Arch): `sudo usermod -aG dialout $USER`, then log out and back in. |
 
-Each release also ships a `SHA256SUMS.txt` so you can verify the download.
+Each release ships a `SHA256SUMS.txt` so you can verify the download. The Windows executable is distributed without executable packing. QCCOM can check for Windows updates and open the download in your browser.
 
 **Code signing**. The Windows release workflow requires a valid Authenticode signature from SignPath. SmartScreen may still warn about a newly published build while it gains reputation. See [how to verify a Windows download](CODE_SIGNING.md#verify-a-windows-download) and the [privacy policy](https://www.zenghi.com/en/privacy/).
 
@@ -162,7 +162,7 @@ Cross-compiling the Windows build from Linux, release profiles, CI and other det
 | `src/api.rs`, `src/app/apiview.rs` | HTTP requests, variables, cURL import / export, JSON formatting; API tab |
 | `src/toolbox/`, `src/app/toolbox.rs`, `src/app/toolbox2.rs` | TFTP / HTTP servers, discovery, converter, baud calculator, SLCAN, HID, CRC, subnet, Syslog, ping, MQTT broker, Modbus slave, bitmap encoding; Toolbox page |
 | `src/circuit/`, `src/circuitview.rs`, `src/circuitview/` | Circuit model, netlist, solver, simulation, AT-module firmware, examples, code generation; circuit page and wiring log |
-| `src/vcom.rs` | Virtual port (pseudo-terminal on Linux / macOS, com0com pair and installer on Windows) |
+| `src/vcom.rs` | Virtual port (pseudo-terminal on Linux / macOS, com0com pair discovery on Windows) |
 | `src/app/sess.rs`, `src/ws.rs` | Simultaneous connections (one session per transport); WebSocket client |
 | `src/logbuf.rs` | Line splitting, decoding, ANSI parsing, log-level detection |
 | `src/term.rs` | VT100 / xterm terminal emulator |

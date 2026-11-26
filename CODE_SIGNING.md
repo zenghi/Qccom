@@ -7,7 +7,7 @@ The Windows release workflow uses [SignPath.io](https://about.signpath.io/) with
 ## What is signed
 
 - Only `qccom-windows-x64.exe`, built by the public GitHub Actions workflow [`.github/workflows/build.yml`](.github/workflows/build.yml) on GitHub-hosted runners from a `v*` tag of this repository.
-- Every executable that is signed is compiled from the source code in this repository. The Windows executable includes Rust port mapping. The optional com0com virtual-port driver is downloaded from its own distribution only when the user asks for it and is verified by SHA-256 before it runs.
+- Every executable that is signed is compiled from the source code in this repository. The Windows executable includes Rust port mapping. Users install the optional com0com driver from its own distribution in their browser. QCCOM detects existing port pairs. The signing workflow receives the original Windows build without executable packing.
 - Linux binaries are not signed.
 - Builds made on a developer's machine are never submitted for signing.
 
@@ -48,7 +48,7 @@ If you find a signed file that you believe violates this policy, please open an 
 ## 签名范围
 
 - 只签 `qccom-windows-x64.exe`：由本仓库公开的 GitHub Actions 工作流 [`.github/workflows/build.yml`](.github/workflows/build.yml) 在 GitHub 托管的构建机上、从本仓库的 `v*` 标签构建。
-- 被签名的程序全部由本仓库源码编译。Windows 可执行文件内置 Rust 端口映射。可选的 com0com 虚拟串口驱动只在用户要求时从其发布地址下载，并校验 SHA-256 后才运行。
+- 被签名的程序全部由本仓库源码编译。Windows 可执行文件内置 Rust 端口映射。用户通过浏览器从发布方下载并在软件外安装可选的 com0com 驱动。QCCOM 识别已创建的虚拟串口对。签名工作流使用未加壳的 Windows 构建。
 - Linux 版本不签名。
 - 开发者本机编译的文件不会提交签名。
 

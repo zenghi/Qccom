@@ -144,7 +144,6 @@ pub struct Panel {
     pairs: Vec<Pair>,
     message: String,
     copied: Option<Key>,
-    create: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     log_selection: Option<String>,
 }
 
@@ -692,7 +691,6 @@ impl Panel {
                 }
             });
         }
-        self.poll_driver(ui.ctx());
         if let Some(mut editor) = self.editor.take() {
             let (close, submit) = self.editor_ui(ui, &mut editor, ports, selected);
             let complete = submit
@@ -838,42 +836,14 @@ impl Panel {
                     }
                 }
             });
-            if self.pairs.is_empty()
-                && ui
-                    .add_enabled(self.create.is_none(), egui::Button::new(if self.create.is_some() { t("准备中…") } else { t("准备虚拟串口") }))
-                    .clicked()
-            {
-                let (tx, rx) = std::sync::mpsc::channel();
-                self.create = Some(rx);
-                let ctx = ui.ctx().clone();
-                std::thread::spawn(move || {
-                    let _ = tx.send(crate::vcom::install_com0com());
-                    ctx.request_repaint();
-                });
-            }
-        }
-    }
-
-    fn poll_driver(&mut self, ctx: &egui::Context) {
-        let Some(rx) = &self.create else {
-            return;
-        };
-        match rx.try_recv() {
-            Ok(result) => {
-                self.create = None;
-                self.pairs = crate::vcom::pairs();
-                if let Err(error) = result {
-                    self.message = error;
-                }
-                if self.editor.as_ref().is_some_and(|editor| editor.map.service == Service::Com && editor.mode == Mode::Join) {
-                    if let Some(mut editor) = self.editor.take() {
-                        self.pick_virtual(&mut editor.map);
-                        self.editor = Some(editor);
-                    }
+            if self.pairs.is_empty() {
+                ui.small(t("未检测到虚拟串口对"));
+                if crate::vcom::com0com_setup_ui(ui) {
+                    self.pairs = crate::vcom::pairs();
+                    self.pick_virtual(map);
+                    self.message = crate::vcom::check_com0com_signature().err().unwrap_or_default();
                 }
             }
-            Err(std::sync::mpsc::TryRecvError::Disconnected) => self.create = None,
-            Err(std::sync::mpsc::TryRecvError::Empty) => ctx.request_repaint_after(Duration::from_millis(200)),
         }
     }
 

@@ -658,7 +658,7 @@ fn ssh_file_id(session: &Session) -> Option<usize> {
 }
 
 fn ssh_terminal(session: &mut Session, ui: &mut egui::Ui, reconnect: &mut bool) -> Option<&'static str> {
-    let out = session.tv().show(ui, &|text: &str| text.as_bytes().to_vec(), None, true);
+    let out = session.tv().show(ui, &|text: &str| text.as_bytes().to_vec(), None, true, None);
     session.sync_size();
     if !session.alive() {
         *reconnect |= out.input.contains(&b'\r');

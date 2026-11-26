@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.29
+
+- Toggle right-click paste from a checkbox in the bottom terminal's context menu.
+
 ## 1.9.28
 
 - Restore configurable app-wide command shortcuts that type into the focused QCCOM input or terminal.

@@ -4510,7 +4510,7 @@ impl App {
         } else {
             [(t("已连接"), t("点击这里，键盘输入会直接发给设备")), (t("已连接"), t("直接打字，按回车唤出设备的提示符"))]
         };
-        let o = self.tv.show(ui, &|s| enc.encode(s), Some(empty), false);
+        let o = self.tv.show(ui, &|s| enc.encode(s), Some(empty), false, None);
         if !o.input.is_empty() {
             self.send_raw(o.input);
         }

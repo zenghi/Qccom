@@ -341,7 +341,7 @@ In C, C++ and Rust, **F12** and the Context pane resolve local variables and par
 
 **Highlights**: `F8` marks the word under the cursor; press it on another word for the next of 8 colors, or again on the same word to change its color. `Shift+F8` removes one, `Ctrl+Shift+F8` clears all, `F3` / `Shift+F3` jump between marked words. Marks also show on the scrollbar.
 
-In **Settings → Keyboard shortcuts → App-wide command shortcuts**, record a combination, enter a one-line command, and click **Apply**. The shortcut types into the focused input or terminal in QCCOM. **Append Enter** submits the command in a terminal. Enable terminal right-click paste under **Settings → General**. Shift+right-click opens the terminal menu.
+In **Settings → Keyboard shortcuts → App-wide command shortcuts**, record a combination, enter a one-line command, and click **Apply**. The shortcut types into the focused input or terminal in QCCOM. **Append Enter** submits the command in a terminal. To paste with one click, check **Right-click paste in the terminal** in the bottom terminal's context menu. Shift+right-click opens that menu so you can uncheck the option. You can also change it under **Settings → General**.
 
 The local terminal accepts input while MCU detection runs. If you already typed in the tab, select the new **MCU** tab to use the discovered environment. In the MCP sharing dialog, copy the JSON or Codex TOML configuration and call `session_info` after reconnecting. Enable circuit sharing to use `circuit_inspect`. The circuit assistant offers local wiring checks and can plot a simulated pin voltage over 1–250 ms.
 

@@ -22,6 +22,11 @@ pub struct TermOut {
     pub enter_line: Option<String>,
 }
 
+pub struct QuickPaste<'a> {
+    pub enabled: &'a mut bool,
+    pub accepts_input: bool,
+}
+
 pub struct TermView {
     pub term: Term,
     /// 往回翻了多少行（0 = 最新）
@@ -37,7 +42,6 @@ pub struct TermView {
     pub zoom: f32,
     /// 命令行终端（本地 shell / SSH）：Ctrl+F 查找、Ctrl+↑↓ 在命令之间跳、记录命令块
     pub blocks: bool,
-    pub right_click_paste: bool,
     /// 输入法组字状态
     ime: crate::ime::Ime,
     /// 命令块：每次回车时光标所在的行（稳定行号，见 Screen::dropped）
@@ -80,7 +84,6 @@ impl TermView {
             bg: crate::bgimg::Slot::Serial,
             zoom: 1.0,
             blocks: false,
-            right_click_paste: false,
             ime: Default::default(),
             marks: vec![],
             cmd_at: None,
@@ -373,7 +376,7 @@ impl TermView {
 
     /// 画终端并处理输入。enc 把文字编成发给对端的字节；empty 是空屏时（未聚焦, 已聚焦）的提示；
     /// links 打开后按住 Ctrl 悬停 `文件:行号` 会加下划线，点击后通过 TermOut::open 交给调用方
-    pub fn show(&mut self, ui: &mut egui::Ui, enc: &dyn Fn(&str) -> Vec<u8>, empty: Option<[(&str, &str); 2]>, links: bool) -> TermOut {
+    pub fn show(&mut self, ui: &mut egui::Ui, enc: &dyn Fn(&str) -> Vec<u8>, empty: Option<[(&str, &str); 2]>, links: bool, paste_option: Option<QuickPaste<'_>>) -> TermOut {
         let mut o = TermOut::default();
         let card_rect = ui.max_rect();
         let id = self.id;
@@ -386,7 +389,9 @@ impl TermView {
             resp.request_focus();
         }
         let focused = resp.has_focus();
-        let quick_paste = self.right_click_paste && resp.secondary_clicked() && ui.input(|i| i.focused && !i.modifiers.any());
+        let quick_paste = resp.secondary_clicked()
+            && paste_option.as_ref().is_some_and(|option| *option.enabled && option.accepts_input)
+            && ui.input(|i| i.focused && !i.modifiers.any());
         if focused {
             crate::keymap::mark_command_input(ui.ctx(), id, egui::Modifiers::NONE);
             // Tab、方向键、Esc 也交给终端，不用来切换焦点
@@ -532,6 +537,15 @@ impl TermView {
                 if ui.button(t("粘贴")).clicked() {
                     paste = Some(());
                     ui.close_menu();
+                }
+                if let Some(option) = paste_option {
+                    let checkbox = ui
+                        .checkbox(option.enabled, t("终端右键快速粘贴"))
+                        .on_hover_text(t("在底部命令行终端右键粘贴，Shift + 右键打开菜单。"));
+                    if checkbox.changed() {
+                        self.focus_req = true;
+                        ui.close_menu();
+                    }
                 }
                 if ui.button(t("复制整屏")).clicked() {
                     ui.ctx().copy_text(self.screen_text());
@@ -1007,7 +1021,7 @@ mod tests {
         let mut out = TermOut::default();
         let _ = ctx.run(input, |ctx| {
             egui::CentralPanel::default().frame(egui::Frame::NONE).show(ctx, |ui| {
-                out = tv.show(ui, &|s| s.as_bytes().to_vec(), None, false);
+                out = tv.show(ui, &|s| s.as_bytes().to_vec(), None, false, None);
             });
         });
         out
@@ -1033,7 +1047,7 @@ mod tests {
                     ctx.all_styles_mut(|style| {
                         style.text_styles.insert(TextStyle::Monospace, FontId::monospace(size));
                     });
-                    tv.show(ui, &|s| s.as_bytes().to_vec(), None, false);
+                    tv.show(ui, &|s| s.as_bytes().to_vec(), None, false, None);
                 });
             })
             .shapes

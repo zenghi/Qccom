@@ -18,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::app::{draw_icon, icon_button, Icon};
 use crate::i18n::{t, tf};
-use crate::termview::TermView;
+use crate::termview::{QuickPaste, TermView};
 use crate::theme::*;
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -1091,8 +1091,11 @@ impl Shells {
     fn show_tab(&mut self, ui: &mut egui::Ui, i: usize, rect: Rect, port: &str) -> bool {
         let Some(sh) = self.tabs.get_mut(i) else { return false };
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
-        sh.tv.right_click_paste = self.s.right_click_paste && sh.exited.is_none() && sh.pending_write.is_none() && sh.pending_shortcut.is_none();
-        let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true);
+        let quick_paste = QuickPaste {
+            enabled: &mut self.s.right_click_paste,
+            accepts_input: sh.exited.is_none() && sh.pending_write.is_none() && sh.pending_shortcut.is_none(),
+        };
+        let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true, Some(quick_paste));
         sh.sync_size();
         if let Some(job) = &mut sh.discovery {
             if let DiscoveryState::AwaitPaint(options) = &job.state {

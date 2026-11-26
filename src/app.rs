@@ -124,7 +124,8 @@ pub struct Settings {
     pub theme: String,
     /// 用户改过的快捷键
     pub keys: Overrides,
-    pub desktop_keys: crate::desktop_keys::Config,
+    #[serde(skip_serializing)]
+    desktop_keys: LegacyDesktopKeys,
     /// 快捷键方案
     pub key_scheme: crate::keymap::Scheme,
     /// 复制日志时带上时间戳
@@ -179,6 +180,14 @@ pub struct Settings {
     pub line_gap_ms: u32,
     /// 副页面和工作台
     pub work: work::WorkCfg,
+}
+
+// Old profiles may have enabled paste. Read only that preference and migrate it
+// to the local terminal. Old command bindings are ignored by deserialization.
+#[derive(Clone, Default, Deserialize)]
+#[serde(default)]
+struct LegacyDesktopKeys {
+    right_paste: bool,
 }
 
 impl Default for Settings {
@@ -467,8 +476,6 @@ pub struct App {
     km: Keymap,
     palette: Option<palette::Palette>,
     prefs: prefs::Prefs,
-    #[cfg(windows)]
-    desktop_keys: crate::desktop_keys::win::Manager,
     /// 上一次的工程文件夹（共享目录是否跟着换用）
     last_project: String,
     /// 打开设置前所在的页面（关闭设置时回去）
@@ -582,6 +589,7 @@ impl App {
         let mut comm = crate::community::Community::default();
         comm.seen_notice = s.seen_notice;
         let mut shell_s = std::mem::take(&mut s.shell);
+        shell_s.right_click_paste |= std::mem::take(&mut s.desktop_keys).right_paste;
         shell_s.open = false; // 启动时不自动开 shell
         let shells = Shells::new(shell_s);
         let auto_update = s.auto_update;
@@ -689,8 +697,6 @@ impl App {
             km,
             palette: None,
             prefs: prefs::Prefs::default(),
-            #[cfg(windows)]
-            desktop_keys: Default::default(),
             last_project,
             prev_page: Page::Debug,
             nav: Default::default(),
@@ -733,10 +739,6 @@ impl App {
             debug_drawer: None,
             work: Default::default(),
         };
-        #[cfg(windows)]
-        if let Err(e) = app.desktop_keys.set(&app.s.desktop_keys, &cc.egui_ctx) {
-            app.toast(e, WARN());
-        }
         app.parse_keywords();
         app.compile_rules();
         app.compile_triggers();
@@ -5673,10 +5675,6 @@ impl eframe::App for App {
         if let Some(ports) = port_updates {
             self.with_slot(0, |app| app.on_ports(ports));
         }
-        #[cfg(windows)]
-        if let Ok(err) = self.desktop_keys.errors.try_recv() {
-            self.toast(err, WARN());
-        }
         self.tick_background();
         self.handle_events();
         self.tick();
@@ -5696,8 +5694,6 @@ impl eframe::App for App {
         };
         let serial_focus = focus_pane.and_then(|pane| pane.serial_slot(self.selected_serial));
         let term_focused = serial_focus.is_some_and(|slot| self.with_session(slot, |app| app.s.terminal && ctx.memory(|m| m.has_focus(app.tv.id())))) || self.shells.focused(ctx);
-        #[cfg(windows)]
-        self.route_desktop_recording(ctx);
         let acts = if self.prefs.recording_keys() || self.palette.is_some() {
             vec![]
         } else {
@@ -7024,6 +7020,17 @@ pub fn parse_hex(s: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn legacy_desktop_shortcuts_are_discarded_while_paste_preference_loads() {
+        let old = r#"{"desktop_keys":{"right_paste":true,"commands":[{"keys":"Ctrl+Alt+J","text":"legacy","enter":true}]}}"#;
+        let settings: Settings = serde_json::from_str(old).unwrap();
+        assert!(settings.desktop_keys.right_paste);
+        assert!(!settings.shell.right_click_paste);
+        let saved = serde_json::to_value(&settings).unwrap();
+        assert!(saved.get("desktop_keys").is_none());
+    }
+
 
     #[test]
     fn two_busy_serial_logs_keep_independent_scroll_anchors() {

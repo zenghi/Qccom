@@ -31,7 +31,6 @@ mod hub;
 mod i18n;
 mod ime;
 mod keymap;
-mod desktop_keys;
 mod logbuf;
 mod lsp;
 #[cfg(windows)]

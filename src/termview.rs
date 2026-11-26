@@ -37,6 +37,7 @@ pub struct TermView {
     pub zoom: f32,
     /// 命令行终端（本地 shell / SSH）：Ctrl+F 查找、Ctrl+↑↓ 在命令之间跳、记录命令块
     pub blocks: bool,
+    pub right_click_paste: bool,
     /// 输入法组字状态
     ime: crate::ime::Ime,
     /// 命令块：每次回车时光标所在的行（稳定行号，见 Screen::dropped）
@@ -62,6 +63,10 @@ struct Find {
     jump: bool,
 }
 
+fn paste_text(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\n', "\r")
+}
+
 impl TermView {
     pub fn new(id: impl std::hash::Hash, cols: usize, rows: usize) -> Self {
         Self {
@@ -75,6 +80,7 @@ impl TermView {
             bg: crate::bgimg::Slot::Serial,
             zoom: 1.0,
             blocks: false,
+            right_click_paste: false,
             ime: Default::default(),
             marks: vec![],
             cmd_at: None,
@@ -298,7 +304,7 @@ impl TermView {
     }
 
     /// 键盘、粘贴 → 发给设备
-    fn input(&mut self, ui: &egui::Ui, enc: &dyn Fn(&str) -> Vec<u8>, o: &mut TermOut) {
+    fn input(&mut self, ui: &egui::Ui, enc: &dyn Fn(&str) -> Vec<u8>, quick_paste: bool, o: &mut TermOut) {
         let (events, shift, time) = ui.input(|i| (i.events.clone(), i.modifiers.shift, i.time));
         let events = self.ime.filter(events);
         let app_cursor = self.term.s.app_cursor;
@@ -335,8 +341,13 @@ impl TermView {
                     }
                 }
                 egui::Event::Cut => out.push(0x18),
-                egui::Event::Paste(p) => out.extend(enc(&p.replace('\n', "\r"))),
+                egui::Event::Paste(p) => out.extend(enc(&paste_text(&p))),
                 _ => {}
+            }
+        }
+        if quick_paste {
+            if let Ok(text) = arboard::Clipboard::new().and_then(|mut clipboard| clipboard.get_text()) {
+                out.extend(enc(&paste_text(&text)));
             }
         }
         if !out.is_empty() {
@@ -375,6 +386,7 @@ impl TermView {
             resp.request_focus();
         }
         let focused = resp.has_focus();
+        let quick_paste = self.right_click_paste && resp.secondary_clicked() && ui.input(|i| i.focused && !i.modifiers.any());
         if focused {
             // Tab、方向键、Esc 也交给终端，不用来切换焦点
             ui.memory_mut(|m| {
@@ -388,7 +400,7 @@ impl TermView {
                     },
                 )
             });
-            self.input(ui, enc, &mut o);
+            self.input(ui, enc, quick_paste, &mut o);
         }
         if resp.hovered() {
             ui.ctx().set_cursor_icon(egui::CursorIcon::Text);
@@ -508,39 +520,41 @@ impl TermView {
         let mut reset = false;
         let mut find_open = false;
         let mut save = false;
-        resp.context_menu(|ui| {
-            if self.sel.is_some() && ui.button(t("复制选中")).clicked() {
-                if let Some(t) = self.sel_text() {
-                    ui.ctx().copy_text(t);
+        if !quick_paste {
+            resp.context_menu(|ui| {
+                if self.sel.is_some() && ui.button(t("复制选中")).clicked() {
+                    if let Some(t) = self.sel_text() {
+                        ui.ctx().copy_text(t);
+                    }
+                    ui.close_menu();
                 }
-                ui.close_menu();
-            }
-            if ui.button(t("粘贴")).clicked() {
-                paste = Some(());
-                ui.close_menu();
-            }
-            if ui.button(t("复制整屏")).clicked() {
-                ui.ctx().copy_text(self.screen_text());
-                ui.close_menu();
-            }
-            if ui.button(t("查找…")).clicked() {
-                find_open = true;
-                ui.close_menu();
-            }
-            if ui.button(t("保存输出…")).clicked() {
-                save = true;
-                ui.close_menu();
-            }
-            if self.zoom != 1.0 && ui.button(t("恢复默认字号")).clicked() {
-                self.zoom = 1.0;
-                ui.close_menu();
-            }
-            ui.separator();
-            if ui.button(t("清屏并重置终端")).clicked() {
-                reset = true;
-                ui.close_menu();
-            }
-        });
+                if ui.button(t("粘贴")).clicked() {
+                    paste = Some(());
+                    ui.close_menu();
+                }
+                if ui.button(t("复制整屏")).clicked() {
+                    ui.ctx().copy_text(self.screen_text());
+                    ui.close_menu();
+                }
+                if ui.button(t("查找…")).clicked() {
+                    find_open = true;
+                    ui.close_menu();
+                }
+                if ui.button(t("保存输出…")).clicked() {
+                    save = true;
+                    ui.close_menu();
+                }
+                if self.zoom != 1.0 && ui.button(t("恢复默认字号")).clicked() {
+                    self.zoom = 1.0;
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui.button(t("清屏并重置终端")).clicked() {
+                    reset = true;
+                    ui.close_menu();
+                }
+            });
+        }
         if paste.is_some() {
             ui.ctx().send_viewport_cmd(egui::ViewportCommand::RequestPaste);
             self.focus_req = true;
@@ -1056,6 +1070,16 @@ mod tests {
         frame(&ctx, &mut tv, 1.0, vec![button(true)]);
         frame(&ctx, &mut tv, 1.05, vec![button(false)]);
         assert_eq!(tv.sel_text(), None);
+    }
+
+    #[test]
+    fn paste_normalizes_windows_line_endings_once() {
+        let ctx = egui::Context::default();
+        let mut tv = TermView::new("terminal-paste", 30, 3);
+        tv.focus_req = true;
+        frame(&ctx, &mut tv, 0.0, vec![]);
+        let out = frame(&ctx, &mut tv, 0.1, vec![Event::Paste("one\r\ntwo\nthree".into())]);
+        assert_eq!(out.input, b"one\rtwo\rthree");
     }
 
     #[test]

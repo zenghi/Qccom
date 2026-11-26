@@ -347,6 +347,7 @@ impl Drop for Shell {
 pub struct ShellSettings {
     pub open: bool,
     pub height: f32,
+    pub right_click_paste: bool,
     /// 默认 shell 的名字（空 = 检测到的第一个）
     pub default: String,
     /// 面板头部的任务按钮（编译、烧录、清理…）
@@ -368,6 +369,7 @@ impl Default for ShellSettings {
         Self {
             open: false,
             height: 260.0,
+            right_click_paste: false,
             default: String::new(),
             environments: vec![],
             environment: String::new(),
@@ -1077,6 +1079,7 @@ impl Shells {
     fn show_tab(&mut self, ui: &mut egui::Ui, i: usize, rect: Rect, port: &str) -> bool {
         let Some(sh) = self.tabs.get_mut(i) else { return false };
         let mut child = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+        sh.tv.right_click_paste = self.s.right_click_paste && sh.exited.is_none() && sh.pending_write.is_none() && sh.pending_shortcut.is_none();
         let o = sh.tv.show(&mut child, &|s: &str| s.as_bytes().to_vec(), None, true);
         sh.sync_size();
         if let Some(job) = &mut sh.discovery {

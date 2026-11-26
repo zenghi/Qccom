@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.26
+
+- Remove Windows-wide shortcuts, the global mouse hook and input injection into other apps.
+- Limit optional right-click paste to the bottom command terminal. Shift + right-click opens the terminal menu.
+
 ## 1.9.25
 
 - Save edited WCH project sources before a build and display the native result of Build and Clean.

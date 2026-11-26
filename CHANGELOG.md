@@ -2,7 +2,7 @@
 
 ## 1.9.26
 
-- Remove Windows-wide shortcuts, the global mouse hook and input injection into other apps.
+- Remove Windows-wide shortcuts and the mouse hook and simulated input used for desktop-wide paste.
 - Limit optional right-click paste to the bottom command terminal. Shift + right-click opens the terminal menu.
 
 ## 1.9.25

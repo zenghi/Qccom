@@ -759,6 +759,18 @@ impl Shells {
         self.s.open && self.tabs.get(self.active).is_some_and(|sh| ctx.memory(|m| m.has_focus(sh.tv.id())))
     }
 
+    pub fn focused_command_ready(&self) -> bool {
+        self.tabs.get(self.active).is_some_and(|sh| sh.exited.is_none() && sh.pending_write.is_none() && sh.pending_shortcut.is_none())
+    }
+
+    pub fn run_focused_command(&mut self, ctx: &egui::Context, cwd: &Path, command: &str, port: &str) -> bool {
+        if !self.tabs.get(self.active).is_some_and(Shell::at_prompt) {
+            return false;
+        }
+        self.run_task(ctx, cwd, Task { name: command.to_owned(), cmd: command.to_owned() }, port);
+        true
+    }
+
     pub fn project_changed(&mut self) {
         self.project_shell_pending = true;
     }

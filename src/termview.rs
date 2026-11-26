@@ -388,6 +388,7 @@ impl TermView {
         let focused = resp.has_focus();
         let quick_paste = self.right_click_paste && resp.secondary_clicked() && ui.input(|i| i.focused && !i.modifiers.any());
         if focused {
+            crate::keymap::mark_command_input(ui.ctx(), id, egui::Modifiers::NONE);
             // Tab、方向键、Esc 也交给终端，不用来切换焦点
             ui.memory_mut(|m| {
                 m.set_focus_lock_filter(

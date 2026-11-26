@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use eframe::egui::{self, Key, Modifiers};
 
-use crate::i18n::t;
+use crate::i18n::{t, tf};
 
 /// 命令生效的范围
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -95,6 +95,7 @@ fn is_fkey(k: Key) -> bool {
     matches!(
         k,
         Key::F1 | Key::F2 | Key::F3 | Key::F4 | Key::F5 | Key::F6 | Key::F7 | Key::F8 | Key::F9 | Key::F10 | Key::F11 | Key::F12
+            | Key::F13 | Key::F14 | Key::F15 | Key::F16 | Key::F17 | Key::F18 | Key::F19 | Key::F20 | Key::F21 | Key::F22 | Key::F23 | Key::F24
     )
 }
 
@@ -172,6 +173,93 @@ pub fn chord_str(c: &Chord) -> String {
 pub fn parse_chord(s: &str) -> Option<Chord> {
     let v: Option<Vec<Combo>> = s.split_whitespace().map(Combo::parse).collect();
     v.filter(|v| !v.is_empty() && v.len() <= 2)
+}
+
+/// User-defined text shortcuts handled by the focused QCCOM viewport.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+#[serde(default)]
+pub struct CommandShortcut {
+    pub keys: String,
+    pub text: String,
+    pub enter: bool,
+}
+
+impl CommandShortcut {
+    fn binding(&self) -> Option<Combo> {
+        let keys = self.keys.trim();
+        if keys.split('+').any(|part| part.trim().chars().any(char::is_whitespace)) {
+            return None;
+        }
+        Combo::parse(keys).filter(|combo| combo.usable() && combo.key != Key::Escape)
+    }
+
+    fn valid_text(&self) -> bool {
+        !self.text.trim().is_empty() && self.text.len() <= 8192 && !self.text.chars().any(char::is_control)
+    }
+
+    pub fn validate_all(commands: &mut Vec<Self>) -> Result<(), String> {
+        commands.retain(|cmd| !cmd.keys.trim().is_empty() || !cmd.text.trim().is_empty());
+        let mut seen = Vec::new();
+        for (i, cmd) in commands.iter_mut().enumerate() {
+            let error = |reason| tf("第 {} 条：{}", &[&(i + 1), &reason]);
+            let combo = cmd.binding().ok_or_else(|| error(tf("快捷键格式无效：{}", &[&cmd.keys])))?;
+            if seen.contains(&combo) {
+                return Err(error(tf("快捷键重复：{}", &[&cmd.keys])));
+            }
+            if !cmd.valid_text() {
+                return Err(error(t("命令须为非空的单行文本，最多 8192 字节").to_owned()));
+            }
+            seen.push(combo);
+            cmd.keys = combo.to_string();
+        }
+        Ok(())
+    }
+
+    pub fn poll(commands: &[Self], ctx: &egui::Context) -> Option<Self> {
+        let mut selected = None;
+        let mut eat_text = false;
+        ctx.input_mut(|input| {
+            if !input.focused || commands.is_empty() {
+                return;
+            }
+            input.events.retain(|event| {
+                if let egui::Event::Text(text) = event {
+                    return !(std::mem::take(&mut eat_text) && text.chars().count() == 1);
+                }
+                let egui::Event::Key { key, modifiers, pressed: true, repeat, .. } = event else { return true };
+                let combo = Combo::from_event(*key, *modifiers);
+                let Some(cmd) = commands.iter().find(|cmd| cmd.binding() == Some(combo) && cmd.valid_text()) else {
+                    eat_text = false;
+                    return true;
+                };
+                if !repeat && selected.is_none() {
+                    selected = Some(cmd.clone());
+                }
+                eat_text = modifiers.alt;
+                false
+            });
+        });
+        selected
+    }
+}
+
+fn command_input_id(ctx: &egui::Context, id: egui::Id) -> egui::Id {
+    id.with(("app-command-input", ctx.viewport_id()))
+}
+
+pub(crate) fn mark_command_input(ctx: &egui::Context, id: egui::Id, enter: Modifiers) {
+    let target = command_input_id(ctx, id);
+    ctx.data_mut(|data| data.insert_temp(target, enter));
+}
+
+pub(crate) fn command_input(ctx: &egui::Context) -> Option<Modifiers> {
+    if !ctx.input(|input| input.focused) {
+        return None;
+    }
+    let id = ctx.memory(|memory| memory.focused())?;
+    ctx.read_response(id).filter(egui::Response::enabled)?;
+    let marked = ctx.data(|data| data.get_temp::<Modifiers>(command_input_id(ctx, id)));
+    marked.or_else(|| egui::TextEdit::load_state(ctx, id).map(|_| Modifiers::NONE))
 }
 
 /// 命令。新增命令只需要在 `ACTIONS` 里加一行
@@ -629,6 +717,10 @@ impl Keymap {
         self.bindings(a).first().map(|c| chord_str(c)).unwrap_or_default()
     }
 
+    pub fn clear_pending(&mut self) {
+        self.pending = None;
+    }
+
     /// 等待序列第二个键时，状态栏显示的提示
     pub fn pending(&self) -> Option<String> {
         self.pending.map(|(c, _)| c.to_string())
@@ -719,6 +811,43 @@ impl Keymap {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn command_shortcut_requires_a_focused_application_and_ignores_repeat() {
+        let background = egui::Context::default();
+        let foreground = egui::Context::default();
+        let commands = [CommandShortcut { keys: "Ctrl+Alt+J".into(), text: "printf preview".into(), enter: true }];
+        let event = |repeat| egui::Event::Key {
+            key: Key::J,
+            physical_key: None,
+            pressed: true,
+            repeat,
+            modifiers: Modifiers { ctrl: true, alt: true, ..Modifiers::NONE },
+        };
+        for (ctx, focused, should_run) in [(&background, false, false), (&foreground, true, true), (&foreground, true, false)] {
+            let input = egui::RawInput { focused, events: vec![event(false)], ..Default::default() };
+            let _ = ctx.run(input, |ctx| {
+                let selected = CommandShortcut::poll(&commands, ctx);
+                assert_eq!(selected.is_some(), should_run);
+                if let Some(command) = selected {
+                    assert!(command.enter);
+                    assert_eq!(command.text, "printf preview");
+                }
+            });
+        }
+    }
+
+    #[test]
+    fn command_shortcuts_reject_duplicate_combinations() {
+        let mut commands = vec![
+            CommandShortcut { keys: "Ctrl + Alt + J".into(), text: "first".into(), ..Default::default() },
+            CommandShortcut { keys: "alt+ctrl+j".into(), text: "second".into(), ..Default::default() },
+        ];
+        assert!(CommandShortcut::validate_all(&mut commands).is_err());
+        commands.pop();
+        CommandShortcut::validate_all(&mut commands).unwrap();
+        assert_eq!(commands[0].keys, Combo::parse("Ctrl+Alt+J").unwrap().to_string());
+    }
 
     #[test]
     fn parse_and_print() {

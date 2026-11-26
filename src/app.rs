@@ -126,6 +126,8 @@ pub struct Settings {
     pub keys: Overrides,
     #[serde(skip_serializing)]
     desktop_keys: LegacyDesktopKeys,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    command_shortcuts: Vec<crate::keymap::CommandShortcut>,
     /// 快捷键方案
     pub key_scheme: crate::keymap::Scheme,
     /// 复制日志时带上时间戳
@@ -182,12 +184,12 @@ pub struct Settings {
     pub work: work::WorkCfg,
 }
 
-// Old profiles may have enabled paste. Read only that preference and migrate it
-// to the local terminal. Old command bindings are ignored by deserialization.
+// Read the old desktop settings so they can be migrated to QCCOM's inputs.
 #[derive(Clone, Default, Deserialize)]
 #[serde(default)]
 struct LegacyDesktopKeys {
     right_paste: bool,
+    commands: Vec<crate::keymap::CommandShortcut>,
 }
 
 impl Default for Settings {
@@ -245,6 +247,7 @@ impl Default for Settings {
             theme: "system".into(),
             keys: Overrides::new(),
             desktop_keys: Default::default(),
+            command_shortcuts: Vec::new(),
             key_scheme: Default::default(),
             copy_ts: false,
             ui_scale: 1.0,
@@ -604,7 +607,11 @@ impl App {
         let mut comm = crate::community::Community::default();
         comm.seen_notice = s.seen_notice;
         let mut shell_s = std::mem::take(&mut s.shell);
-        shell_s.right_click_paste |= std::mem::take(&mut s.desktop_keys).right_paste;
+        let legacy = std::mem::take(&mut s.desktop_keys);
+        shell_s.right_click_paste |= legacy.right_paste;
+        if s.command_shortcuts.is_empty() {
+            s.command_shortcuts = legacy.commands;
+        }
         shell_s.open = false; // 启动时不自动开 shell
         let shells = Shells::new(shell_s);
         let auto_update = s.auto_update;
@@ -3233,6 +3240,10 @@ impl App {
     fn command_bar(&mut self, ui: &mut egui::Ui) {
         let send_id = ui.make_persistent_id("send");
         let focused = ui.memory(|m| m.has_focus(send_id));
+        if focused {
+            let enter = if self.s.multiline { egui::Modifiers::COMMAND } else { egui::Modifiers::NONE };
+            crate::keymap::mark_command_input(ui.ctx(), send_id, enter);
+        }
         let can_send = self.can_send();
         egui::Frame::new()
             .fill(BG2())
@@ -4572,6 +4583,40 @@ impl App {
 }
 
 impl App {
+    fn run_command_shortcut(&mut self, ctx: &egui::Context) -> bool {
+        if self.prefs.recording_keys() || self.palette.is_some() || self.s.command_shortcuts.is_empty() {
+            return false;
+        }
+        let Some(enter_modifiers) = crate::keymap::command_input(ctx) else { return false };
+        let Some(shortcut) = crate::keymap::CommandShortcut::poll(&self.s.command_shortcuts, ctx) else { return false };
+        self.km.clear_pending();
+        if self.shells.focused(ctx) {
+            if !self.shells.focused_command_ready() {
+                return true;
+            }
+            if shortcut.enter {
+                let port = self.serial_port_for(self.serial_sidebar_slot()).to_owned();
+                let cwd = self.shell_cwd();
+                if self.shells.run_focused_command(ctx, &cwd, &shortcut.text, &port) {
+                    return true;
+                }
+            }
+        }
+        ctx.input_mut(|input| {
+            input.events.push(egui::Event::Text(shortcut.text));
+            if shortcut.enter {
+                input.events.push(egui::Event::Key {
+                    key: Key::Enter,
+                    physical_key: None,
+                    modifiers: enter_modifiers,
+                    pressed: true,
+                    repeat: false,
+                });
+            }
+        });
+        true
+    }
+
     fn detached_serial_shortcuts(&mut self, ctx: &egui::Context, slot: usize) {
         if self.prefs.recording_keys() || self.palette.is_some() {
             return;
@@ -5745,7 +5790,8 @@ impl eframe::App for App {
         };
         let serial_focus = focus_pane.and_then(|pane| pane.serial_slot(self.selected_serial));
         let term_focused = serial_focus.is_some_and(|slot| self.with_session(slot, |app| app.s.terminal && ctx.memory(|m| m.has_focus(app.tv.id())))) || self.shells.focused(ctx);
-        let acts = if self.prefs.recording_keys() || self.palette.is_some() {
+        self.route_command_recording(ctx);
+        let acts = if self.prefs.recording_keys() || self.palette.is_some() || self.run_command_shortcut(ctx) {
             vec![]
         } else {
             self.km.poll(ctx, scope, term_focused)
@@ -7073,10 +7119,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn legacy_desktop_shortcuts_are_discarded_while_paste_preference_loads() {
+    fn legacy_desktop_shortcuts_load_for_local_migration() {
         let old = r#"{"desktop_keys":{"right_paste":true,"commands":[{"keys":"Ctrl+Alt+J","text":"legacy","enter":true}]}}"#;
         let settings: Settings = serde_json::from_str(old).unwrap();
         assert!(settings.desktop_keys.right_paste);
+        assert_eq!(settings.desktop_keys.commands[0].text, "legacy");
         assert!(!settings.shell.right_click_paste);
         let saved = serde_json::to_value(&settings).unwrap();
         assert!(saved.get("desktop_keys").is_none());

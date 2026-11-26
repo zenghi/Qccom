@@ -1,7 +1,7 @@
 //! 设置中心：集中管理所有设置，可搜索；快捷键也在这里改。
 
 use super::*;
-use crate::keymap::{chord_str, def, Chord, Combo, ACTIONS};
+use crate::keymap::{chord_str, def, Chord, Combo, CommandShortcut, ACTIONS};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Cat {
@@ -62,10 +62,18 @@ pub struct Recording {
     pub at: Instant,
 }
 
+#[derive(Default)]
+struct CommandPrefs {
+    draft: Option<Vec<CommandShortcut>>,
+    recording: Option<usize>,
+    status: Option<(String, bool)>,
+}
+
 pub struct Prefs {
     pub cat: Cat,
     pub search: String,
     pub recording: Option<Recording>,
+    commands: CommandPrefs,
     key_search: String,
     /// 刚改过、有冲突的命令，行上标红提示
     conflict: Option<(Act, Vec<Act>)>,
@@ -76,7 +84,7 @@ pub struct Prefs {
 
 impl Prefs {
     pub(super) fn recording_keys(&self) -> bool {
-        self.recording.is_some()
+        self.recording.is_some() || self.commands.recording.is_some()
     }
 }
 
@@ -86,6 +94,7 @@ impl Default for Prefs {
             cat: Cat::General,
             search: String::new(),
             recording: None,
+            commands: CommandPrefs::default(),
             key_search: String::new(),
             conflict: None,
             ctx_menu: None,
@@ -1171,9 +1180,119 @@ impl App {
         self.prefs.conflict = (!clash.is_empty()).then_some((rec.act, clash));
     }
 
+    pub(super) fn route_command_recording(&mut self, ctx: &egui::Context) {
+        let Some(index) = self.prefs.commands.recording else { return };
+        if self.page != Page::Settings || self.prefs.cat != Cat::Keys || !ctx.input(|input| input.focused) {
+            self.prefs.commands.recording = None;
+            return;
+        }
+        let mut captured = None;
+        let mut cancel = false;
+        ctx.input_mut(|input| {
+            input.events.retain(|event| match event {
+                egui::Event::Key { key, pressed: true, modifiers, repeat: false, .. } => {
+                    if captured.is_none() && !cancel {
+                        if *key == Key::Escape && !modifiers.any() {
+                            cancel = true;
+                        } else {
+                            let combo = Combo::from_event(*key, *modifiers);
+                            if combo.usable() && combo.key != Key::Escape {
+                                captured = Some(combo.to_string());
+                            }
+                        }
+                    }
+                    false
+                }
+                egui::Event::Text(_) | egui::Event::Paste(_) | egui::Event::Copy | egui::Event::Cut | egui::Event::Ime(_) => false,
+                _ => true,
+            });
+        });
+        if let Some(keys) = captured {
+            if let Some(cmd) = self.prefs.commands.draft.as_mut().and_then(|draft| draft.get_mut(index)) {
+                cmd.keys = keys;
+            }
+            self.prefs.commands.recording = None;
+        } else if cancel {
+            self.prefs.commands.recording = None;
+        }
+    }
+
+    fn command_shortcut_settings(&mut self, ui: &mut egui::Ui) {
+        let prefs = &mut self.prefs.commands;
+        let section = ui.collapsing(t("应用内全局快捷命令"), |ui| {
+            ui.small(t("QCCOM 有焦点时，快捷命令填入当前输入框或终端。"));
+            let draft = prefs.draft.get_or_insert_with(|| self.s.command_shortcuts.clone());
+            let mut remove = None;
+            for (i, cmd) in draft.iter_mut().enumerate() {
+                ui.push_id(i, |ui| {
+                    ui.horizontal_wrapped(|ui| {
+                        let recording = prefs.recording == Some(i);
+                        if recording {
+                            if ui.small_button(t("按下组合键 · Esc 取消")).clicked() {
+                                prefs.recording = None;
+                            }
+                        } else {
+                            let key = ui.add(egui::TextEdit::singleline(&mut cmd.keys).desired_width(116.).hint_text("Ctrl+Alt+J"));
+                            if key.has_focus() {
+                                prefs.recording = None;
+                            }
+                            if ui.small_button(t("录制按键")).clicked() {
+                                self.prefs.recording = None;
+                                prefs.recording = Some(i);
+                            }
+                        }
+                        let text = ui.add(egui::TextEdit::singleline(&mut cmd.text).desired_width(212.).hint_text(t("命令文本")));
+                        if text.clicked() {
+                            prefs.recording = None;
+                        }
+                        ui.checkbox(&mut cmd.enter, t("追加回车"));
+                        if ui.small_button(t("删除")).clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                });
+            }
+            if let Some(i) = remove {
+                draft.remove(i);
+                prefs.recording = None;
+                prefs.status = None;
+            }
+            ui.horizontal(|ui| {
+                if ui.button(t("添加全局快捷命令")).clicked() {
+                    if let Some(i) = draft.iter().position(|cmd| cmd.keys.trim().is_empty() && cmd.text.trim().is_empty()) {
+                        prefs.recording = Some(i);
+                    } else {
+                        prefs.recording = Some(draft.len());
+                        draft.push(CommandShortcut::default());
+                    }
+                    self.prefs.recording = None;
+                    prefs.status = None;
+                }
+                if ui.add_enabled(prefs.recording.is_none(), egui::Button::new(t("应用"))).clicked() {
+                    let mut commands = draft.clone();
+                    match CommandShortcut::validate_all(&mut commands) {
+                        Ok(()) => {
+                            self.s.command_shortcuts.clone_from(&commands);
+                            *draft = commands;
+                            prefs.status = Some((t("已应用").into(), false));
+                        }
+                        Err(error) => prefs.status = Some((error, true)),
+                    }
+                }
+            });
+            if let Some((status, error)) = &prefs.status {
+                ui.colored_label(if *error { ERR() } else { OK() }, status);
+            }
+        });
+        if section.body_response.is_none() {
+            prefs.recording = None;
+        }
+    }
+
     fn prefs_keys(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         self.record_keys(&ctx);
+        self.command_shortcut_settings(ui);
         ui.horizontal(|ui| {
             ui.add(
                 egui::TextEdit::singleline(&mut self.prefs.key_search)

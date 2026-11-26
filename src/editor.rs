@@ -1976,6 +1976,7 @@ impl Editor {
         let focused = resp.has_focus();
         out.focused = focused;
         if focused {
+            crate::keymap::mark_command_input(ui.ctx(), self.id, egui::Modifiers::NONE);
             ui.memory_mut(|m| {
                 m.set_focus_lock_filter(
                     self.id,

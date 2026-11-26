@@ -375,13 +375,16 @@ impl App {
                 if let Some(p) = self.side_pane() {
                     // 窗口里有焦点时键盘归它
                     let focused = vctx.input(|i| i.focused);
-                    let acts = if focused { acts } else { &[] };
+                    let command = focused && class != egui::ViewportClass::Embedded && self.run_command_shortcut(vctx);
+                    let acts = if focused && !command { acts } else { &[] };
                     if let Some(slot) = p.serial_slot(self.selected_serial) {
                         if focused && class != egui::ViewportClass::Embedded && self.serial_tabs.contains(&slot) {
                             if vctx.input(|i| i.pointer.any_pressed()) {
                                 self.work.serial_devices_side = true;
                             }
-                            self.detached_serial_shortcuts(vctx, slot);
+                            if !command {
+                                self.detached_serial_shortcuts(vctx, slot);
+                            }
                         }
                     }
                     ui.push_id("work-side", |ui| self.render_pane(ui, p, acts));

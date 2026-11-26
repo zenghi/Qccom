@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.28
+
+- Restore configurable app-wide command shortcuts that type into the focused QCCOM input or terminal.
+
 ## 1.9.27
 
 - Build the Windows executable without UPX and pass the original build to the existing signing workflow.

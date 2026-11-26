@@ -128,7 +128,7 @@ QCCOM 用 Rust + [egui](https://github.com/emilk/egui) 编写，只有一个可�
 
 每个版本都附带 `SHA256SUMS.txt`，可以用来校验下载的文件。
 
-Windows 版直接发布原始 EXE，应用可以检查更新并在浏览器打开下载地址。
+Windows 版直接发布原始 EXE，可在应用内下载并校验更新，点击「重启并更新」后替换程序。
 
 **代码签名**。Windows 正式发布要求通过 SignPath 签名并验证 Authenticode。新构建在积累信誉期间仍可能触发 SmartScreen 提示。详见[如何验证 Windows 下载](CODE_SIGNING.md#验证-windows-下载)和[隐私政策](https://www.zenghi.com/privacy/)。
 

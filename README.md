@@ -115,7 +115,7 @@ Grab the latest build from the [Releases page](https://github.com/zenghi/QCCOM/r
 | Windows 10 / 11 x64 | `qccom-windows-x64.exe` | Double-click to run. Install the USB-serial driver for your adapter (CH340, CP210x, FTDI…) if Windows does not have it. |
 | Linux x64 | `qccom-linux-x64` | `chmod +x qccom-linux-x64 && ./qccom-linux-x64`. To open serial ports without root, add yourself to the `dialout` group (`uucp` on Arch): `sudo usermod -aG dialout $USER`, then log out and back in. |
 
-Each release ships a `SHA256SUMS.txt` so you can verify the download. The Windows executable is distributed without executable packing. QCCOM can check for Windows updates and open the download in your browser.
+Each release ships a `SHA256SUMS.txt` so you can verify the download. The Windows executable is distributed without executable packing. QCCOM can download Windows updates, verify the file, and replace the executable when you restart from the update card.
 
 **Code signing**. The Windows release workflow requires a valid Authenticode signature from SignPath. SmartScreen may still warn about a newly published build while it gains reputation. See [how to verify a Windows download](CODE_SIGNING.md#verify-a-windows-download) and the [privacy policy](https://www.zenghi.com/en/privacy/).
 

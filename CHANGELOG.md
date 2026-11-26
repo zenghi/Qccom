@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.9.30
+
+- Restore in-app Windows updates with download verification and executable replacement on restart.
+- Add a checkbox for terminal right-click paste in General settings.
+- Use the Tencent Cloud download URL and list the current release changes in the update manifest.
+
 ## 1.9.29
 
 - Toggle right-click paste from a checkbox in the bottom terminal's context menu.

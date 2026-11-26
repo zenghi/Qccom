@@ -1,10 +1,10 @@
-//! 检查版本更新。Windows 在浏览器中下载新版，Linux 支持应用内更新。
+//! 下载并校验新版本，替换程序后重启。
 //!
 //! 版本文件格式（UTF-8 JSON）：
 //! ```json
 //! {
 //!   "version": "0.5.1",
-//!   "url": "https://www.zenghi.com/1.exe",
+//!   "url": "https://order-1309900828.cos.ap-shanghai.myqcloud.com/qccom.exe",
 //!   "sha256": "下载文件的 SHA-256（64 位十六进制）",
 //!   "size": 3123456,
 //!   "date": "2026-10-27",
@@ -18,19 +18,16 @@
 //! Linux 版只认 url_linux / sha256_linux，没填就只提示有新版、不下载（避免下到 Windows 的 exe）。
 
 use crate::i18n::{t, tf};
-#[cfg(not(windows))]
-use std::fs::{self, File};
-#[cfg(not(windows))]
+use std::fs::{self, File, Metadata, OpenOptions};
 use std::io::{Read, Write};
-#[cfg(not(windows))]
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::Sender;
+use std::sync::{mpsc::Sender, OnceLock};
 use std::thread;
 use std::time::Duration;
+use tempfile::TempPath;
 
 use eframe::egui;
 use serde::Deserialize;
-#[cfg(not(windows))]
 use sha2::{Digest, Sha256};
 
 pub const VERSION_URL: &str = "https://www.zenghi.com/1.json";
@@ -39,7 +36,7 @@ pub const VERSION_URL: &str = "https://www.zenghi.com/1.json";
 pub fn version_url() -> String {
     std::env::var("QCCOM_UPDATE_URL").unwrap_or_else(|_| VERSION_URL.into())
 }
-pub const DEFAULT_EXE_URL: &str = "https://www.zenghi.com/1.exe";
+pub const DEFAULT_EXE_URL: &str = "https://order-1309900828.cos.ap-shanghai.myqcloud.com/qccom.exe";
 
 #[derive(Clone, Debug, Deserialize, Default)]
 #[serde(default)]
@@ -58,13 +55,10 @@ pub struct Release {
 pub enum UpdEvt {
     /// 检查结果：Some = 有新版
     Checked(Result<Option<Release>, String>),
-    #[cfg(not(windows))]
-    Progress(u64, u64),
+        Progress(u64, u64),
     /// 下载并校验完成，准备好的新文件路径
-    #[cfg(not(windows))]
-    Ready(PathBuf),
-    #[cfg(not(windows))]
-    Failed(String),
+        Ready(TempPath),
+        Failed(String),
 }
 
 pub(crate) fn agent() -> Result<ureq::Agent, String> {
@@ -142,6 +136,7 @@ pub fn check(tx: Sender<UpdEvt>, ctx: egui::Context) {
                     // 本平台的下载地址；为空表示只提示、不自动下载
                     r.url = std::mem::take(&mut r.url_linux);
                     r.sha256 = std::mem::take(&mut r.sha256_linux);
+                    r.size = 0; // size 记录的是 Windows 版文件大小
                 }
                 Ok(newer(&r.version, env!("CARGO_PKG_VERSION")).then_some(r))
             })();
@@ -151,115 +146,164 @@ pub fn check(tx: Sender<UpdEvt>, ctx: egui::Context) {
         .ok();
 }
 
-#[cfg(any(windows, test))]
-pub(crate) fn windows_download_url(url: &str) -> String {
-    ureq::get(url.trim())
+fn download_url_ok(url: &str) -> bool {
+    ureq::get(url)
         .request_url()
         .ok()
-        .filter(|parsed| parsed.scheme() == "https" && parsed.as_url().username().is_empty() && parsed.as_url().password().is_none())
-        .map_or_else(|| "https://github.com/zenghi/Qccom/releases".into(), |parsed| parsed.as_url().to_string())
+        .is_some_and(|parsed| {
+            let url = parsed.as_url();
+            let local_http = url.scheme() == "http" && matches!(url.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+            (url.scheme() == "https" || local_http) && url.username().is_empty() && url.password().is_none()
+        })
 }
 
-/// 新文件先下载到 exe 旁边（同一个分区，替换时只需改名）；没有写权限就放到临时目录
-#[cfg(not(windows))]
-fn staging_path() -> PathBuf {
-    let exe = std::env::current_exe().unwrap_or_default();
-    let dir = exe.parent().map(Path::to_path_buf).unwrap_or_default();
-    let probe = dir.join(".qccom-write-test");
-    if File::create(&probe).is_ok() {
-        let _ = fs::remove_file(&probe);
-        dir.join("qccom.update.tmp")
-    } else {
-        std::env::temp_dir().join("qccom.update.tmp")
+fn current_executable() -> Result<&'static (PathBuf, Metadata), String> {
+    static CURRENT: OnceLock<Result<(PathBuf, Metadata), String>> = OnceLock::new();
+    // Remember the launch path. On Linux current_exe() follows the old file
+    // if another QCCOM window has already renamed it during an update.
+    CURRENT.get_or_init(|| {
+        let path = std::env::current_exe().map_err(|e| e.to_string())?;
+        let metadata = fs::metadata(&path).map_err(|e| e.to_string())?;
+        Ok((path, metadata))
+    }).as_ref().map_err(Clone::clone)
+}
+
+fn fetch_update(r: &Release, dir: &Path, mut progress: impl FnMut(u64, u64)) -> Result<TempPath, String> {
+    let url = r.url.trim();
+    let invalid_url = || t("更新下载地址须使用 HTTPS，本机测试可使用 HTTP。").to_owned();
+    if !download_url_ok(url) {
+        return Err(invalid_url());
     }
+    let mut staged = tempfile::Builder::new()
+        .prefix(".qccom-update-")
+        .tempfile_in(dir)
+        .map_err(|e| tf("无法写入 {}：{}", &[&dir.display(), &e]))?;
+    let resp = agent()?.get(url).call().map_err(http_err)?;
+    if !download_url_ok(resp.get_url()) {
+        return Err(invalid_url());
+    }
+    let length = resp.header("Content-Length").and_then(|v| v.parse::<u64>().ok());
+    let total = if r.size > 0 { r.size } else { length.unwrap_or(0) };
+    if let Some(actual) = length.filter(|&size| r.size > 0 && size != r.size) {
+        return Err(tf("文件不完整：{} / {} 字节", &[&actual, &total]));
+    }
+    let mut reader = resp.into_reader();
+    let mut hash = Sha256::new();
+    let mut buf = vec![0; 64 * 1024];
+    let mut got = 0;
+    let magic: &[u8] = if cfg!(windows) { b"MZ" } else { b"\x7fELF" };
+    let mut head = Vec::with_capacity(magic.len());
+    let mut tick = std::time::Instant::now();
+    loop {
+        let n = reader.read(&mut buf).map_err(|e| tf("下载中断：{}", &[&e]))?;
+        if n == 0 {
+            break;
+        }
+        got += n as u64;
+        if total > 0 && got > total {
+            return Err(tf("文件不完整：{} / {} 字节", &[&got, &total]));
+        }
+        head.extend_from_slice(&buf[..n.min(magic.len() - head.len())]);
+        hash.update(&buf[..n]);
+        staged.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        if tick.elapsed() >= Duration::from_millis(50) {
+            progress(got, total);
+            tick = std::time::Instant::now();
+        }
+    }
+    if total > 0 && got != total {
+        return Err(tf("文件不完整：{} / {} 字节", &[&got, &total]));
+    }
+    if !head.starts_with(magic) {
+        return Err(t("下载到的不是可执行程序（服务器可能返回了网页）").into());
+    }
+    let want = r.sha256.trim();
+    if !want.is_empty() {
+        let actual = format!("{:x}", hash.finalize());
+        if !actual.eq_ignore_ascii_case(want) {
+            return Err(t("SHA-256 校验不一致，文件可能损坏或被篡改，已删除").into());
+        }
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        staged.as_file().set_permissions(fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
+    }
+    staged.as_file().sync_all().map_err(|e| e.to_string())?;
+    Ok(staged.into_temp_path())
 }
 
-#[cfg(not(windows))]
 pub fn download(r: Release, tx: Sender<UpdEvt>, ctx: egui::Context) {
-    thread::Builder::new()
-        .name("update-dl".into())
-        .spawn(move || {
-            let res = (|| -> Result<PathBuf, String> {
-                let resp = agent()?.get(r.url.trim()).call().map_err(http_err)?;
-                let total = resp.header("Content-Length").and_then(|v| v.parse().ok()).unwrap_or(r.size);
-                let path = staging_path();
-                let mut f = File::create(&path).map_err(|e| tf("无法写入 {}：{}", &[&path.display(), &e]))?;
-                let mut rd = resp.into_reader();
-                let mut h = Sha256::new();
-                let mut buf = vec![0u8; 64 * 1024];
-                let mut got = 0u64;
-                let mut head = Vec::new();
-                loop {
-                    let n = rd.read(&mut buf).map_err(|e| tf("下载中断：{}", &[&e]))?;
-                    if n == 0 {
-                        break;
-                    }
-                    if head.len() < 2 {
-                        head.extend_from_slice(&buf[..n.min(2)]);
-                    }
-                    h.update(&buf[..n]);
-                    f.write_all(&buf[..n]).map_err(|e| e.to_string())?;
-                    got += n as u64;
+    let result = thread::Builder::new().name("update-dl".into()).spawn({
+        let tx = tx.clone();
+        let ctx = ctx.clone();
+        move || {
+            let res = current_executable().and_then(|(exe, _)| {
+                let dir = exe.parent().unwrap_or_else(|| Path::new("."));
+                fetch_update(&r, dir, |got, total| {
                     let _ = tx.send(UpdEvt::Progress(got, total));
-                    ctx.request_repaint_after(Duration::from_millis(50));
-                }
-                f.sync_all().ok();
-                drop(f);
-                let fail = |msg: String| {
-                    let _ = fs::remove_file(&path);
-                    Err(msg)
-                };
-                if total > 0 && got != total {
-                    return fail(tf("文件不完整：{} / {} 字节", &[&got, &total]));
-                }
-                if !head.starts_with(b"\x7fE") {
-                    return fail(t("下载到的不是可执行程序（服务器可能返回了网页）").into());
-                }
-                let want = r.sha256.trim().to_ascii_lowercase();
-                if !want.is_empty() {
-                    let hex: String = h.finalize().iter().map(|b| format!("{b:02x}")).collect();
-                    if hex != want {
-                        return fail(t("SHA-256 校验不一致，文件可能损坏或被篡改，已删除").into());
-                    }
-                }
-                Ok(path)
-            })();
+                    ctx.request_repaint();
+                })
+            });
             let _ = tx.send(match res {
                 Ok(p) => UpdEvt::Ready(p),
                 Err(e) => UpdEvt::Failed(e),
             });
             ctx.request_repaint();
-        })
-        .ok();
+        }
+    });
+    if let Err(e) = result {
+        let _ = tx.send(UpdEvt::Failed(e.to_string()));
+        ctx.request_repaint();
+    }
 }
 
-/// 用新文件替换正在运行的 exe 并启动新版本。成功后调用方应立即退出。
-/// Windows 允许给运行中的 exe 改名，所以：当前 → .old，新文件 → 当前，下次启动时删掉 .old。
-#[cfg(not(windows))]
+fn lock_update(exe: &Path) -> Result<File, String> {
+    let lock = OpenOptions::new().read(true).write(true).create(true).truncate(false).open(exe.with_extension("qccom-update-lock"))
+        .map_err(|e| tf("没有权限替换程序（{}）。可以把程序放到有写权限的文件夹再试", &[&e]))?;
+    lock.try_lock().map_err(|e| tf("替换失败：{}", &[&e]))?;
+    Ok(lock)
+}
+
+fn install_into(exe: &Path, original: &Metadata, new: &Path, start: impl FnOnce() -> std::io::Result<()>) -> Result<(), String> {
+    let _lock = lock_update(exe)?;
+    let current = fs::metadata(exe).map_err(|e| tf("替换失败：{}", &[&e]))?;
+    if current.len() != original.len() || current.modified().ok() != original.modified().ok() {
+        return Err(t("程序文件已由另一个窗口更新，请重新打开 QCCOM。").into());
+    }
+    let old = exe.with_extension("qccom-update-backup");
+    fs::rename(exe, &old).map_err(|e| tf("没有权限替换程序（{}）。可以把程序放到有写权限的文件夹再试", &[&e]))?;
+    let rollback = |error: String| {
+        if let Err(e) = fs::rename(&old, exe) {
+            format!("{error}\n{}", tf("无法恢复旧程序，备份文件 {}：{}", &[&old.display(), &e]))
+        } else {
+            error
+        }
+    };
+    fs::rename(new, exe).map_err(|e| rollback(tf("替换失败：{}", &[&e])))?;
+    start().map_err(|e| rollback(tf("启动新版本失败：{}", &[&e])))
+}
+
 pub fn install(new: &Path) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-    let old = exe.with_extension("old");
-    let _ = fs::remove_file(&old);
-    fs::rename(&exe, &old).map_err(|e| tf("没有权限替换程序（{}）。可以把程序放到有写权限的文件夹再试", &[&e]))?;
-    if let Err(e) = fs::rename(new, &exe).or_else(|_| fs::copy(new, &exe).map(|_| ())) {
-        let _ = fs::rename(&old, &exe); // 还原
-        return Err(tf("替换失败：{}", &[&e]));
-    }
-    let _ = fs::remove_file(new);
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = fs::set_permissions(&exe, fs::Permissions::from_mode(0o755));
-    }
-    std::process::Command::new(&exe).arg("--updated").spawn().map_err(|e| tf("启动新版本失败：{}", &[&e]))?;
-    Ok(())
+    let (exe, original) = current_executable()?;
+    install_into(exe, original, new, || {
+        std::process::Command::new(exe)
+            .arg("--updated")
+            .arg(format!("--updated-slot={}", crate::instance()))
+            .spawn()
+            .map(|_| ())
+    })
 }
 
-/// 启动时清理上次更新留下的旧文件
-#[cfg(not(windows))]
+/// Clean up the prior executable once the replacement starts.
 pub fn cleanup() {
-    if let Ok(exe) = std::env::current_exe() {
-        let _ = fs::remove_file(exe.with_extension("old"));
+    if let Ok((exe, _)) = current_executable() {
+        let old = exe.with_extension("qccom-update-backup");
+        if old.exists() {
+            if let Ok(_lock) = lock_update(exe) {
+                let _ = fs::remove_file(old);
+            }
+        }
     }
 }
 
@@ -278,12 +322,41 @@ mod tests {
     }
 
     #[test]
-    fn external_windows_update_requires_https_without_embedded_credentials() {
-        let expected = "https://www.zenghi.com/1.exe";
-        assert_eq!(windows_download_url(expected), expected);
+    fn update_url_accepts_https_and_local_development() {
+        assert!(download_url_ok(DEFAULT_EXE_URL));
+        assert!(download_url_ok("http://127.0.0.1:8000/qccom.exe"));
         for url in ["file:///C:/setup.exe", "http://example.com/qccom.exe", "https://user@example.com/qccom.exe", "https://", ""] {
-            assert_eq!(windows_download_url(url), "https://github.com/zenghi/Qccom/releases");
+            assert!(!download_url_ok(url));
         }
+    }
+
+    #[test]
+    fn update_rolls_back_if_relaunch_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("qccom.exe");
+        let new = dir.path().join("download");
+        fs::write(&exe, b"original").unwrap();
+        fs::write(&new, b"replacement").unwrap();
+        let original = fs::metadata(&exe).unwrap();
+        let result = install_into(&exe, &original, &new, || {
+            assert_eq!(fs::read(&exe).unwrap(), b"replacement");
+            Err(std::io::Error::other("could not launch"))
+        });
+        assert!(result.is_err());
+        assert_eq!(fs::read(&exe).unwrap(), b"original");
+    }
+
+    #[test]
+    fn stale_window_cannot_replace_a_newer_installation() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("qccom.exe");
+        let new = dir.path().join("download");
+        fs::write(&exe, b"original").unwrap();
+        let original = fs::metadata(&exe).unwrap();
+        fs::write(&exe, b"already updated").unwrap();
+        fs::write(&new, b"stale download").unwrap();
+        assert!(install_into(&exe, &original, &new, || panic!("stale update started")).is_err());
+        assert_eq!(fs::read(&exe).unwrap(), b"already updated");
     }
 
     #[test]

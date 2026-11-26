@@ -15,7 +15,7 @@ UTF-8 JSON (a BOM is tolerated). Only `version` is required.
 ```json
 {
   "version": "0.5.1",
-  "url": "https://www.zenghi.com/1.exe",
+  "url": "https://order-1309900828.cos.ap-shanghai.myqcloud.com/qccom.exe",
   "sha256": "9f2c...64 hex characters...e1",
   "size": 4012544,
   "date": "2026-11-01",
@@ -29,11 +29,11 @@ UTF-8 JSON (a BOM is tolerated). Only `version` is required.
 | Field | Type | Meaning |
 |---|---|---|
 | `version` | string, **required** | The new version, e.g. `"0.5.1"`. It is compared numerically part by part (`0.10.0` > `0.9.9`), and a leading `v` is ignored. The update is offered only if it is newer than the running version. |
-| `url` | string | Download link for the **Windows** `.exe`. If empty, it defaults to `https://www.zenghi.com/1.exe`. |
+| `url` | string | Download link for the **Windows** `.exe`. If empty, it defaults to `https://order-1309900828.cos.ap-shanghai.myqcloud.com/qccom.exe`. |
 | `sha256` | string | SHA-256 of that `.exe` as 64 hex characters (either case). **Strongly recommended.** If it is set and does not match, the download is deleted and nothing is replaced. |
-| `size` | number | File size in bytes. It is only used for the progress bar when the server does not send `Content-Length`. |
+| `size` | number | File size in bytes. When set, the Windows download must match this size. |
 | `date` | string | Release date, shown on the card. |
-| `notes` | string | Release notes, shown on the card. Use `\n` for line breaks. |
+| `notes` | string | Changes in this release, shown on the card. Use `\n` for line breaks. |
 | `force` | bool | `true` hides the "Later" and "Skip this version" buttons and ignores a previously skipped version. Use it for critical fixes. |
 | `url_linux` | string | Download link for the Linux binary. If empty, Linux users are told that a new version exists and get an "Open download page" button instead of an automatic download. |
 | `sha256_linux` | string | SHA-256 of the Linux binary. |
@@ -41,15 +41,15 @@ UTF-8 JSON (a BOM is tolerated). Only `version` is required.
 ### What the client checks
 
 1. HTTPS (or HTTP) GET of the version file, with a timeout and the user agent `QCCOM/<version>`.
-2. A streamed download next to the executable (or into the temp folder if that directory is read-only), with a progress bar.
+2. A streamed HTTPS download to a temporary file next to the executable, with a progress bar. Local test servers can use loopback HTTP.
 3. If `Content-Length` (or `size`) is known, the downloaded length must match it.
 4. The file must start with an executable header (`MZ` on Windows, `\x7fELF` on Linux). This catches servers that return an HTML error page with status 200.
 5. The SHA-256 must match when one is given.
-6. The running executable is renamed to `qccom.old`, the new file takes its name, and it is started with `--updated`. The `.old` file is deleted on the next start. If any step fails, the original file is restored.
+6. When the user clicks **Restart and update**, QCCOM backs up the current executable, renames the verified download, and starts it. If the rename or launch fails, QCCOM attempts to restore the previous executable.
 
 ### Publishing a release
 
-The repository can stage the next version and its notes under `pending_release` in `1.json`. QCCOM reads the top-level fields for updates. Once the signed executable is ready, move the pending version and notes to the top level, fill in the release date, and compute the hash and size from that signed file.
+Set the top-level version, date, and notes for the current release. Compute the hash and size from the exact executable you will publish.
 
 ```bash
 # Windows build
@@ -57,7 +57,7 @@ sha256sum qccom-windows-x64.exe      # PowerShell: Get-FileHash .\qccom-windows-
 stat -c %s qccom-windows-x64.exe     # size in bytes (optional)
 ```
 
-1. Upload the executable first (for example as `1.exe`).
+1. Upload `qccom.exe` to the download URL first.
 2. Then upload the edited `1.json`. Doing it in this order means nobody sees a version file that points at a missing or old binary.
 3. Serve both over HTTPS with `Content-Type: application/json` for the JSON. Make sure a CDN does not cache the JSON for long.
 
@@ -91,7 +91,7 @@ UTF-8 编码的 JSON（带 BOM 也可以），只有 `version` 是必填的。
 ```json
 {
   "version": "0.5.1",
-  "url": "https://www.zenghi.com/1.exe",
+  "url": "https://order-1309900828.cos.ap-shanghai.myqcloud.com/qccom.exe",
   "sha256": "9f2c...64 位十六进制...e1",
   "size": 4012544,
   "date": "2026-11-01",
@@ -105,11 +105,11 @@ UTF-8 编码的 JSON（带 BOM 也可以），只有 `version` 是必填的。
 | 字段 | 类型 | 含义 |
 |---|---|---|
 | `version` | 字符串，**必填** | 新版本号，如 `"0.5.1"`。逐段按数字比较（`0.10.0` 大于 `0.9.9`），开头的 `v` 会忽略。只有比当前版本新才会提示。 |
-| `url` | 字符串 | **Windows** 版 exe 的下载地址。不填时默认是 `https://www.zenghi.com/1.exe`。 |
+| `url` | 字符串 | **Windows** 版 exe 的下载地址。不填时默认是 `https://order-1309900828.cos.ap-shanghai.myqcloud.com/qccom.exe`。 |
 | `sha256` | 字符串 | 这个 exe 的 SHA-256，64 位十六进制，大小写都可以。**强烈建议填写**：填了而校验不一致时，会删除下载的文件，不做替换。 |
-| `size` | 数字 | 文件字节数。只在服务器没有返回 `Content-Length` 时用来显示进度。 |
+| `size` | 数字 | 文件字节数。填写时，Windows 下载的文件必须与此大小一致。 |
 | `date` | 字符串 | 发布日期，显示在更新卡片上。 |
-| `notes` | 字符串 | 更新说明，显示在更新卡片上，用 `\n` 换行。 |
+| `notes` | 字符串 | 本次发布的改动，显示在更新卡片上，用 `\n` 换行。 |
 | `force` | 布尔 | 设为 `true` 时隐藏“稍后”和“跳过此版本”按钮，并且忽略用户之前跳过的版本。适合重要修复。 |
 | `url_linux` | 字符串 | Linux 版的下载地址。不填时，Linux 用户只会看到有新版的提示和“打开下载页”按钮，不会自动下载。 |
 | `sha256_linux` | 字符串 | Linux 版文件的 SHA-256。 |
@@ -117,15 +117,15 @@ UTF-8 编码的 JSON（带 BOM 也可以），只有 `version` 是必填的。
 ### 客户端会检查什么
 
 1. 用 HTTPS（或 HTTP）GET 版本文件，有超时，User-Agent 为 `QCCOM/<版本号>`。
-2. 把新文件流式下载到程序旁边（那个目录没有写权限时放到临时目录），同时显示进度。
+2. 通过 HTTPS 将文件流式下载到程序旁边的临时文件，同时显示进度。本机测试可使用回环地址的 HTTP。
 3. 如果知道 `Content-Length`（或 `size`），下载的长度必须和它一致。
 4. 文件开头必须是可执行文件头（Windows 是 `MZ`，Linux 是 `\x7fELF`）。这样可以拦住服务器返回 200 状态码但内容是 HTML 错误页的情况。
 5. 填了 SHA-256 时必须一致。
-6. 把正在运行的程序改名为 `qccom.old`，新文件改成原来的名字，再带 `--updated` 参数启动它；`.old` 文件在下次启动时删除。任何一步失败都会还原原来的文件。
+6. 点击「重启并更新」后，QCCOM 备份原程序、将已校验的下载文件改为原文件名并启动。替换或启动失败时会尝试恢复原程序。
 
 ### 发布新版本的步骤
 
-仓库的 `1.json` 可把待发布的版本号和说明暂存在 `pending_release` 中。QCCOM 使用顶层字段检查更新。签名后的 EXE 准备好以后，再将待发布的版本号和说明移到顶层，填写发布日期，并根据这份签名文件计算 SHA-256 和大小。
+在 `1.json` 顶层填写本次发布的版本号、日期和更新说明。根据实际要发布的 EXE 计算 SHA-256 和文件大小。
 
 ```bash
 # Windows 版
@@ -133,7 +133,7 @@ sha256sum qccom-windows-x64.exe      # PowerShell：Get-FileHash .\qccom-windows
 stat -c %s qccom-windows-x64.exe     # 文件字节数（可选）
 ```
 
-1. 先上传新的 exe（比如命名为 `1.exe`）。
+1. 先将新的 `qccom.exe` 上传到下载地址。
 2. 再上传改好的 `1.json`。按这个顺序，用户就不会读到一个指向不存在或旧文件的版本文件。
 3. 两个文件都用 HTTPS 提供，JSON 的 `Content-Type` 设为 `application/json`。如果用了 CDN，不要让它把 JSON 缓存太久。
 

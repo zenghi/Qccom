@@ -431,7 +431,7 @@ impl App {
             });
         });
         row(ui, q, t("终端右键快速粘贴"), t("在底部命令行终端右键粘贴，Shift + 右键打开菜单。"), |ui| {
-            switch(ui, &mut self.shells.s.right_click_paste);
+            ui.checkbox(&mut self.shells.s.right_click_paste, t("启用"));
         });
         row(ui, q, t("启动时自动检查更新"), t("有新版本时在右下角提示，不会自动安装"), |ui| {
             switch(ui, &mut self.s.auto_update);

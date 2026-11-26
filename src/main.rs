@@ -123,12 +123,34 @@ fn persistence_path() -> Option<std::path::PathBuf> {
     Some(p)
 }
 
+// The old process owns its window's profile until it has saved and exited.
+fn reclaim_updated_slot(args: &[String]) {
+    if !args.iter().any(|arg| arg == "--updated") {
+        return;
+    }
+    let slot = args.iter().find_map(|arg| arg.strip_prefix("--updated-slot=")?.parse::<u16>().ok());
+    if let Some(n) = slot.filter(|n| (1..=1024).contains(n)) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        loop {
+            if let Ok(listener) = std::net::TcpListener::bind(("127.0.0.1", 29170 + n)) {
+                let _ = INSTANCE.set((n, Some(listener)));
+                break;
+            }
+            if std::time::Instant::now() >= deadline {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(30));
+        }
+    }
+}
+
 fn main() -> eframe::Result {
     if let Some(success) = askpass::run_helper() {
         std::process::exit(i32::from(!success));
     }
     // Files and comparisons reuse the first window; projects open a separate workspace.
     let args: Vec<String> = std::env::args().skip(1).collect();
+    reclaim_updated_slot(&args);
     let startup = shellint::parse_args(&args);
     if args.first().map(String::as_str) == Some("--mcp") {
         std::process::exit(mcp::stdio(&args[1..]));

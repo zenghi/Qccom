@@ -3722,3 +3722,7 @@ com0com 官方下载	Official com0com download	com0com 官方下載	com0com 公�
 添加全局快捷命令	Add global shortcut command	新增全域快捷命令	グローバルコマンドを追加	전역 명령 추가	Globalen Kurzbefehl hinzufügen	Ajouter une commande globale	Añadir comando global	Добавить глобальную команду	Adicionar comando global
 应用内全局快捷命令	App-wide command shortcuts	應用程式內全域快捷命令							Atalhos de comando no aplicativo
 QCCOM 有焦点时，快捷命令填入当前输入框或终端。	When QCCOM is focused, shortcuts type into the current input or terminal.	QCCOM 取得焦點時，快捷命令會填入目前的輸入框或終端機。							Com o QCCOM em foco, os atalhos digitam no campo ou terminal atual.
+更新下载地址须使用 HTTPS，本机测试可使用 HTTP。	Updates require an HTTPS download URL. Use HTTP for local tests.	更新下載網址須使用 HTTPS，本機測試可使用 HTTP。							As atualizações exigem um URL HTTPS. Use HTTP para testes locais.
+程序文件已由另一个窗口更新，请重新打开 QCCOM。	Another window has updated the executable. Reopen QCCOM.	程式檔案已由另一個視窗更新，請重新開啟 QCCOM。							Outra janela atualizou o executável. Abra o QCCOM novamente.
+无法恢复旧程序，备份文件 {}：{}	Could not restore the previous executable. Backup at {} ({})	無法還原舊程式，備份檔案 {}：{}							Não foi possível restaurar o executável anterior. Cópia em {} ({})
+比较页有未保存的修改，请保存后再更新。	Save the changes on the Compare page before updating.	比較頁有未儲存的修改，請儲存後再更新。							Salve as alterações na página Comparar antes de atualizar.
